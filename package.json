@@ -1,0 +1,37 @@
+{
+  "name": "cue-bot",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/Vbif322/cue-bot#readme",
+  "bugs": {
+    "url": "https://github.com/Vbif322/cue-bot/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vbif322/cue-bot.git"
+  },
+  "license": "MIT",
+  "author": "",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "nodemon",
+    "build": "tsc",
+    "db:generate": "npx drizzle-kit generate",
+    "db:migrate": "npx drizzle-kit migrate",
+    "db:studio": "npx drizzle-kit studio"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.0",
+    "grammy": "^1.38.4",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/pg": "^8.15.6",
+    "drizzle-kit": "^0.31.8",
+    "nodemon": "^3.1.11",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0"
+  }
+}
