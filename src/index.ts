@@ -1,9 +1,42 @@
 import { Bot } from "grammy";
+import type { BotContext } from "./bot/types.js";
+import { authMiddleware } from "./bot/middleware/index.js";
+import { roleCommands, tournamentCommands } from "./bot/handlers/index.js";
+import { setupCommands, setAdminCommands } from "./bot/commands.js";
 
 const token = process.env.BOT_TOKEN;
-const bot = new Bot(`${token}`);
+if (!token) {
+  throw new Error("BOT_TOKEN is not set");
+}
 
-// Reply to any message with "Hi there!".
-bot.on("message", (ctx) => ctx.reply("Саня лучший снукерист!"));
+const bot = new Bot<BotContext>(token);
 
-bot.start();
+bot.use(authMiddleware);
+bot.use(roleCommands);
+bot.use(tournamentCommands);
+
+bot.command("start", async (ctx) => {
+  // Обновляем команды для пользователя при старте
+  if (ctx.dbUser.role === "admin") {
+    await setAdminCommands(bot, ctx.from!.id);
+  }
+
+  await ctx.reply(
+    `Привет, ${ctx.dbUser.name ?? ctx.dbUser.username}!` +
+      (process.env.NODE_ENV === "development" ? `\nВаша роль: ${ctx.dbUser.role}` : "") +
+      "\n\n" +
+      "Нажмите / чтобы увидеть доступные команды"
+  );
+});
+
+bot.catch((err) => {
+  console.error("Bot error:", err);
+});
+
+// Запуск бота
+async function start() {
+  await setupCommands(bot);
+  bot.start();
+}
+
+start();
