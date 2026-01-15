@@ -1,23 +1,21 @@
 import { Composer, InlineKeyboard } from "grammy";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/db.js";
-import {
-  tournaments,
-  tournamentFormat,
-  discipline,
-  tournamentStatus,
-} from "../../db/schema.js";
+import { tournaments, tournamentFormat, discipline } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import { adminOnly } from "../guards.js";
 import { isAdmin } from "../permissions.js";
+import { parseDate } from "../../utils/dateHelpers.js";
 
 export const tournamentCommands = new Composer<BotContext>();
 
+const STEPS_COUNT = 6;
+
 const disciplineLabels: Record<string, string> = {
-  pool: "Пул",
+  // pool: "Пул",
   snooker: "Снукер",
-  russian_billiards: "Русский бильярд",
-  carom: "Карамболь",
+  // russian_billiards: "Русский бильярд",
+  // carom: "Карамболь",
 };
 
 const formatLabels: Record<string, string> = {
@@ -26,7 +24,7 @@ const formatLabels: Record<string, string> = {
   round_robin: "Круговая система",
 };
 
-const statusLabels: Record<string, string> = {
+const statusLabels = {
   draft: "Черновик",
   registration_open: "Регистрация открыта",
   registration_closed: "Регистрация закрыта",
@@ -40,6 +38,7 @@ const creationState = new Map<
   number,
   {
     step: string;
+    lastMessageId?: number;
     data: Partial<{
       name: string;
       discipline: string;
@@ -47,6 +46,7 @@ const creationState = new Map<
       maxParticipants: number;
       winScore: number;
       description: string;
+      start_date: Date;
     }>;
   }
 >();
@@ -55,15 +55,20 @@ const creationState = new Map<
 tournamentCommands.command("create_tournament", adminOnly(), async (ctx) => {
   const userId = ctx.from!.id;
 
-  creationState.set(userId, { step: "name", data: {} });
-
-  await ctx.reply(
-    "Создание нового турнира\n\n" + "Шаг 1/5: Введите название турнира:"
+  const msg = await ctx.reply(
+    "Создание нового турнира\n\n" +
+      `Шаг 1/${STEPS_COUNT}: Введите название турнира:`
   );
+
+  creationState.set(userId, {
+    step: "name",
+    lastMessageId: msg.message_id,
+    data: {},
+  });
 });
 
-// /cancel_creation - отменить создание
-tournamentCommands.command("cancel_creation", async (ctx) => {
+// /cancel - отменить создание
+tournamentCommands.command("cancel", async (ctx) => {
   const userId = ctx.from!.id;
 
   if (creationState.has(userId)) {
@@ -76,6 +81,7 @@ tournamentCommands.command("cancel_creation", async (ctx) => {
 
 // /tournaments - список турниров
 tournamentCommands.command("tournaments", async (ctx) => {
+  const admin = isAdmin(ctx);
   const allTournaments = await db.query.tournaments.findMany({
     orderBy: (t, { desc }) => [desc(t.createdAt)],
     limit: 10,
@@ -86,16 +92,24 @@ tournamentCommands.command("tournaments", async (ctx) => {
     return;
   }
 
+  const publicTournaments = allTournaments.filter(
+    (tournament) => tournament.status !== "draft"
+  );
+
   let message = "Список турниров:\n\n";
 
   for (const t of allTournaments) {
+    if (!admin && t.status === "draft") {
+      continue;
+    }
     message +=
       `📋 *${t.name}*\n` +
       `   Дисциплина: ${disciplineLabels[t.discipline] || t.discipline}\n` +
       `   Формат: ${formatLabels[t.format] || t.format}\n` +
       `   Статус: ${statusLabels[t.status] || t.status}\n` +
       `   Участников: макс. ${t.maxParticipants}\n` +
-      `   ID: \`${t.id}\`\n\n`;
+      (admin ? `   ID: \`${t.id}\`\n` : "") +
+      "\n";
   }
 
   await ctx.reply(message, { parse_mode: "Markdown" });
@@ -123,13 +137,15 @@ tournamentCommands.command("tournament", async (ctx) => {
 
   const message =
     `📋 *${tournament.name}*\n\n` +
-    `Дисциплина: ${disciplineLabels[tournament.discipline] || tournament.discipline}\n` +
+    `Дисциплина: ${
+      disciplineLabels[tournament.discipline] || tournament.discipline
+    }\n` +
     `Формат: ${formatLabels[tournament.format] || tournament.format}\n` +
     `Статус: ${statusLabels[tournament.status] || tournament.status}\n` +
     `Макс. участников: ${tournament.maxParticipants}\n` +
     `Игра до: ${tournament.winScore} побед\n` +
     (tournament.description ? `\nОписание: ${tournament.description}\n` : "") +
-    `\nID: \`${tournament.id}\``;
+    (isAdmin(ctx) ? `\nID: \`${tournament.id}\`` : "");
 
   const keyboard = new InlineKeyboard();
 
@@ -138,9 +154,7 @@ tournamentCommands.command("tournament", async (ctx) => {
       keyboard
         .text("Открыть регистрацию", `tournament_open_reg:${tournament.id}`)
         .row();
-      keyboard
-        .text("Удалить", `tournament_delete:${tournament.id}`)
-        .row();
+      keyboard.text("Удалить", `tournament_delete:${tournament.id}`).row();
     }
     if (tournament.status === "registration_open") {
       keyboard
@@ -263,7 +277,7 @@ tournamentCommands.callbackQuery(/^discipline:(.+)$/, async (ctx) => {
 
   await ctx.editMessageText(
     `Дисциплина: ${disciplineLabels[selectedDiscipline]}\n\n` +
-      "Шаг 3/5: Выберите формат турнира:",
+      `Шаг 3/${STEPS_COUNT}: Выберите формат турнира:`,
     { reply_markup: keyboard }
   );
 });
@@ -294,7 +308,7 @@ tournamentCommands.callbackQuery(/^format:(.+)$/, async (ctx) => {
 
   await ctx.editMessageText(
     `Формат: ${formatLabels[selectedFormat]}\n\n` +
-      "Шаг 4/5: Выберите максимальное количество участников:",
+      `Шаг 5/${STEPS_COUNT}: Выберите максимальное количество участников:`,
     { reply_markup: keyboard }
   );
 });
@@ -323,7 +337,8 @@ tournamentCommands.callbackQuery(/^participants:(\d+)$/, async (ctx) => {
     .text("До 5 побед", "winscore:5");
 
   await ctx.editMessageText(
-    `Участников: ${participants}\n\n` + "Шаг 5/5: До скольки побед играть?",
+    `Участников: ${participants}\n\n` +
+      `Шаг 6/${STEPS_COUNT}: До скольки побед играть?`,
     { reply_markup: keyboard }
   );
 });
@@ -361,8 +376,7 @@ tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
 
   const keyboard = new InlineKeyboard()
     .text("Открыть регистрацию", `tournament_open_reg:${newTournament!.id}`)
-    .row()
-    .text("Посмотреть турнир", `tournament_view:${newTournament!.id}`);
+    .row();
 
   await ctx.editMessageText(
     `✅ Турнир создан!\n\n` +
@@ -379,13 +393,14 @@ tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
 
 // Обработка текстовых сообщений для создания турнира
 tournamentCommands.on("message:text", async (ctx, next) => {
-  const userId = ctx.from!.id;
+  const userId = ctx.from.id;
   const state = creationState.get(userId);
 
-  if (!state) {
+  if (!state || !state.lastMessageId) {
     return next();
   }
 
+  const chatId = ctx.chat.id;
   const text = ctx.message.text;
 
   if (state.step === "name") {
@@ -395,17 +410,47 @@ tournamentCommands.on("message:text", async (ctx, next) => {
     }
 
     state.data.name = text;
-    state.step = "discipline";
+    state.step = "date";
 
-    const keyboard = new InlineKeyboard();
-    for (const disc of discipline) {
-      keyboard.text(disciplineLabels[disc] || disc, `discipline:${disc}`).row();
-    }
-
-    await ctx.reply(`Название: ${text}\n\nШаг 2/5: Выберите дисциплину:`, {
-      reply_markup: keyboard,
-    });
+    await ctx.reply(
+      `Название: ${text}\n\nШаг 2/${STEPS_COUNT}: Введите дату турнира:`
+    );
     return;
+  }
+
+  if (state.step === "date") {
+    const parsedDate = parseDate(text);
+    if (!parsedDate) {
+      await ctx.editMessageText(
+        "Не удалось распознать дату, попробуйте еще раз"
+      );
+      return;
+    } else {
+      state.data.start_date = parsedDate;
+      state.step = "discipline";
+
+      const keyboard = new InlineKeyboard();
+      for (const disc of discipline) {
+        keyboard
+          .text(disciplineLabels[disc] || disc, `discipline:${disc}`)
+          .row();
+      }
+
+      await ctx.reply(
+        `Дата: ${parsedDate.toLocaleString("ru-RU", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: "UTC",
+        })}\n\nШаг 3/${STEPS_COUNT}: Выберите дисциплину:`,
+        {
+          reply_markup: keyboard,
+        }
+      );
+      return;
+    }
   }
 
   return next();

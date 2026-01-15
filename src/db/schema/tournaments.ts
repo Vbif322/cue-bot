@@ -18,10 +18,10 @@ export const tournamentFormat = [
 ] as const;
 
 export const discipline = [
-  "pool",
+  // "pool",
   "snooker",
-  "russian_billiards",
-  "carom",
+  // "russian_billiards",
+  // "carom",
 ] as const;
 
 export const tournaments = prodSchema.table("tournaments", {
