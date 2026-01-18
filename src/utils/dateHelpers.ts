@@ -11,7 +11,7 @@ export function parseDate(input: string): Date | null {
   // Регулярка для даты с опциональным временем
   // Группы: 1-день, 2-месяц, 3-год, 5-часы, 6-минуты, 8-секунды
   const match = trimmed.match(
-    /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})(\s+(\d{1,2}):(\d{2})(:(\d{2}))?)?$/
+    /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})(\s+(\d{1,2}):(\d{2})(:(\d{2}))?)?$/,
   );
 
   if (!match) {
@@ -23,7 +23,7 @@ export function parseDate(input: string): Date | null {
   let year = parseInt(match[3]!, 10);
 
   // Время (по умолчанию 10:00)
-  const hours = match[5] ? parseInt(match[5], 10) : 0;
+  const hours = match[5] ? parseInt(match[5], 10) : 10;
   const minutes = match[6] ? parseInt(match[6], 10) : 0;
 
   // Если год двузначный, преобразуем в четырёхзначный
@@ -61,4 +61,17 @@ export function parseDate(input: string): Date | null {
   }
 
   return date;
+}
+
+export function formatDate(date: Date | null): string {
+  if (date === null) {
+    return "Неизвестно";
+  }
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+
+  return `${day}.${month}.${year} ${hours}:${minutes}`;
 }
