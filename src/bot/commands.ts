@@ -7,6 +7,8 @@ const userCommands: BotCommand[] = [
   { command: "tournaments", description: "Список турниров" },
   { command: "tournament", description: "Информация о турнире" },
   { command: "my_tournaments", description: "Мои турниры" },
+  { command: "my_match", description: "Мой текущий матч" },
+  { command: "bracket", description: "Сетка турнира" },
 ];
 
 const adminCommands: BotCommand[] = [

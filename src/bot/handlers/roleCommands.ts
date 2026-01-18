@@ -4,11 +4,11 @@ import { db } from "../../db/db.js";
 import { users, tournaments, tournamentReferees } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import { adminOnly } from "../guards.js";
-import { getUserRefereeTournaments } from "../permissions.js";
 import { adminCommands, userCommands } from "../commands.js";
 
 export const roleCommands = new Composer<BotContext>();
 
+// TODO: Переделать на команду /me. Показывать еще статистику пользователя (рейтинг, количество сыгранных матчей, винрейт, количество побед и поражений и т.д.).
 // /my_role - показать свою роль
 // roleCommands.command("my_role", async (ctx) => {
 //   const { dbUser } = ctx;
