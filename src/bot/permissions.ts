@@ -26,6 +26,7 @@ export async function canManageTournament(
   tournamentId: string
 ): Promise<boolean> {
   if (isAdmin(ctx)) {
+    return true;
   }
   return isTournamentReferee(ctx, tournamentId);
 }

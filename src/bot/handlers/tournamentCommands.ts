@@ -11,6 +11,14 @@ import type { BotContext } from "../types.js";
 import { adminOnly } from "../guards.js";
 import { isAdmin } from "../permissions.js";
 import { formatDate, parseDate } from "../../utils/dateHelpers.js";
+import {
+  canStartTournament,
+  getConfirmedParticipants,
+  startTournament,
+  assignRandomSeeds,
+} from "../../services/tournamentService.js";
+import { generateBracket, getBracketStats } from "../../services/bracketGenerator.js";
+import { createMatches } from "../../services/matchService.js";
 
 export const tournamentCommands = new Composer<BotContext>();
 
@@ -254,6 +262,16 @@ tournamentCommands.command("tournament", async (ctx) => {
         .text("Закрыть регистрацию", `tournament_close_reg:${tournament.id}`)
         .row();
     }
+    if (tournament.status === "registration_closed") {
+      keyboard
+        .text("🚀 Начать турнир", `tournament_start:${tournament.id}`)
+        .row();
+    }
+    if (tournament.status === "in_progress") {
+      keyboard
+        .text("📊 Сетка турнира", `bracket:view:${tournament.id}`)
+        .row();
+    }
   }
 
   await ctx.reply(message, {
@@ -411,6 +429,135 @@ tournamentCommands.callbackQuery("tournament_delete_cancel", async (ctx) => {
   await ctx.editMessageText("Удаление отменено.");
 });
 
+// === ЗАПУСК ТУРНИРА ===
+
+// Показать подтверждение запуска турнира
+tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) {
+    await ctx.answerCallbackQuery("Недостаточно прав");
+    return;
+  }
+
+  const tournamentId = ctx.match![1]!;
+
+  const result = await canStartTournament(tournamentId);
+
+  if (!result.canStart) {
+    await ctx.answerCallbackQuery({
+      text: result.error || "Невозможно запустить турнир",
+      show_alert: true,
+    });
+    return;
+  }
+
+  await ctx.answerCallbackQuery();
+
+  const tournament = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, tournamentId),
+  });
+
+  if (!tournament) {
+    await ctx.editMessageText("Турнир не найден");
+    return;
+  }
+
+  const stats = getBracketStats(
+    tournament.format as "single_elimination" | "double_elimination" | "round_robin",
+    result.participantsCount
+  );
+
+  const keyboard = new InlineKeyboard()
+    .text("✅ Да, начать турнир", `tournament_start_confirm:${tournamentId}`)
+    .row()
+    .text("❌ Отмена", `tournament_info:${tournamentId}`);
+
+  await ctx.editMessageText(
+    `🚀 *Запуск турнира "${tournament.name}"*\n\n` +
+      `Участников: ${result.participantsCount}\n` +
+      `Формат: ${formatLabels[tournament.format] || tournament.format}\n` +
+      `Матчей будет создано: ${stats.totalMatches}\n` +
+      `Раундов: ${stats.totalRounds}\n\n` +
+      `⚠️ После запуска:\n` +
+      `• Сиды будут назначены случайным образом\n` +
+      `• Сетка будет сформирована автоматически\n` +
+      `• Регистрация новых участников будет невозможна\n\n` +
+      `Вы уверены?`,
+    { parse_mode: "Markdown", reply_markup: keyboard }
+  );
+});
+
+// Подтверждение и запуск турнира
+tournamentCommands.callbackQuery(/^tournament_start_confirm:(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) {
+    await ctx.answerCallbackQuery("Недостаточно прав");
+    return;
+  }
+
+  const tournamentId = ctx.match![1]!;
+
+  // Повторная проверка
+  const result = await canStartTournament(tournamentId);
+
+  if (!result.canStart) {
+    await ctx.answerCallbackQuery({
+      text: result.error || "Невозможно запустить турнир",
+      show_alert: true,
+    });
+    return;
+  }
+
+  const tournament = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, tournamentId),
+  });
+
+  if (!tournament) {
+    await ctx.answerCallbackQuery({ text: "Турнир не найден", show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery("Запуск турнира...");
+
+  try {
+    // 1. Назначить случайные сиды
+    await assignRandomSeeds(tournamentId);
+
+    // 2. Получить участников с сидами
+    const participants = await getConfirmedParticipants(tournamentId);
+
+    // 3. Сгенерировать сетку
+    const bracket = generateBracket(
+      tournament.format as "single_elimination" | "double_elimination" | "round_robin",
+      participants
+    );
+
+    // 4. Создать матчи в БД
+    await createMatches(tournamentId, bracket);
+
+    // 5. Обновить статус турнира
+    await startTournament(tournamentId);
+
+    const keyboard = new InlineKeyboard()
+      .text("📊 Посмотреть сетку", `bracket:view:${tournamentId}`)
+      .row();
+
+    await ctx.editMessageText(
+      `✅ *Турнир "${tournament.name}" запущен!*\n\n` +
+        `Участников: ${participants.length}\n` +
+        `Матчей создано: ${bracket.length}\n\n` +
+        `Сетка сформирована, участники могут начинать играть.\n` +
+        `Используйте /my_match для просмотра своего текущего матча.`,
+      { parse_mode: "Markdown", reply_markup: keyboard }
+    );
+
+    // TODO: Отправить уведомления участникам о начале турнира
+  } catch (error) {
+    console.error("Error starting tournament:", error);
+    await ctx.editMessageText(
+      `❌ Ошибка при запуске турнира:\n${error instanceof Error ? error.message : "Неизвестная ошибка"}`
+    );
+  }
+});
+
 // Обработка выбора турнира из списка (когда /tournament вызвана без аргумента)
 tournamentCommands.callbackQuery(/^tournament_info:(.+)$/, async (ctx) => {
   const tournamentId = ctx.match![1]!;
@@ -478,6 +625,16 @@ tournamentCommands.callbackQuery(/^tournament_info:(.+)$/, async (ctx) => {
     if (tournament.status === "registration_open") {
       keyboard
         .text("Закрыть регистрацию", `tournament_close_reg:${tournament.id}`)
+        .row();
+    }
+    if (tournament.status === "registration_closed") {
+      keyboard
+        .text("🚀 Начать турнир", `tournament_start:${tournament.id}`)
+        .row();
+    }
+    if (tournament.status === "in_progress") {
+      keyboard
+        .text("📊 Сетка турнира", `bracket:view:${tournament.id}`)
         .row();
     }
   }

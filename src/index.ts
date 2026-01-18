@@ -5,6 +5,7 @@ import {
   roleCommands,
   tournamentCommands,
   registrationCommands,
+  matchCommands,
 } from "./bot/handlers/index.js";
 import { setupCommands, setAdminCommands } from "./bot/commands.js";
 
@@ -19,6 +20,7 @@ bot.use(authMiddleware);
 bot.use(roleCommands);
 bot.use(tournamentCommands);
 bot.use(registrationCommands);
+bot.use(matchCommands);
 
 bot.command("start", async (ctx) => {
   // Обновляем команды для пользователя при старте
