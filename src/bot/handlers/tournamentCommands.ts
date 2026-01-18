@@ -5,7 +5,7 @@ import { tournaments, tournamentFormat, discipline } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import { adminOnly } from "../guards.js";
 import { isAdmin } from "../permissions.js";
-import { parseDate } from "../../utils/dateHelpers.js";
+import { formatDate, parseDate } from "../../utils/dateHelpers.js";
 
 export const tournamentCommands = new Composer<BotContext>();
 
@@ -57,7 +57,7 @@ tournamentCommands.command("create_tournament", adminOnly(), async (ctx) => {
 
   const msg = await ctx.reply(
     "Создание нового турнира\n\n" +
-      `Шаг 1/${STEPS_COUNT}: Введите название турнира:`
+      `Шаг 1/${STEPS_COUNT}: Введите название турнира:`,
   );
 
   creationState.set(userId, {
@@ -92,10 +92,6 @@ tournamentCommands.command("tournaments", async (ctx) => {
     return;
   }
 
-  const publicTournaments = allTournaments.filter(
-    (tournament) => tournament.status !== "draft"
-  );
-
   let message = "Список турниров:\n\n";
 
   for (const t of allTournaments) {
@@ -108,6 +104,7 @@ tournamentCommands.command("tournaments", async (ctx) => {
       `   Формат: ${formatLabels[t.format] || t.format}\n` +
       `   Статус: ${statusLabels[t.status] || t.status}\n` +
       `   Участников: макс. ${t.maxParticipants}\n` +
+      `   Дата проведения: ${formatDate(t.startDate)}\n` +
       (admin ? `   ID: \`${t.id}\`\n` : "") +
       "\n";
   }
@@ -185,20 +182,20 @@ tournamentCommands.command("delete_tournament", adminOnly(), async (ctx) => {
   });
 
   if (!tournament) {
-    await ctx.reply("Турнир не найден.");
+    await ctx.reply("Турнир не найден");
     return;
   }
 
   if (tournament.status !== "draft" && tournament.status !== "cancelled") {
     await ctx.reply(
-      "Можно удалить только турниры в статусе 'Черновик' или 'Отменён'."
+      "Можно удалить только турниры в статусе 'Черновик' или 'Отменён'",
     );
     return;
   }
 
   await db.delete(tournaments).where(eq(tournaments.id, tournamentId));
 
-  await ctx.reply(`Турнир "${tournament.name}" удалён.`);
+  await ctx.reply(`Турнир "${tournament.name}" удалён`);
 });
 
 // Обработка callback-кнопок турнира
@@ -217,7 +214,7 @@ tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery("Регистрация открыта");
   await ctx.editMessageText(
-    ctx.callbackQuery.message?.text + "\n\n✅ Регистрация открыта!"
+    ctx.callbackQuery.message?.text + "\n\n✅ Регистрация открыта!",
   );
 });
 
@@ -236,7 +233,7 @@ tournamentCommands.callbackQuery(/^tournament_close_reg:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery("Регистрация закрыта");
   await ctx.editMessageText(
-    ctx.callbackQuery.message?.text + "\n\n🔒 Регистрация закрыта!"
+    ctx.callbackQuery.message?.text + "\n\n🔒 Регистрация закрыта!",
   );
 });
 
@@ -278,7 +275,7 @@ tournamentCommands.callbackQuery(/^discipline:(.+)$/, async (ctx) => {
   await ctx.editMessageText(
     `Дисциплина: ${disciplineLabels[selectedDiscipline]}\n\n` +
       `Шаг 3/${STEPS_COUNT}: Выберите формат турнира:`,
-    { reply_markup: keyboard }
+    { reply_markup: keyboard },
   );
 });
 
@@ -309,7 +306,7 @@ tournamentCommands.callbackQuery(/^format:(.+)$/, async (ctx) => {
   await ctx.editMessageText(
     `Формат: ${formatLabels[selectedFormat]}\n\n` +
       `Шаг 5/${STEPS_COUNT}: Выберите максимальное количество участников:`,
-    { reply_markup: keyboard }
+    { reply_markup: keyboard },
   );
 });
 
@@ -339,7 +336,7 @@ tournamentCommands.callbackQuery(/^participants:(\d+)$/, async (ctx) => {
   await ctx.editMessageText(
     `Участников: ${participants}\n\n` +
       `Шаг 6/${STEPS_COUNT}: До скольки побед играть?`,
-    { reply_markup: keyboard }
+    { reply_markup: keyboard },
   );
 });
 
@@ -369,8 +366,14 @@ tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
       winScore: winScore,
       createdBy: ctx.dbUser.id,
       status: "draft",
+      startDate: state.data.start_date,
     })
     .returning();
+
+  if (!newTournament) {
+    await ctx.editMessageText("При создании турнира возникла ошибка");
+    return;
+  }
 
   creationState.delete(userId);
 
@@ -380,14 +383,15 @@ tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
 
   await ctx.editMessageText(
     `✅ Турнир создан!\n\n` +
-      `Название: ${newTournament!.name}\n` +
-      `Дисциплина: ${disciplineLabels[newTournament!.discipline]}\n` +
-      `Формат: ${formatLabels[newTournament!.format]}\n` +
-      `Участников: ${newTournament!.maxParticipants}\n` +
-      `До побед: ${newTournament!.winScore}\n` +
+      `Название: ${newTournament.name}\n` +
+      `Дата начала: ${formatDate(newTournament.startDate)}\n ` +
+      `Дисциплина: ${disciplineLabels[newTournament.discipline]}\n` +
+      `Формат: ${formatLabels[newTournament.format]}\n` +
+      `Участников: ${newTournament.maxParticipants}\n` +
+      `До побед: ${newTournament.winScore}\n` +
       `Статус: Черновик\n\n` +
-      `ID: \`${newTournament!.id}\``,
-    { parse_mode: "Markdown", reply_markup: keyboard }
+      `ID: \`${newTournament.id}\``,
+    { parse_mode: "Markdown", reply_markup: keyboard },
   );
 });
 
@@ -400,7 +404,6 @@ tournamentCommands.on("message:text", async (ctx, next) => {
     return next();
   }
 
-  const chatId = ctx.chat.id;
   const text = ctx.message.text;
 
   if (state.step === "name") {
@@ -413,7 +416,7 @@ tournamentCommands.on("message:text", async (ctx, next) => {
     state.step = "date";
 
     await ctx.reply(
-      `Название: ${text}\n\nШаг 2/${STEPS_COUNT}: Введите дату турнира:`
+      `Название: ${text}\n\nШаг 2/${STEPS_COUNT}: Введите дату турнира:`,
     );
     return;
   }
@@ -422,7 +425,7 @@ tournamentCommands.on("message:text", async (ctx, next) => {
     const parsedDate = parseDate(text);
     if (!parsedDate) {
       await ctx.editMessageText(
-        "Не удалось распознать дату, попробуйте еще раз"
+        "Не удалось распознать дату, попробуйте еще раз",
       );
       return;
     } else {
@@ -447,7 +450,7 @@ tournamentCommands.on("message:text", async (ctx, next) => {
         })}\n\nШаг 3/${STEPS_COUNT}: Выберите дисциплину:`,
         {
           reply_markup: keyboard,
-        }
+        },
       );
       return;
     }
