@@ -10,26 +10,26 @@ import { adminCommands, userCommands } from "../commands.js";
 export const roleCommands = new Composer<BotContext>();
 
 // /my_role - показать свою роль
-roleCommands.command("my_role", async (ctx) => {
-  const { dbUser } = ctx;
+// roleCommands.command("my_role", async (ctx) => {
+//   const { dbUser } = ctx;
 
-  let message = `Ваша роль: ${dbUser.role}`;
+//   let message = `Ваша роль: ${dbUser.role}`;
 
-  const refereeTournamentIds = await getUserRefereeTournaments(dbUser.id);
+//   const refereeTournamentIds = await getUserRefereeTournaments(dbUser.id);
 
-  if (refereeTournamentIds.length > 0) {
-    const tournamentsData = await db.query.tournaments.findMany({
-      where: (t, { inArray }) => inArray(t.id, refereeTournamentIds),
-    });
+//   if (refereeTournamentIds.length > 0) {
+//     const tournamentsData = await db.query.tournaments.findMany({
+//       where: (t, { inArray }) => inArray(t.id, refereeTournamentIds),
+//     });
 
-    message += "\n\nВы судья на турнирах:";
-    for (const t of tournamentsData) {
-      message += `\n- ${t.name}`;
-    }
-  }
+//     message += "\n\nВы судья на турнирах:";
+//     for (const t of tournamentsData) {
+//       message += `\n- ${t.name}`;
+//     }
+//   }
 
-  await ctx.reply(message);
-});
+//   await ctx.reply(message);
+// });
 
 // /set_admin <telegram_id или @username> - назначить админа
 roleCommands.command("set_admin", adminOnly(), async (ctx) => {
@@ -39,7 +39,7 @@ roleCommands.command("set_admin", adminOnly(), async (ctx) => {
     await ctx.reply(
       "Использование: /set_admin <telegram_id или @username>\n" +
         "Пример: /set_admin 123456789\n" +
-        "Пример: /set_admin @username"
+        "Пример: /set_admin @username",
     );
     return;
   }
@@ -88,7 +88,7 @@ roleCommands.command("remove_admin", adminOnly(), async (ctx) => {
   if (!args || args.length === 0) {
     await ctx.reply(
       "Использование: /remove_admin <telegram_id или @username>\n" +
-        "Пример: /remove_admin @username"
+        "Пример: /remove_admin @username",
     );
     return;
   }
@@ -141,7 +141,7 @@ roleCommands.command("assign_referee", adminOnly(), async (ctx) => {
   if (!args || args.length < 2) {
     await ctx.reply(
       "Использование: /assign_referee <tournament_id> <telegram_id или @username>\n" +
-        "Пример: /assign_referee abc-123 @username"
+        "Пример: /assign_referee abc-123 @username",
     );
     return;
   }
@@ -176,13 +176,13 @@ roleCommands.command("assign_referee", adminOnly(), async (ctx) => {
   const existing = await db.query.tournamentReferees.findFirst({
     where: and(
       eq(tournamentReferees.tournamentId, tournamentId),
-      eq(tournamentReferees.userId, targetUser.id)
+      eq(tournamentReferees.userId, targetUser.id),
     ),
   });
 
   if (existing) {
     await ctx.reply(
-      `${targetUser.username} уже является судьей турнира "${tournament.name}".`
+      `${targetUser.username} уже является судьей турнира "${tournament.name}".`,
     );
     return;
   }
@@ -193,7 +193,7 @@ roleCommands.command("assign_referee", adminOnly(), async (ctx) => {
   });
 
   await ctx.reply(
-    `${targetUser.username} назначен судьей турнира "${tournament.name}".`
+    `${targetUser.username} назначен судьей турнира "${tournament.name}".`,
   );
 });
 
@@ -204,7 +204,7 @@ roleCommands.command("remove_referee", adminOnly(), async (ctx) => {
   if (!args || args.length < 2) {
     await ctx.reply(
       "Использование: /remove_referee <tournament_id> <telegram_id или @username>\n" +
-        "Пример: /remove_referee abc-123 @username"
+        "Пример: /remove_referee abc-123 @username",
     );
     return;
   }
@@ -241,11 +241,11 @@ roleCommands.command("remove_referee", adminOnly(), async (ctx) => {
     .where(
       and(
         eq(tournamentReferees.tournamentId, tournamentId),
-        eq(tournamentReferees.userId, targetUser.id)
-      )
+        eq(tournamentReferees.userId, targetUser.id),
+      ),
     );
 
   await ctx.reply(
-    `${targetUser.username} больше не судья турнира "${tournament.name}".`
+    `${targetUser.username} больше не судья турнира "${tournament.name}".`,
   );
 });
