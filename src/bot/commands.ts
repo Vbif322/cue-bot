@@ -4,9 +4,9 @@ import type { BotContext } from "./types.js";
 
 const userCommands: BotCommand[] = [
   { command: "start", description: "Начать работу с ботом" },
-  { command: "my_role", description: "Показать мою роль" },
   { command: "tournaments", description: "Список турниров" },
   { command: "tournament", description: "Информация о турнире" },
+  { command: "my_tournaments", description: "Мои турниры" },
 ];
 
 const adminCommands: BotCommand[] = [
@@ -33,7 +33,7 @@ export async function setupCommands(bot: Bot<BotContext>): Promise<void> {
 
 export async function setAdminCommands(
   bot: Bot<BotContext>,
-  chatId: number
+  chatId: number,
 ): Promise<void> {
   await bot.api.setMyCommands(adminCommands, {
     scope: { type: "chat", chat_id: chatId },
@@ -42,7 +42,7 @@ export async function setAdminCommands(
 
 export async function setUserCommands(
   bot: Bot<BotContext>,
-  chatId: number
+  chatId: number,
 ): Promise<void> {
   await bot.api.setMyCommands(userCommands, {
     scope: { type: "chat", chat_id: chatId },

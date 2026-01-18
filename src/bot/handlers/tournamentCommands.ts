@@ -1,7 +1,12 @@
 import { Composer, InlineKeyboard } from "grammy";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../../db/db.js";
-import { tournaments, tournamentFormat, discipline } from "../../db/schema.js";
+import {
+  tournaments,
+  tournamentFormat,
+  discipline,
+  tournamentParticipants,
+} from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import { adminOnly } from "../guards.js";
 import { isAdmin } from "../permissions.js";
@@ -10,6 +15,20 @@ import { formatDate, parseDate } from "../../utils/dateHelpers.js";
 export const tournamentCommands = new Composer<BotContext>();
 
 const STEPS_COUNT = 6;
+
+// Получить количество участников турнира
+async function getParticipantsCount(tournamentId: string): Promise<number> {
+  const result = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        inArray(tournamentParticipants.status, ["pending", "confirmed"])
+      )
+    );
+  return result[0]?.count ?? 0;
+}
 
 const disciplineLabels: Record<string, string> = {
   // pool: "Пул",
@@ -92,32 +111,78 @@ tournamentCommands.command("tournaments", async (ctx) => {
     return;
   }
 
-  let message = "Список турниров:\n\n";
+  // Фильтруем турниры для обычных пользователей
+  const visibleTournaments = admin
+    ? allTournaments
+    : allTournaments.filter((t) => t.status !== "draft");
 
-  for (const t of allTournaments) {
-    if (!admin && t.status === "draft") {
-      continue;
-    }
+  if (visibleTournaments.length === 0) {
+    await ctx.reply("Турниров пока нет.");
+    return;
+  }
+
+  let message = "Список турниров:\n\n";
+  const keyboard = new InlineKeyboard();
+
+  for (const t of visibleTournaments) {
+    const participantsCount = await getParticipantsCount(t.id);
+
     message +=
       `📋 *${t.name}*\n` +
       `   Дисциплина: ${disciplineLabels[t.discipline] || t.discipline}\n` +
       `   Формат: ${formatLabels[t.format] || t.format}\n` +
       `   Статус: ${statusLabels[t.status] || t.status}\n` +
-      `   Участников: макс. ${t.maxParticipants}\n` +
-      `   Дата проведения: ${formatDate(t.startDate)}\n` +
+      `   Участников: ${participantsCount}/${t.maxParticipants}\n` +
+      `   Дата: ${formatDate(t.startDate)}\n` +
       (admin ? `   ID: \`${t.id}\`\n` : "") +
       "\n";
+
+    // Добавляем кнопки для турниров с открытой регистрацией
+    if (t.status === "registration_open") {
+      keyboard
+        .text(`📋 ${t.name}`, `reg:view:${t.id}`)
+        .text("Участвовать", `reg:join:${t.id}`)
+        .row();
+    }
   }
 
-  await ctx.reply(message, { parse_mode: "Markdown" });
+  if (keyboard.inline_keyboard.length > 0) {
+    await ctx.reply(message, {
+      parse_mode: "Markdown",
+      reply_markup: keyboard,
+    });
+  } else {
+    await ctx.reply(message, { parse_mode: "Markdown" });
+  }
 });
 
 // /tournament <id> - информация о турнире
 tournamentCommands.command("tournament", async (ctx) => {
   const args = ctx.message?.text?.split(" ").slice(1);
 
-  if (!args || args.length === 0) {
-    await ctx.reply("Использование: /tournament <id>");
+  if (!args || args.length === 0 || args[0]?.trim() === "") {
+    // Если аргумент не указан, показываем список турниров для выбора
+    const admin = isAdmin(ctx);
+    const allTournaments = await db.query.tournaments.findMany({
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+      limit: 10,
+    });
+
+    const visibleTournaments = admin
+      ? allTournaments
+      : allTournaments.filter((t) => t.status !== "draft");
+
+    if (visibleTournaments.length === 0) {
+      await ctx.reply("Турниров пока нет.");
+      return;
+    }
+
+    const keyboard = new InlineKeyboard();
+    for (const t of visibleTournaments) {
+      keyboard.text(`📋 ${t.name}`, `tournament_info:${t.id}`).row();
+    }
+
+    await ctx.reply("Выберите турнир:", { reply_markup: keyboard });
     return;
   }
 
@@ -132,6 +197,21 @@ tournamentCommands.command("tournament", async (ctx) => {
     return;
   }
 
+  const participantsCount = await getParticipantsCount(tournamentId);
+
+  // Проверяем регистрацию пользователя
+  const userParticipation = await db.query.tournamentParticipants.findFirst({
+    where: and(
+      eq(tournamentParticipants.tournamentId, tournamentId),
+      eq(tournamentParticipants.userId, ctx.dbUser.id)
+    ),
+  });
+
+  const isRegistered =
+    userParticipation &&
+    (userParticipation.status === "confirmed" ||
+      userParticipation.status === "pending");
+
   const message =
     `📋 *${tournament.name}*\n\n` +
     `Дисциплина: ${
@@ -139,13 +219,29 @@ tournamentCommands.command("tournament", async (ctx) => {
     }\n` +
     `Формат: ${formatLabels[tournament.format] || tournament.format}\n` +
     `Статус: ${statusLabels[tournament.status] || tournament.status}\n` +
-    `Макс. участников: ${tournament.maxParticipants}\n` +
+    `Участников: ${participantsCount}/${tournament.maxParticipants}\n` +
+    `Дата: ${formatDate(tournament.startDate)}\n` +
     `Игра до: ${tournament.winScore} побед\n` +
     (tournament.description ? `\nОписание: ${tournament.description}\n` : "") +
-    (isAdmin(ctx) ? `\nID: \`${tournament.id}\`` : "");
+    (isRegistered ? "\n✅ Вы зарегистрированы" : "") +
+    (isAdmin(ctx) ? `\n\nID: \`${tournament.id}\`` : "");
 
   const keyboard = new InlineKeyboard();
 
+  // Кнопки регистрации для пользователей
+  if (tournament.status === "registration_open") {
+    if (!isRegistered) {
+      if (participantsCount < tournament.maxParticipants) {
+        keyboard.text("Участвовать", `reg:join:${tournament.id}`).row();
+      } else {
+        keyboard.text("Мест нет", `reg:full:${tournament.id}`).row();
+      }
+    } else {
+      keyboard.text("Отменить регистрацию", `reg:cancel:${tournament.id}`).row();
+    }
+  }
+
+  // Админские кнопки
   if (isAdmin(ctx)) {
     if (tournament.status === "draft") {
       keyboard
@@ -170,8 +266,26 @@ tournamentCommands.command("tournament", async (ctx) => {
 tournamentCommands.command("delete_tournament", adminOnly(), async (ctx) => {
   const args = ctx.message?.text?.split(" ").slice(1);
 
-  if (!args || args.length === 0) {
-    await ctx.reply("Использование: /delete_tournament <id>");
+  if (!args || args.length === 0 || args[0]?.trim() === "") {
+    // Показываем список турниров, которые можно удалить
+    const deletableTournaments = await db.query.tournaments.findMany({
+      where: inArray(tournaments.status, ["draft", "cancelled"]),
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+      limit: 10,
+    });
+
+    if (deletableTournaments.length === 0) {
+      await ctx.reply("Нет турниров, доступных для удаления.\n\nУдалить можно только турниры в статусе 'Черновик' или 'Отменён'.");
+      return;
+    }
+
+    const keyboard = new InlineKeyboard();
+    for (const t of deletableTournaments) {
+      const statusEmoji = t.status === "draft" ? "📝" : "❌";
+      keyboard.text(`${statusEmoji} ${t.name}`, `tournament_delete_confirm:${t.id}`).row();
+    }
+
+    await ctx.reply("Выберите турнир для удаления:", { reply_markup: keyboard });
     return;
   }
 
@@ -249,6 +363,129 @@ tournamentCommands.callbackQuery(/^tournament_delete:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery("Турнир удалён");
   await ctx.editMessageText("🗑 Турнир удалён");
+});
+
+// Обработка выбора турнира для удаления (из списка /delete_tournament)
+tournamentCommands.callbackQuery(/^tournament_delete_confirm:(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) {
+    await ctx.answerCallbackQuery("Недостаточно прав");
+    return;
+  }
+
+  const tournamentId = ctx.match![1]!;
+
+  const tournament = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, tournamentId),
+  });
+
+  if (!tournament) {
+    await ctx.answerCallbackQuery({ text: "Турнир не найден", show_alert: true });
+    return;
+  }
+
+  if (tournament.status !== "draft" && tournament.status !== "cancelled") {
+    await ctx.answerCallbackQuery({
+      text: "Этот турнир больше нельзя удалить",
+      show_alert: true,
+    });
+    return;
+  }
+
+  await ctx.answerCallbackQuery();
+
+  const keyboard = new InlineKeyboard()
+    .text("✅ Да, удалить", `tournament_delete:${tournament.id}`)
+    .text("❌ Отмена", `tournament_delete_cancel`);
+
+  await ctx.editMessageText(
+    `Вы уверены, что хотите удалить турнир?\n\n` +
+      `📋 *${tournament.name}*\n` +
+      `Статус: ${statusLabels[tournament.status] || tournament.status}`,
+    { parse_mode: "Markdown", reply_markup: keyboard }
+  );
+});
+
+// Отмена удаления турнира
+tournamentCommands.callbackQuery("tournament_delete_cancel", async (ctx) => {
+  await ctx.answerCallbackQuery("Удаление отменено");
+  await ctx.editMessageText("Удаление отменено.");
+});
+
+// Обработка выбора турнира из списка (когда /tournament вызвана без аргумента)
+tournamentCommands.callbackQuery(/^tournament_info:(.+)$/, async (ctx) => {
+  const tournamentId = ctx.match![1]!;
+
+  const tournament = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, tournamentId),
+  });
+
+  if (!tournament) {
+    await ctx.answerCallbackQuery({ text: "Турнир не найден", show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery();
+
+  const participantsCount = await getParticipantsCount(tournamentId);
+
+  const userParticipation = await db.query.tournamentParticipants.findFirst({
+    where: and(
+      eq(tournamentParticipants.tournamentId, tournamentId),
+      eq(tournamentParticipants.userId, ctx.dbUser.id)
+    ),
+  });
+
+  const isRegistered =
+    userParticipation &&
+    (userParticipation.status === "confirmed" ||
+      userParticipation.status === "pending");
+
+  const message =
+    `📋 *${tournament.name}*\n\n` +
+    `Дисциплина: ${
+      disciplineLabels[tournament.discipline] || tournament.discipline
+    }\n` +
+    `Формат: ${formatLabels[tournament.format] || tournament.format}\n` +
+    `Статус: ${statusLabels[tournament.status] || tournament.status}\n` +
+    `Участников: ${participantsCount}/${tournament.maxParticipants}\n` +
+    `Дата: ${formatDate(tournament.startDate)}\n` +
+    `Игра до: ${tournament.winScore} побед\n` +
+    (tournament.description ? `\nОписание: ${tournament.description}\n` : "") +
+    (isRegistered ? "\n✅ Вы зарегистрированы" : "") +
+    (isAdmin(ctx) ? `\n\nID: \`${tournament.id}\`` : "");
+
+  const keyboard = new InlineKeyboard();
+
+  if (tournament.status === "registration_open") {
+    if (!isRegistered) {
+      if (participantsCount < tournament.maxParticipants) {
+        keyboard.text("Участвовать", `reg:join:${tournament.id}`).row();
+      } else {
+        keyboard.text("Мест нет", `reg:full:${tournament.id}`).row();
+      }
+    } else {
+      keyboard.text("Отменить регистрацию", `reg:cancel:${tournament.id}`).row();
+    }
+  }
+
+  if (isAdmin(ctx)) {
+    if (tournament.status === "draft") {
+      keyboard
+        .text("Открыть регистрацию", `tournament_open_reg:${tournament.id}`)
+        .row();
+      keyboard.text("Удалить", `tournament_delete:${tournament.id}`).row();
+    }
+    if (tournament.status === "registration_open") {
+      keyboard
+        .text("Закрыть регистрацию", `tournament_close_reg:${tournament.id}`)
+        .row();
+    }
+  }
+
+  await ctx.editMessageText(message, {
+    parse_mode: "Markdown",
+    reply_markup: keyboard,
+  });
 });
 
 // Обработка выбора дисциплины

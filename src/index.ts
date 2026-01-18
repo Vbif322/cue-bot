@@ -1,7 +1,11 @@
 import { Bot } from "grammy";
 import type { BotContext } from "./bot/types.js";
 import { authMiddleware } from "./bot/middleware/index.js";
-import { roleCommands, tournamentCommands } from "./bot/handlers/index.js";
+import {
+  roleCommands,
+  tournamentCommands,
+  registrationCommands,
+} from "./bot/handlers/index.js";
 import { setupCommands, setAdminCommands } from "./bot/commands.js";
 
 const token = process.env.BOT_TOKEN;
@@ -14,6 +18,7 @@ const bot = new Bot<BotContext>(token);
 bot.use(authMiddleware);
 bot.use(roleCommands);
 bot.use(tournamentCommands);
+bot.use(registrationCommands);
 
 bot.command("start", async (ctx) => {
   // Обновляем команды для пользователя при старте
