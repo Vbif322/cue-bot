@@ -1,26 +1,23 @@
 import { Composer, InlineKeyboard } from "grammy";
 import { and, eq, sql, inArray } from "drizzle-orm";
 import { db } from "../../db/db.js";
-import {
-  tournaments,
-  tournamentParticipants,
-} from "../../db/schema.js";
+import { tournaments, tournamentParticipants } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import { formatDate } from "../../utils/dateHelpers.js";
 
 export const registrationCommands = new Composer<BotContext>();
 
-const disciplineLabels: Record<string, string> = {
+const DISCIPLINE_LABELS: Record<string, string> = {
   snooker: "Снукер",
 };
 
-const formatLabels: Record<string, string> = {
+const FORMAT_LABELS: Record<string, string> = {
   single_elimination: "Олимпийская система",
   double_elimination: "Двойная элиминация",
   round_robin: "Круговая система",
 };
 
-const statusLabels: Record<string, string> = {
+const STATUS_LABELS: Record<string, string> = {
   draft: "Черновик",
   registration_open: "Регистрация открыта",
   registration_closed: "Регистрация закрыта",
@@ -37,8 +34,8 @@ async function getParticipantsCount(tournamentId: string): Promise<number> {
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"])
-      )
+        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+      ),
     );
   return result[0]?.count ?? 0;
 }
@@ -48,7 +45,7 @@ async function getUserParticipation(tournamentId: string, userId: string) {
   return db.query.tournamentParticipants.findFirst({
     where: and(
       eq(tournamentParticipants.tournamentId, tournamentId),
-      eq(tournamentParticipants.userId, userId)
+      eq(tournamentParticipants.userId, userId),
     ),
   });
 }
@@ -57,7 +54,7 @@ async function getUserParticipation(tournamentId: string, userId: string) {
 async function formatTournamentCard(
   tournament: typeof tournaments.$inferSelect,
   userId: string,
-  participantsCount?: number
+  participantsCount?: number,
 ): Promise<string> {
   const count =
     participantsCount ?? (await getParticipantsCount(tournament.id));
@@ -73,11 +70,11 @@ async function formatTournamentCard(
 
   return (
     `📋 *${tournament.name}*\n\n` +
-    `Дисциплина: ${disciplineLabels[tournament.discipline] || tournament.discipline}\n` +
-    `Формат: ${formatLabels[tournament.format] || tournament.format}\n` +
+    `Дисциплина: ${DISCIPLINE_LABELS[tournament.discipline] || tournament.discipline}\n` +
+    `Формат: ${FORMAT_LABELS[tournament.format] || tournament.format}\n` +
     `Участников: ${count}/${tournament.maxParticipants}\n` +
     `Дата: ${formatDate(tournament.startDate)}\n` +
-    `Статус: ${statusLabels[tournament.status] || tournament.status}` +
+    `Статус: ${STATUS_LABELS[tournament.status] || tournament.status}` +
     registrationStatus
   );
 }
@@ -85,7 +82,7 @@ async function formatTournamentCard(
 // Сформировать клавиатуру для карточки турнира
 async function getTournamentKeyboard(
   tournament: typeof tournaments.$inferSelect,
-  userId: string
+  userId: string,
 ): Promise<InlineKeyboard> {
   const keyboard = new InlineKeyboard();
 
@@ -124,7 +121,10 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
   });
 
   if (!tournament) {
-    await ctx.answerCallbackQuery({ text: "Турнир не найден", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Турнир не найден",
+      show_alert: true,
+    });
     return;
   }
 
@@ -168,8 +168,8 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
       .where(
         and(
           eq(tournamentParticipants.tournamentId, tournamentId),
-          eq(tournamentParticipants.userId, userId)
-        )
+          eq(tournamentParticipants.userId, userId),
+        ),
       );
   } else {
     await db.insert(tournamentParticipants).values({
@@ -201,12 +201,18 @@ registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
   });
 
   if (!tournament) {
-    await ctx.answerCallbackQuery({ text: "Турнир не найден", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Турнир не найден",
+      show_alert: true,
+    });
     return;
   }
 
   // Проверить, можно ли отменить (только до начала турнира)
-  if (tournament.status === "in_progress" || tournament.status === "completed") {
+  if (
+    tournament.status === "in_progress" ||
+    tournament.status === "completed"
+  ) {
     await ctx.answerCallbackQuery({
       text: "Нельзя отменить регистрацию после начала турнира",
       show_alert: true,
@@ -231,8 +237,8 @@ registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId),
-        eq(tournamentParticipants.userId, userId)
-      )
+        eq(tournamentParticipants.userId, userId),
+      ),
     );
 
   await ctx.answerCallbackQuery({ text: "Регистрация отменена" });
@@ -268,20 +274,20 @@ registrationCommands.command("my_tournaments", async (ctx) => {
     .from(tournamentParticipants)
     .innerJoin(
       tournaments,
-      eq(tournamentParticipants.tournamentId, tournaments.id)
+      eq(tournamentParticipants.tournamentId, tournaments.id),
     )
     .where(
       and(
         eq(tournamentParticipants.userId, userId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"])
-      )
+        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+      ),
     )
     .orderBy(tournaments.startDate);
 
   if (participations.length === 0) {
     await ctx.reply(
       "Вы пока не зарегистрированы ни на один турнир.\n\n" +
-        "Посмотрите доступные турниры: /tournaments"
+        "Посмотрите доступные турниры: /tournaments",
     );
     return;
   }
@@ -318,7 +324,10 @@ registrationCommands.callbackQuery(/^reg:view:(.+)$/, async (ctx) => {
   });
 
   if (!tournament) {
-    await ctx.answerCallbackQuery({ text: "Турнир не найден", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Турнир не найден",
+      show_alert: true,
+    });
     return;
   }
 

@@ -14,7 +14,7 @@ if (!token) {
   throw new Error("BOT_TOKEN is not set");
 }
 
-const bot = new Bot<BotContext>(token);
+export const bot = new Bot<BotContext>(token);
 
 bot.use(authMiddleware);
 bot.use(roleCommands);
@@ -30,9 +30,11 @@ bot.command("start", async (ctx) => {
 
   await ctx.reply(
     `Привет, ${ctx.dbUser.name ?? ctx.dbUser.username}!` +
-      (process.env.NODE_ENV === "development" ? `\nВаша роль: ${ctx.dbUser.role}` : "") +
+      (process.env.NODE_ENV === "development"
+        ? `\nВаша роль: ${ctx.dbUser.role}`
+        : "") +
       "\n\n" +
-      "Нажмите / чтобы увидеть доступные команды"
+      "Нажмите / чтобы увидеть доступные команды",
   );
 });
 
