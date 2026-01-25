@@ -1,4 +1,4 @@
-import { Composer, InlineKeyboard } from "grammy";
+import { Bot, Composer, InlineKeyboard } from "grammy";
 import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../../db/db.js";
 import { tournaments, matches, users } from "../../db/schema.js";
@@ -16,14 +16,22 @@ import {
   startMatch,
   type MatchWithPlayers,
 } from "../../services/matchService.js";
-import { getRoundName, calculateRounds, getNextPowerOfTwo } from "../../services/bracketGenerator.js";
+import {
+  getRoundName,
+  calculateRounds,
+  getNextPowerOfTwo,
+} from "../../services/bracketGenerator.js";
+import { bot } from "../../index.js";
 
 export const matchCommands = new Composer<BotContext>();
 
 /**
  * Format player name for display
  */
-function formatPlayerName(username: string | null, name: string | null): string {
+function formatPlayerName(
+  username: string | null,
+  name: string | null,
+): string {
   if (username) return `@${username}`;
   if (name) return name;
   return "Участник";
@@ -52,13 +60,27 @@ function getMatchStatusEmoji(status: string): string {
 /**
  * Format match card
  */
-function formatMatchCard(match: MatchWithPlayers, tournament: typeof tournaments.$inferSelect): string {
-  const player1 = formatPlayerName(match.player1Username ?? null, match.player1Name ?? null);
-  const player2 = formatPlayerName(match.player2Username ?? null, match.player2Name ?? null);
+function formatMatchCard(
+  match: MatchWithPlayers,
+  tournament: typeof tournaments.$inferSelect,
+): string {
+  const player1 = formatPlayerName(
+    match.player1Username ?? null,
+    match.player1Name ?? null,
+  );
+  const player2 = formatPlayerName(
+    match.player2Username ?? null,
+    match.player2Name ?? null,
+  );
 
   const bracketSize = getNextPowerOfTwo(tournament.maxParticipants);
   const totalRounds = calculateRounds(bracketSize);
-  const roundName = getRoundName(match.round, totalRounds, tournament.format, match.bracketType || "winners");
+  const roundName = getRoundName(
+    match.round,
+    totalRounds,
+    tournament.format,
+    match.bracketType || "winners",
+  );
 
   let text = `🎱 *Матч #${match.position}*\n`;
   text += `${roundName}\n\n`;
@@ -71,7 +93,10 @@ function formatMatchCard(match: MatchWithPlayers, tournament: typeof tournaments
   }
 
   if (match.winnerId && match.status === "completed") {
-    const winnerName = formatPlayerName(match.winnerUsername ?? null, match.winnerName ?? null);
+    const winnerName = formatPlayerName(
+      match.winnerUsername ?? null,
+      match.winnerName ?? null,
+    );
     text += `Победитель: ${winnerName}\n`;
   }
 
@@ -108,7 +133,7 @@ function getMatchKeyboard(
   match: MatchWithPlayers,
   userId: string,
   tournament: typeof tournaments.$inferSelect,
-  isAdminUser: boolean
+  isAdminUser: boolean,
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const isPlayer1 = match.player1Id === userId;
@@ -121,7 +146,12 @@ function getMatchKeyboard(
   }
 
   // Scheduled match - allow starting (if both players are set)
-  if (match.status === "scheduled" && match.player1Id && match.player2Id && isParticipant) {
+  if (
+    match.status === "scheduled" &&
+    match.player1Id &&
+    match.player2Id &&
+    isParticipant
+  ) {
     keyboard.text("▶️ Начать матч", `match:start:${match.id}`).row();
   }
 
@@ -134,12 +164,18 @@ function getMatchKeyboard(
         .text("❌ Оспорить", `match:dispute:${match.id}`)
         .row();
     } else {
-      keyboard.text("⏳ Ожидание подтверждения...", `match:waiting:${match.id}`).row();
+      keyboard
+        .text("⏳ Ожидание подтверждения...", `match:waiting:${match.id}`)
+        .row();
     }
   }
 
   // Admin/referee can set technical result
-  if (isAdminUser && match.status !== "completed" && match.status !== "cancelled") {
+  if (
+    isAdminUser &&
+    match.status !== "completed" &&
+    match.status !== "cancelled"
+  ) {
     keyboard.text("⚙️ Тех. результат", `match:tech:${match.id}`).row();
   }
 
@@ -160,7 +196,7 @@ matchCommands.command("my_match", async (ctx) => {
   if (activeMatches.length === 0) {
     await ctx.reply(
       "У вас нет активных матчей.\n\n" +
-        "Если вы зарегистрированы на турнир, дождитесь его начала или своего матча в сетке."
+        "Если вы зарегистрированы на турнир, дождитесь его начала или своего матча в сетке.",
     );
     return;
   }
@@ -193,7 +229,7 @@ matchCommands.command("my_match", async (ctx) => {
   if (activeMatches.length > 1) {
     await ctx.reply(
       `У вас ещё ${activeMatches.length - 1} активных матчей.\n` +
-        `Используйте /my_matches для просмотра всех.`
+        `Используйте /my_matches для просмотра всех.`,
     );
   }
 });
@@ -221,7 +257,9 @@ matchCommands.command("bracket", async (ctx) => {
       keyboard.text(`📊 ${t.name}`, `bracket:view:${t.id}`).row();
     }
 
-    await ctx.reply("Выберите турнир для просмотра сетки:", { reply_markup: keyboard });
+    await ctx.reply("Выберите турнир для просмотра сетки:", {
+      reply_markup: keyboard,
+    });
     return;
   }
 
@@ -254,7 +292,10 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
   });
 
   if (!tournament) {
-    await ctx.answerCallbackQuery({ text: "Турнир не найден", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Турнир не найден",
+      show_alert: true,
+    });
     return;
   }
 
@@ -282,14 +323,20 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
 
   // Check if user is participant
   if (match.player1Id !== userId && match.player2Id !== userId) {
-    await ctx.answerCallbackQuery({ text: "Вы не участник этого матча", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Вы не участник этого матча",
+      show_alert: true,
+    });
     return;
   }
 
   const result = await startMatch(matchId);
 
   if (!result.success) {
-    await ctx.answerCallbackQuery({ text: result.error || "Ошибка", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: result.error || "Ошибка",
+      show_alert: true,
+    });
     return;
   }
 
@@ -303,7 +350,12 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
 
   if (updatedMatch && tournament) {
     const text = formatMatchCard(updatedMatch, tournament);
-    const keyboard = getMatchKeyboard(updatedMatch, userId, tournament, isAdmin(ctx));
+    const keyboard = getMatchKeyboard(
+      updatedMatch,
+      userId,
+      tournament,
+      isAdmin(ctx),
+    );
 
     await ctx.editMessageText(text, {
       parse_mode: "Markdown",
@@ -324,12 +376,18 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   }
 
   if (match.player1Id !== userId && match.player2Id !== userId) {
-    await ctx.answerCallbackQuery({ text: "Вы не участник этого матча", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Вы не участник этого матча",
+      show_alert: true,
+    });
     return;
   }
 
   if (match.status !== "in_progress") {
-    await ctx.answerCallbackQuery({ text: "Матч не в процессе игры", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Матч не в процессе игры",
+      show_alert: true,
+    });
     return;
   }
 
@@ -338,15 +396,24 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   });
 
   if (!tournament) {
-    await ctx.answerCallbackQuery({ text: "Турнир не найден", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Турнир не найден",
+      show_alert: true,
+    });
     return;
   }
 
   await ctx.answerCallbackQuery();
 
   const winScore = tournament.winScore;
-  const player1 = formatPlayerName(match.player1Username ?? null, match.player1Name ?? null);
-  const player2 = formatPlayerName(match.player2Username ?? null, match.player2Name ?? null);
+  const player1 = formatPlayerName(
+    match.player1Username ?? null,
+    match.player1Name ?? null,
+  );
+  const player2 = formatPlayerName(
+    match.player2Username ?? null,
+    match.player2Name ?? null,
+  );
 
   // Generate score buttons
   const keyboard = new InlineKeyboard();
@@ -355,7 +422,7 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   for (let loserScore = 0; loserScore < winScore; loserScore++) {
     keyboard.text(
       `${winScore}:${loserScore}`,
-      `match:score:${matchId}:${winScore}:${loserScore}`
+      `match:score:${matchId}:${winScore}:${loserScore}`,
     );
   }
   keyboard.row();
@@ -364,7 +431,7 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   for (let loserScore = 0; loserScore < winScore; loserScore++) {
     keyboard.text(
       `${loserScore}:${winScore}`,
-      `match:score:${matchId}:${loserScore}:${winScore}`
+      `match:score:${matchId}:${loserScore}:${winScore}`,
     );
   }
   keyboard.row();
@@ -376,7 +443,7 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
       `${player1} vs ${player2}\n\n` +
       `Игра до: ${winScore} побед\n\n` +
       `Выберите счёт:`,
-    { parse_mode: "Markdown", reply_markup: keyboard }
+    { parse_mode: "Markdown", reply_markup: keyboard },
   );
 });
 
@@ -386,18 +453,35 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
   const player1Score = parseInt(ctx.match![2]!, 10);
   const player2Score = parseInt(ctx.match![3]!, 10);
   const userId = ctx.dbUser.id;
+  const match = await getMatch(matchId);
 
-  const result = await reportResult(matchId, userId, player1Score, player2Score);
+  const result = await reportResult(
+    matchId,
+    userId,
+    player1Score,
+    player2Score,
+  );
 
   if (!result.success) {
-    await ctx.answerCallbackQuery({ text: result.error || "Ошибка", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: result.error || "Ошибка",
+      show_alert: true,
+    });
     return;
   }
 
-  await ctx.answerCallbackQuery("Результат внесён! Ожидаем подтверждения от соперника.");
+  await ctx.answerCallbackQuery(
+    "Результат внесён! Ожидаем подтверждения от соперника.",
+  );
+  const chat_id =
+    userId === match?.player1Id
+      ? match.player2TelegramId
+      : match?.player1TelegramId;
+  if (chat_id) {
+    await bot.api.sendMessage(chat_id, "test");
+  }
 
   // Show updated match
-  const match = await getMatch(matchId);
   const tournament = match
     ? await db.query.tournaments.findFirst({
         where: eq(tournaments.id, match.tournamentId),
@@ -423,7 +507,10 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   const result = await confirmResult(matchId, userId);
 
   if (!result.success) {
-    await ctx.answerCallbackQuery({ text: result.error || "Ошибка", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: result.error || "Ошибка",
+      show_alert: true,
+    });
     return;
   }
 
@@ -456,11 +543,16 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
   const result = await disputeResult(matchId, userId);
 
   if (!result.success) {
-    await ctx.answerCallbackQuery({ text: result.error || "Ошибка", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: result.error || "Ошибка",
+      show_alert: true,
+    });
     return;
   }
 
-  await ctx.answerCallbackQuery("Результат оспорен. Обратитесь к судье турнира.");
+  await ctx.answerCallbackQuery(
+    "Результат оспорен. Обратитесь к судье турнира.",
+  );
 
   // Show updated match
   const match = await getMatch(matchId);
@@ -494,7 +586,10 @@ matchCommands.callbackQuery(/^match:waiting:(.+)$/, async (ctx) => {
 // Технический результат - меню
 matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
   if (!isAdmin(ctx)) {
-    await ctx.answerCallbackQuery({ text: "Недостаточно прав", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Недостаточно прав",
+      show_alert: true,
+    });
     return;
   }
 
@@ -508,19 +603,31 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery();
 
-  const player1 = formatPlayerName(match.player1Username ?? null, match.player1Name ?? null);
-  const player2 = formatPlayerName(match.player2Username ?? null, match.player2Name ?? null);
+  const player1 = formatPlayerName(
+    match.player1Username ?? null,
+    match.player1Name ?? null,
+  );
+  const player2 = formatPlayerName(
+    match.player2Username ?? null,
+    match.player2Name ?? null,
+  );
 
   const keyboard = new InlineKeyboard();
 
   if (match.player1Id) {
     keyboard
-      .text(`✅ Победа ${player1}`, `match:tech_win:${matchId}:${match.player1Id}:walkover`)
+      .text(
+        `✅ Победа ${player1}`,
+        `match:tech_win:${matchId}:${match.player1Id}:walkover`,
+      )
       .row();
   }
   if (match.player2Id) {
     keyboard
-      .text(`✅ Победа ${player2}`, `match:tech_win:${matchId}:${match.player2Id}:walkover`)
+      .text(
+        `✅ Победа ${player2}`,
+        `match:tech_win:${matchId}:${match.player2Id}:walkover`,
+      )
       .row();
   }
   keyboard.text("❌ Отмена", `match:view:${matchId}`);
@@ -529,14 +636,17 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
     `⚙️ *Технический результат*\n\n` +
       `Матч: ${player1} vs ${player2}\n\n` +
       `Выберите победителя:`,
-    { parse_mode: "Markdown", reply_markup: keyboard }
+    { parse_mode: "Markdown", reply_markup: keyboard },
   );
 });
 
 // Установить технический результат
 matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
   if (!isAdmin(ctx)) {
-    await ctx.answerCallbackQuery({ text: "Недостаточно прав", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: "Недостаточно прав",
+      show_alert: true,
+    });
     return;
   }
 
@@ -554,10 +664,18 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
           ? "Добровольный отказ"
           : "Техническое решение";
 
-  const result = await setTechnicalResult(matchId, winnerId, reasonText, userId);
+  const result = await setTechnicalResult(
+    matchId,
+    winnerId,
+    reasonText,
+    userId,
+  );
 
   if (!result.success) {
-    await ctx.answerCallbackQuery({ text: result.error || "Ошибка", show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: result.error || "Ошибка",
+      show_alert: true,
+    });
     return;
   }
 
@@ -590,7 +708,7 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
 async function showBracket(
   ctx: BotContext,
   tournamentId: string,
-  isEdit: boolean = false
+  isEdit: boolean = false,
 ): Promise<void> {
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, tournamentId),
@@ -641,7 +759,10 @@ async function showBracket(
     if (match.player2Id) playerIds.add(match.player2Id);
   }
 
-  const playerMap = new Map<string, { username: string | null; name: string | null }>();
+  const playerMap = new Map<
+    string,
+    { username: string | null; name: string | null }
+  >();
   if (playerIds.size > 0) {
     const players = await db.query.users.findMany({
       where: inArray(users.id, Array.from(playerIds)),
@@ -658,7 +779,12 @@ async function showBracket(
 
   for (const round of rounds) {
     const roundMatches = matchesByRound.get(round)!;
-    const roundName = getRoundName(round, totalRounds, tournament.format, "winners");
+    const roundName = getRoundName(
+      round,
+      totalRounds,
+      tournament.format,
+      "winners",
+    );
 
     text += `*${roundName}:*\n`;
 
@@ -672,7 +798,10 @@ async function showBracket(
       const emoji = getMatchStatusEmoji(match.status);
       let score = "";
 
-      if (match.status === "completed" || match.status === "pending_confirmation") {
+      if (
+        match.status === "completed" ||
+        match.status === "pending_confirmation"
+      ) {
         score = ` (${match.player1Score}:${match.player2Score})`;
       }
 
@@ -688,10 +817,20 @@ async function showBracket(
   keyboard.text("🔄 Обновить", `bracket:view:${tournamentId}`).row();
 
   if (isEdit) {
-    await ctx.editMessageText(text, {
-      parse_mode: "Markdown",
-      reply_markup: keyboard,
-    });
+    try {
+      await ctx.editMessageText(text, {
+        parse_mode: "Markdown",
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      // Игнорируем ошибку, если сообщение не изменилось
+      if (
+        error instanceof Error &&
+        !error.message.includes("message is not modified")
+      ) {
+        throw error;
+      }
+    }
   } else {
     await ctx.reply(text, {
       parse_mode: "Markdown",

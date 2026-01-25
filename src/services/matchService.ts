@@ -9,10 +9,13 @@ export type Match = typeof matches.$inferSelect;
 export interface MatchWithPlayers extends Match {
   player1Username?: string | null;
   player1Name?: string | null;
+  player1TelegramId?: string | null;
   player2Username?: string | null;
   player2Name?: string | null;
+  player2TelegramId?: string | null;
   winnerUsername?: string | null;
   winnerName?: string | null;
+  winnerTelegramId?: string | null;
 }
 
 /**
@@ -82,6 +85,7 @@ export async function getMatch(matchId: string): Promise<MatchWithPlayers | null
       match: matches,
       player1Username: users.username,
       player1Name: users.name,
+      player1TelegramId: users.telegram_id,
     })
     .from(matches)
     .leftJoin(users, eq(matches.player1Id, users.id))
@@ -94,6 +98,7 @@ export async function getMatch(matchId: string): Promise<MatchWithPlayers | null
   // Get player2 info
   let player2Username: string | null = null;
   let player2Name: string | null = null;
+  let player2TelegramId: string | null = null;
 
   if (matchData.match.player2Id) {
     const player2 = await db.query.users.findFirst({
@@ -101,11 +106,13 @@ export async function getMatch(matchId: string): Promise<MatchWithPlayers | null
     });
     player2Username = player2?.username ?? null;
     player2Name = player2?.name ?? null;
+    player2TelegramId = player2?.telegram_id ?? null;
   }
 
   // Get winner info
   let winnerUsername: string | null = null;
   let winnerName: string | null = null;
+  let winnerTelegramId: string | null = null;
 
   if (matchData.match.winnerId) {
     const winner = await db.query.users.findFirst({
@@ -113,16 +120,20 @@ export async function getMatch(matchId: string): Promise<MatchWithPlayers | null
     });
     winnerUsername = winner?.username ?? null;
     winnerName = winner?.name ?? null;
+    winnerTelegramId = winner?.telegram_id ?? null;
   }
 
   return {
     ...matchData.match,
     player1Username: matchData.player1Username,
     player1Name: matchData.player1Name,
+    player1TelegramId: matchData.player1TelegramId,
     player2Username,
     player2Name,
+    player2TelegramId,
     winnerUsername,
     winnerName,
+    winnerTelegramId,
   };
 }
 

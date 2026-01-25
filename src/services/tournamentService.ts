@@ -1,11 +1,8 @@
 import { and, eq, inArray, asc } from "drizzle-orm";
 import { db } from "../db/db.js";
-import {
-  tournaments,
-  tournamentParticipants,
-  users,
-} from "../db/schema.js";
+import { tournaments, tournamentParticipants, users } from "../db/schema.js";
 import { shuffleArray } from "./bracketGenerator.js";
+import type { Status } from "../bot/@types/tournament.js";
 
 export interface TournamentParticipant {
   userId: string;
@@ -24,7 +21,7 @@ export interface StartTournamentResult {
  * Check if tournament can be started
  */
 export async function canStartTournament(
-  tournamentId: string
+  tournamentId: string,
 ): Promise<StartTournamentResult> {
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, tournamentId),
@@ -60,7 +57,7 @@ export async function canStartTournament(
  * Get confirmed participants for a tournament with user info
  */
 export async function getConfirmedParticipants(
-  tournamentId: string
+  tournamentId: string,
 ): Promise<TournamentParticipant[]> {
   const participants = await db
     .select({
@@ -75,8 +72,8 @@ export async function getConfirmedParticipants(
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"])
-      )
+        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+      ),
     )
     .orderBy(asc(tournamentParticipants.createdAt));
 
@@ -106,7 +103,7 @@ export async function startTournament(tournamentId: string): Promise<void> {
  */
 export async function completeTournament(
   tournamentId: string,
-  winnerId: string
+  winnerId: string,
 ): Promise<void> {
   await db
     .update(tournaments)
@@ -142,8 +139,54 @@ export async function assignRandomSeeds(tournamentId: string): Promise<void> {
       .where(
         and(
           eq(tournamentParticipants.tournamentId, tournamentId),
-          eq(tournamentParticipants.userId, participant.userId)
-        )
+          eq(tournamentParticipants.userId, participant.userId),
+        ),
       );
   }
+}
+
+/**
+ * Get tournaments with optional filtering
+ */
+export async function getTournaments(options?: {
+  limit?: number;
+  includesDrafts?: boolean;
+}) {
+  const { limit = 10, includesDrafts = true } = options || {};
+
+  return db.query.tournaments.findMany({
+    orderBy: (t, { desc }) => [desc(t.createdAt)],
+    limit,
+    where: includesDrafts ? undefined : (t, { ne }) => ne(t.status, "draft"),
+  });
+}
+
+/**
+ * Update tournament status
+ */
+export async function updateTournamentStatus(
+  tournamentId: string,
+  status: Status,
+): Promise<void> {
+  await db
+    .update(tournaments)
+    .set({
+      status,
+      updatedAt: new Date(),
+    })
+    .where(eq(tournaments.id, tournamentId));
+}
+
+/**
+ * Delete tournament by ID
+ */
+export async function deleteTournament(tournamentId: string): Promise<void> {
+  await db.delete(tournaments).where(eq(tournaments.id, tournamentId));
+}
+
+/**
+ * Check if tournament can be deleted
+ */
+export function canDeleteTournament(status: string): boolean {
+  return status === "draft" || status === "cancelled";
 }
