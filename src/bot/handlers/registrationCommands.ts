@@ -1,44 +1,17 @@
 import { Composer, InlineKeyboard } from "grammy";
-import { and, eq, sql, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/db.js";
 import { tournaments, tournamentParticipants } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import { formatDate } from "../../utils/dateHelpers.js";
+import { safeEditMessageText } from "../../utils/messageHelpers.js";
+import {
+  getTournamentInfo,
+  buildTournamentMessage,
+  buildTournamentKeyboard,
+} from "../ui/tournamentUI.js";
 
 export const registrationCommands = new Composer<BotContext>();
-
-const DISCIPLINE_LABELS: Record<string, string> = {
-  snooker: "Снукер",
-};
-
-const FORMAT_LABELS: Record<string, string> = {
-  single_elimination: "Олимпийская система",
-  double_elimination: "Двойная элиминация",
-  round_robin: "Круговая система",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Черновик",
-  registration_open: "Регистрация открыта",
-  registration_closed: "Регистрация закрыта",
-  in_progress: "В процессе",
-  completed: "Завершён",
-  cancelled: "Отменён",
-};
-
-// Получить количество участников турнира
-async function getParticipantsCount(tournamentId: string): Promise<number> {
-  const result = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(tournamentParticipants)
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
-      ),
-    );
-  return result[0]?.count ?? 0;
-}
 
 // Получить регистрацию пользователя на турнир
 async function getUserParticipation(tournamentId: string, userId: string) {
@@ -48,66 +21,6 @@ async function getUserParticipation(tournamentId: string, userId: string) {
       eq(tournamentParticipants.userId, userId),
     ),
   });
-}
-
-// Сформировать карточку турнира с учётом регистрации пользователя
-async function formatTournamentCard(
-  tournament: typeof tournaments.$inferSelect,
-  userId: string,
-  participantsCount?: number,
-): Promise<string> {
-  const count =
-    participantsCount ?? (await getParticipantsCount(tournament.id));
-  const participation = await getUserParticipation(tournament.id, userId);
-
-  let registrationStatus = "";
-  if (
-    participation &&
-    (participation.status === "confirmed" || participation.status === "pending")
-  ) {
-    registrationStatus = "\n✅ Вы зарегистрированы";
-  }
-
-  return (
-    `📋 *${tournament.name}*\n\n` +
-    `Дисциплина: ${DISCIPLINE_LABELS[tournament.discipline] || tournament.discipline}\n` +
-    `Формат: ${FORMAT_LABELS[tournament.format] || tournament.format}\n` +
-    `Участников: ${count}/${tournament.maxParticipants}\n` +
-    `Дата: ${formatDate(tournament.startDate)}\n` +
-    `Статус: ${STATUS_LABELS[tournament.status] || tournament.status}` +
-    registrationStatus
-  );
-}
-
-// Сформировать клавиатуру для карточки турнира
-async function getTournamentKeyboard(
-  tournament: typeof tournaments.$inferSelect,
-  userId: string,
-): Promise<InlineKeyboard> {
-  const keyboard = new InlineKeyboard();
-
-  if (tournament.status !== "registration_open") {
-    return keyboard;
-  }
-
-  const participation = await getUserParticipation(tournament.id, userId);
-  const count = await getParticipantsCount(tournament.id);
-  const spotsAvailable = count < tournament.maxParticipants;
-
-  if (!participation || participation.status === "cancelled") {
-    if (spotsAvailable) {
-      keyboard.text("Участвовать", `reg:join:${tournament.id}`);
-    } else {
-      keyboard.text("Мест нет", `reg:full:${tournament.id}`);
-    }
-  } else if (
-    participation.status === "pending" ||
-    participation.status === "confirmed"
-  ) {
-    keyboard.text("Отменить регистрацию", `reg:cancel:${tournament.id}`);
-  }
-
-  return keyboard;
 }
 
 // === РЕГИСТРАЦИЯ НА ТУРНИР ===
@@ -149,9 +62,9 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
   }
 
   // 4. Проверить лимит участников
-  const count = await getParticipantsCount(tournamentId);
+  const tournamentInfo = await getTournamentInfo(tournament, userId);
 
-  if (count >= tournament.maxParticipants) {
+  if (tournamentInfo.participantsCount >= tournament.maxParticipants) {
     await ctx.answerCallbackQuery({
       text: "К сожалению, все места заняты",
       show_alert: true,
@@ -182,10 +95,13 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
   // 6. Обновить сообщение
   await ctx.answerCallbackQuery({ text: "Вы зарегистрированы!" });
 
-  const newKeyboard = await getTournamentKeyboard(tournament, userId);
-  const updatedText = await formatTournamentCard(tournament, userId, count + 1);
+  const updatedInfo = await getTournamentInfo(tournament, userId);
+  const isAdmin = ctx.dbUser.role === "admin";
+  const updatedText = buildTournamentMessage(updatedInfo, isAdmin);
+  const newKeyboard = buildTournamentKeyboard(updatedInfo, isAdmin);
 
-  await ctx.editMessageText(updatedText, {
+  await safeEditMessageText(ctx, {
+    text: updatedText,
     parse_mode: "Markdown",
     reply_markup: newKeyboard,
   });
@@ -244,11 +160,13 @@ registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery({ text: "Регистрация отменена" });
 
   // Обновить сообщение
-  const count = await getParticipantsCount(tournamentId);
-  const newKeyboard = await getTournamentKeyboard(tournament, userId);
-  const updatedText = await formatTournamentCard(tournament, userId, count);
+  const updatedInfo = await getTournamentInfo(tournament, userId);
+  const isAdmin = ctx.dbUser.role === "admin";
+  const updatedText = buildTournamentMessage(updatedInfo, isAdmin);
+  const newKeyboard = buildTournamentKeyboard(updatedInfo, isAdmin);
 
-  await ctx.editMessageText(updatedText, {
+  await safeEditMessageText(ctx, {
+    text: updatedText,
     parse_mode: "Markdown",
     reply_markup: newKeyboard,
   });
@@ -305,7 +223,7 @@ registrationCommands.command("my_tournaments", async (ctx) => {
       `   Дата: ${formatDate(tournament.startDate)}\n` +
       `   Статус заявки: ${statusText}\n\n`;
 
-    keyboard.text(tournament.name, `reg:view:${tournament.id}`).row();
+    keyboard.text(tournament.name, `tournament_info:${tournament.id}`).row();
   }
 
   await ctx.reply(message, {
@@ -314,30 +232,3 @@ registrationCommands.command("my_tournaments", async (ctx) => {
   });
 });
 
-// === ПРОСМОТР ТУРНИРА ИЗ СПИСКА ===
-registrationCommands.callbackQuery(/^reg:view:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]!;
-  const userId = ctx.dbUser.id;
-
-  const tournament = await db.query.tournaments.findFirst({
-    where: eq(tournaments.id, tournamentId),
-  });
-
-  if (!tournament) {
-    await ctx.answerCallbackQuery({
-      text: "Турнир не найден",
-      show_alert: true,
-    });
-    return;
-  }
-
-  await ctx.answerCallbackQuery();
-
-  const text = await formatTournamentCard(tournament, userId);
-  const keyboard = await getTournamentKeyboard(tournament, userId);
-
-  await ctx.reply(text, {
-    parse_mode: "Markdown",
-    reply_markup: keyboard,
-  });
-});
