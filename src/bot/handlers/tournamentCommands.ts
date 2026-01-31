@@ -429,13 +429,7 @@ tournamentCommands.callbackQuery(
       const participants = await getConfirmedParticipants(tournamentId);
 
       // 3. Generate bracket
-      const bracket = generateBracket(
-        tournament.format as
-          | "single_elimination"
-          | "double_elimination"
-          | "round_robin",
-        participants,
-      );
+      const bracket = generateBracket(tournament.format, participants);
 
       // 4. Create matches in database
       await createMatches(tournamentId, bracket);
