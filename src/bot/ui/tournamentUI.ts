@@ -188,7 +188,7 @@ export function buildTournamentListKeyboard(
   for (const t of tournaments) {
     if (t.status === "registration_open") {
       keyboard
-        .text(`📋 ${t.name}`, `reg:view:${t.id}`)
+        .text(`📋 ${t.name}`, `tournament_info:${t.id}`)
         .text("Участвовать", `reg:join:${t.id}`)
         .row();
     }

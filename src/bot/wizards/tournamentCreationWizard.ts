@@ -4,6 +4,7 @@ import { db } from "../../db/db.js";
 import { tournaments, tournamentFormat, discipline } from "../../db/schema.js";
 import { parseDate, formatDate } from "../../utils/dateHelpers.js";
 import { DISCIPLINE_LABELS, FORMAT_LABELS } from "../../utils/constants.js";
+import { safeEditMessageText } from "../../utils/messageHelpers.js";
 
 const STEPS_COUNT = 6;
 
@@ -164,11 +165,12 @@ export async function handleDisciplineSelection(
     keyboard.text(FORMAT_LABELS[fmt] || fmt, `format:${fmt}`).row();
   }
 
-  await ctx.editMessageText(
-    `Дисциплина: ${DISCIPLINE_LABELS[selectedDiscipline]}\n\n` +
+  await safeEditMessageText(ctx, {
+    text:
+      `Дисциплина: ${DISCIPLINE_LABELS[selectedDiscipline]}\n\n` +
       `Шаг 3/${STEPS_COUNT}: Выберите формат турнира:`,
-    { reply_markup: keyboard },
-  );
+    reply_markup: keyboard,
+  });
 }
 
 /**
@@ -202,11 +204,12 @@ export async function handleFormatSelection(
     .text("64", "participants:64")
     .text("128", "participants:128");
 
-  await ctx.editMessageText(
-    `Формат: ${FORMAT_LABELS[selectedFormat]}\n\n` +
+  await safeEditMessageText(ctx, {
+    text:
+      `Формат: ${FORMAT_LABELS[selectedFormat]}\n\n` +
       `Шаг 5/${STEPS_COUNT}: Выберите максимальное количество участников:`,
-    { reply_markup: keyboard },
-  );
+    reply_markup: keyboard,
+  });
 }
 
 /**
@@ -239,11 +242,12 @@ export async function handleMaxParticipantsSelection(
     .text("До 4 побед", "winscore:4")
     .text("До 5 побед", "winscore:5");
 
-  await ctx.editMessageText(
-    `Участников: ${participants}\n\n` +
+  await safeEditMessageText(ctx, {
+    text:
+      `Участников: ${participants}\n\n` +
       `Шаг 6/${STEPS_COUNT}: До скольки побед играть?`,
-    { reply_markup: keyboard },
-  );
+    reply_markup: keyboard,
+  });
 }
 
 /**
@@ -285,7 +289,9 @@ export async function handleWinScoreSelection(
       .returning();
 
     if (!newTournament) {
-      await ctx.editMessageText("При создании турнира возникла ошибка");
+      await safeEditMessageText(ctx, {
+        text: "При создании турнира возникла ошибка",
+      });
       return;
     }
 
@@ -295,8 +301,9 @@ export async function handleWinScoreSelection(
       .text("Открыть регистрацию", `tournament_open_reg:${newTournament.id}`)
       .row();
 
-    await ctx.editMessageText(
-      `✅ Турнир создан!\n\n` +
+    await safeEditMessageText(ctx, {
+      text:
+        `✅ Турнир создан!\n\n` +
         `Название: ${newTournament.name}\n` +
         `Дата начала: ${formatDate(newTournament.startDate)}\n ` +
         `Дисциплина: ${DISCIPLINE_LABELS[newTournament.discipline]}\n` +
@@ -305,12 +312,13 @@ export async function handleWinScoreSelection(
         `До побед: ${newTournament.winScore}\n` +
         `Статус: Черновик\n\n` +
         `ID: \`${newTournament.id}\``,
-      { parse_mode: "Markdown", reply_markup: keyboard },
-    );
+      parse_mode: "Markdown",
+      reply_markup: keyboard,
+    });
   } catch (error) {
     console.error("Error creating tournament:", error);
-    await ctx.editMessageText(
-      `❌ Ошибка при создании турнира:\n${error instanceof Error ? error.message : "Неизвестная ошибка"}`,
-    );
+    await safeEditMessageText(ctx, {
+      text: `❌ Ошибка при создании турнира:\n${error instanceof Error ? error.message : "Неизвестная ошибка"}`,
+    });
   }
 }

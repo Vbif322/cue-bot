@@ -1,9 +1,10 @@
-import { Bot, Composer, InlineKeyboard } from "grammy";
-import { eq, and, inArray } from "drizzle-orm";
+import { Composer, InlineKeyboard } from "grammy";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../../db/db.js";
-import { tournaments, matches, users } from "../../db/schema.js";
+import { tournaments, users } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import { isAdmin } from "../permissions.js";
+import { safeEditMessageText } from "../../utils/messageHelpers.js";
 import {
   getMatch,
   getPlayerActiveMatches,
@@ -304,7 +305,8 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
   const text = formatMatchCard(match, tournament);
   const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
 
-  await ctx.editMessageText(text, {
+  await safeEditMessageText(ctx, {
+    text,
     parse_mode: "Markdown",
     reply_markup: keyboard,
   });
@@ -357,7 +359,8 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
       isAdmin(ctx),
     );
 
-    await ctx.editMessageText(text, {
+    await safeEditMessageText(ctx, {
+      text,
       parse_mode: "Markdown",
       reply_markup: keyboard,
     });
@@ -438,13 +441,15 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
 
   keyboard.text("❌ Отмена", `match:view:${matchId}`);
 
-  await ctx.editMessageText(
-    `📝 *Внесение результата*\n\n` +
+  await safeEditMessageText(ctx, {
+    text:
+      `📝 *Внесение результата*\n\n` +
       `${player1} vs ${player2}\n\n` +
       `Игра до: ${winScore} побед\n\n` +
       `Выберите счёт:`,
-    { parse_mode: "Markdown", reply_markup: keyboard },
-  );
+    parse_mode: "Markdown",
+    reply_markup: keyboard,
+  });
 });
 
 // Выбор счёта
@@ -492,7 +497,8 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
     const text = formatMatchCard(match, tournament);
     const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
 
-    await ctx.editMessageText(text, {
+    await safeEditMessageText(ctx, {
+      text,
       parse_mode: "Markdown",
       reply_markup: keyboard,
     });
@@ -528,7 +534,8 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
     const text = formatMatchCard(match, tournament);
     const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
 
-    await ctx.editMessageText(text, {
+    await safeEditMessageText(ctx, {
+      text,
       parse_mode: "Markdown",
       reply_markup: keyboard,
     });
@@ -568,7 +575,8 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
       "\n\n⚠️ Результат оспорен. Ожидайте решения судьи.";
     const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
 
-    await ctx.editMessageText(text, {
+    await safeEditMessageText(ctx, {
+      text,
       parse_mode: "Markdown",
       reply_markup: keyboard,
     });
@@ -616,28 +624,24 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
 
   if (match.player1Id) {
     keyboard
-      .text(
-        `✅ Победа ${player1}`,
-        `match:tech_win:${matchId}:${match.player1Id}:walkover`,
-      )
+      .text(`✅ Победа ${player1}`, `match:tech_win:${matchId}:1:walkover`)
       .row();
   }
   if (match.player2Id) {
     keyboard
-      .text(
-        `✅ Победа ${player2}`,
-        `match:tech_win:${matchId}:${match.player2Id}:walkover`,
-      )
+      .text(`✅ Победа ${player2}`, `match:tech_win:${matchId}:2:walkover`)
       .row();
   }
   keyboard.text("❌ Отмена", `match:view:${matchId}`);
 
-  await ctx.editMessageText(
-    `⚙️ *Технический результат*\n\n` +
+  await safeEditMessageText(ctx, {
+    text:
+      `⚙️ *Технический результат*\n\n` +
       `Матч: ${player1} vs ${player2}\n\n` +
       `Выберите победителя:`,
-    { parse_mode: "Markdown", reply_markup: keyboard },
-  );
+    parse_mode: "Markdown",
+    reply_markup: keyboard,
+  });
 });
 
 // Установить технический результат
@@ -651,9 +655,29 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
   }
 
   const matchId = ctx.match![1]!;
-  const winnerId = ctx.match![2]!;
+  const playerIndex = ctx.match![2]!; // "1" или "2"
   const reason = ctx.match![3]!;
   const userId = ctx.dbUser.id;
+
+  // Получаем матч для определения winnerId по индексу
+  const matchData = await getMatch(matchId);
+  if (!matchData) {
+    await ctx.answerCallbackQuery({
+      text: "Матч не найден",
+      show_alert: true,
+    });
+    return;
+  }
+
+  const winnerId =
+    playerIndex === "1" ? matchData.player1Id : matchData.player2Id;
+  if (!winnerId) {
+    await ctx.answerCallbackQuery({
+      text: "Игрок не найден",
+      show_alert: true,
+    });
+    return;
+  }
 
   const reasonText =
     reason === "no_show"
@@ -693,7 +717,8 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
     const text = formatMatchCard(match, tournament);
     const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
 
-    await ctx.editMessageText(text, {
+    await safeEditMessageText(ctx, {
+      text,
       parse_mode: "Markdown",
       reply_markup: keyboard,
     });
@@ -717,7 +742,7 @@ async function showBracket(
   if (!tournament) {
     const msg = "Турнир не найден";
     if (isEdit) {
-      await ctx.editMessageText(msg);
+      await safeEditMessageText(ctx, { text: msg });
     } else {
       await ctx.reply(msg);
     }
@@ -730,7 +755,7 @@ async function showBracket(
   if (allMatches.length === 0) {
     const msg = "Сетка турнира ещё не сформирована.";
     if (isEdit) {
-      await ctx.editMessageText(msg);
+      await safeEditMessageText(ctx, { text: msg });
     } else {
       await ctx.reply(msg);
     }
@@ -817,20 +842,11 @@ async function showBracket(
   keyboard.text("🔄 Обновить", `bracket:view:${tournamentId}`).row();
 
   if (isEdit) {
-    try {
-      await ctx.editMessageText(text, {
-        parse_mode: "Markdown",
-        reply_markup: keyboard,
-      });
-    } catch (error) {
-      // Игнорируем ошибку, если сообщение не изменилось
-      if (
-        error instanceof Error &&
-        !error.message.includes("message is not modified")
-      ) {
-        throw error;
-      }
-    }
+    await safeEditMessageText(ctx, {
+      text,
+      parse_mode: "Markdown",
+      reply_markup: keyboard,
+    });
   } else {
     await ctx.reply(text, {
       parse_mode: "Markdown",
