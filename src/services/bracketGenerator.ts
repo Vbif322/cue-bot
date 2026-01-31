@@ -1,3 +1,4 @@
+import type { Tournament } from "../bot/@types/tournament.js";
 import type { TournamentParticipant } from "./tournamentService.js";
 
 export interface BracketMatch {
@@ -67,17 +68,19 @@ export function generateSeedPositions(bracketSize: number): number[] {
  * Generate Single Elimination bracket
  */
 export function generateSingleEliminationBracket(
-  participants: TournamentParticipant[]
+  participants: TournamentParticipant[],
 ): BracketMatch[] {
-  const shuffled = shuffleArray(participants);
-  const bracketSize = getNextPowerOfTwo(shuffled.length);
+  const bracketSize = getNextPowerOfTwo(participants.length);
   const totalRounds = calculateRounds(bracketSize);
 
   // Assign seeds to shuffled participants (random seeding)
-  const seededParticipants = shuffled.map((p, index) => ({
-    ...p,
-    seed: index + 1,
-  }));
+  // const seededParticipants = shuffled.map((p, index) => ({
+  //   ...p,
+  //   seed: index + 1,
+  // }));
+
+  // console.log(seededParticipants);
+  // return;
 
   // Create null entries for BYEs
   const allSlots: (TournamentParticipant | null)[] = [];
@@ -85,8 +88,8 @@ export function generateSingleEliminationBracket(
 
   for (let i = 0; i < bracketSize; i++) {
     const seedPosition = seedPositions[i] ?? i + 1;
-    if (seedPosition <= shuffled.length) {
-      allSlots.push(seededParticipants[seedPosition - 1] ?? null);
+    if (seedPosition <= participants.length) {
+      allSlots.push(participants[seedPosition - 1] ?? null);
     } else {
       allSlots.push(null); // BYE
     }
@@ -172,11 +175,13 @@ export function generateSingleEliminationBracket(
 function advanceToNextMatch(
   matches: BracketMatch[],
   currentMatch: BracketMatch,
-  playerId: string
+  playerId: string,
 ): void {
   if (currentMatch.nextMatchId === undefined) return;
 
-  const nextMatch = matches.find((m) => m.position === currentMatch.nextMatchId);
+  const nextMatch = matches.find(
+    (m) => m.position === currentMatch.nextMatchId,
+  );
   if (!nextMatch) return;
 
   if (currentMatch.nextMatchPosition === "player1") {
@@ -190,7 +195,7 @@ function advanceToNextMatch(
  * Generate Double Elimination bracket
  */
 export function generateDoubleEliminationBracket(
-  participants: TournamentParticipant[]
+  participants: TournamentParticipant[],
 ): BracketMatch[] {
   const shuffled = shuffleArray(participants);
   const bracketSize = getNextPowerOfTwo(shuffled.length);
@@ -232,7 +237,9 @@ export function generateDoubleEliminationBracket(
 
   for (let round = 2; round <= losersRounds; round++) {
     const isDropInRound = round % 2 === 1;
-    const currentMatches = isDropInRound ? prevRoundMatches : prevRoundMatches / 2;
+    const currentMatches = isDropInRound
+      ? prevRoundMatches
+      : prevRoundMatches / 2;
 
     const roundMatches: BracketMatch[] = [];
     for (let i = 0; i < currentMatches; i++) {
@@ -271,8 +278,12 @@ export function generateDoubleEliminationBracket(
     if (match.round === 1) {
       // Losers from R1 go to Losers R1
       const losersMatchIndex = Math.floor((match.position - 1) / 2);
-      if (losersMatchesByRound[0] && losersMatchesByRound[0][losersMatchIndex]) {
-        match.losersNextMatchPosition = losersMatchesByRound[0][losersMatchIndex].position;
+      if (
+        losersMatchesByRound[0] &&
+        losersMatchesByRound[0][losersMatchIndex]
+      ) {
+        match.losersNextMatchPosition =
+          losersMatchesByRound[0][losersMatchIndex].position;
       }
     }
   }
@@ -284,8 +295,8 @@ export function generateDoubleEliminationBracket(
  * Main bracket generation function
  */
 export function generateBracket(
-  format: "single_elimination" | "double_elimination" | "round_robin",
-  participants: TournamentParticipant[]
+  format: Tournament["format"],
+  participants: TournamentParticipant[],
 ): BracketMatch[] {
   if (participants.length < 2) {
     throw new Error("Минимум 2 участника для создания сетки");
@@ -307,7 +318,7 @@ export function generateBracket(
  * Generate Round Robin matches (all vs all)
  */
 export function generateRoundRobinMatches(
-  participants: TournamentParticipant[]
+  participants: TournamentParticipant[],
 ): BracketMatch[] {
   const matches: BracketMatch[] = [];
   const n = participants.length;
@@ -317,7 +328,12 @@ export function generateRoundRobinMatches(
   const players = [...shuffled];
   const hasBye = n % 2 === 1;
   if (hasBye) {
-    players.push({ userId: "BYE", username: null, name: null, seed: null } as TournamentParticipant);
+    players.push({
+      userId: "BYE",
+      username: null,
+      name: null,
+      seed: null,
+    } as TournamentParticipant);
   }
 
   const totalPlayers = players.length;
@@ -358,7 +374,7 @@ export function generateRoundRobinMatches(
  */
 export function getBracketStats(
   format: "single_elimination" | "double_elimination" | "round_robin",
-  participantsCount: number
+  participantsCount: number,
 ): { totalMatches: number; totalRounds: number } {
   const bracketSize = getNextPowerOfTwo(participantsCount);
 
@@ -394,7 +410,7 @@ export function getRoundName(
   round: number,
   totalRounds: number,
   format: string,
-  bracketType: string = "winners"
+  bracketType: string = "winners",
 ): string {
   if (format === "round_robin") {
     return `Тур ${round}`;
