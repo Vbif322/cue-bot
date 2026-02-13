@@ -15,6 +15,7 @@ import {
   updateTournamentStatus,
   deleteTournament,
   canDeleteTournament,
+  closeRegistrationWithCount,
 } from "../../services/tournamentService.js";
 import {
   generateBracket,
@@ -106,14 +107,18 @@ tournamentCommands.command("tournaments", async (ctx) => {
     visibleTournaments.map((t) => getTournamentInfo(t, ctx.dbUser.id)),
   );
 
+  const currentTournaments = tournamentsInfo.filter(
+    (tournament) => tournament.status !== "completed",
+  );
+
   // Build message
   let message = "Список турниров:\n\n";
-  for (const info of tournamentsInfo) {
+  for (const info of currentTournaments) {
     message += buildTournamentListItem(info, admin);
   }
 
   // Build keyboard
-  const keyboard = buildTournamentListKeyboard(tournamentsInfo);
+  const keyboard = buildTournamentListKeyboard(currentTournaments);
 
   if (keyboard.inline_keyboard.length > 0) {
     await ctx.reply(message, {
@@ -237,12 +242,25 @@ tournamentCommands.callbackQuery(/^tournament_close_reg:(.+)$/, async (ctx) => {
   }
 
   const tournamentId = ctx.match![1]!;
-  await updateTournamentStatus(tournamentId, "registration_closed");
 
-  await ctx.answerCallbackQuery("Регистрация закрыта");
-  await safeEditMessageText(ctx, {
-    text: ctx.callbackQuery.message?.text + "\n\n🔒 Регистрация закрыта!",
-  });
+  try {
+    // Close registration and get participant count
+    const count = await closeRegistrationWithCount(tournamentId);
+
+    await ctx.answerCallbackQuery("Регистрация закрыта");
+    await safeEditMessageText(ctx, {
+      text:
+        ctx.callbackQuery.message?.text +
+        "\n\n🔒 Регистрация закрыта!\n" +
+        `Участников: ${count}`,
+    });
+  } catch (error) {
+    console.error("Error closing registration:", error);
+    await ctx.answerCallbackQuery({
+      text: "Ошибка при закрытии регистрации",
+      show_alert: true,
+    });
+  }
 });
 
 /**

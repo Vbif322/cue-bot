@@ -15,176 +15,22 @@ import {
   setTechnicalResult,
   getMatchStats,
   startMatch,
-  type MatchWithPlayers,
 } from "../../services/matchService.js";
 import {
   getRoundName,
   calculateRounds,
   getNextPowerOfTwo,
 } from "../../services/bracketGenerator.js";
+import {
+  formatMatchCard,
+  getMatchKeyboard,
+  formatPlayerName,
+  getMatchStatusEmoji,
+} from "../ui/matchUI.js";
 import { bot } from "../../index.js";
+import { notifyMatchStart } from "../../services/notificationService.js";
 
 export const matchCommands = new Composer<BotContext>();
-
-/**
- * Format player name for display
- */
-function formatPlayerName(
-  username: string | null,
-  name: string | null,
-): string {
-  if (username) return `@${username}`;
-  if (name) return name;
-  return "Участник";
-}
-
-/**
- * Get match status emoji
- */
-function getMatchStatusEmoji(status: string): string {
-  switch (status) {
-    case "scheduled":
-      return "⏳";
-    case "in_progress":
-      return "🎱";
-    case "pending_confirmation":
-      return "⏸️";
-    case "completed":
-      return "✅";
-    case "cancelled":
-      return "❌";
-    default:
-      return "❓";
-  }
-}
-
-/**
- * Format match card
- */
-function formatMatchCard(
-  match: MatchWithPlayers,
-  tournament: typeof tournaments.$inferSelect,
-): string {
-  const player1 = formatPlayerName(
-    match.player1Username ?? null,
-    match.player1Name ?? null,
-  );
-  const player2 = formatPlayerName(
-    match.player2Username ?? null,
-    match.player2Name ?? null,
-  );
-
-  const bracketSize = getNextPowerOfTwo(tournament.maxParticipants);
-  const totalRounds = calculateRounds(bracketSize);
-  const roundName = getRoundName(
-    match.round,
-    totalRounds,
-    tournament.format,
-    match.bracketType || "winners",
-  );
-
-  let text = `🎱 *Матч #${match.position}*\n`;
-  text += `${roundName}\n\n`;
-  text += `${player1}\n`;
-  text += `vs\n`;
-  text += `${player2}\n\n`;
-
-  if (match.status === "completed" || match.status === "pending_confirmation") {
-    text += `Счёт: ${match.player1Score ?? 0} : ${match.player2Score ?? 0}\n`;
-  }
-
-  if (match.winnerId && match.status === "completed") {
-    const winnerName = formatPlayerName(
-      match.winnerUsername ?? null,
-      match.winnerName ?? null,
-    );
-    text += `Победитель: ${winnerName}\n`;
-  }
-
-  text += `\nСтатус: ${getMatchStatusEmoji(match.status)} `;
-  switch (match.status) {
-    case "scheduled":
-      text += "Ожидает начала";
-      break;
-    case "in_progress":
-      text += "В процессе";
-      break;
-    case "pending_confirmation":
-      text += "Ожидает подтверждения";
-      break;
-    case "completed":
-      text += "Завершён";
-      break;
-    case "cancelled":
-      text += "Отменён";
-      break;
-  }
-
-  if (match.isTechnicalResult) {
-    text += `\n⚠️ Технический результат: ${match.technicalReason || "не указана причина"}`;
-  }
-
-  return text;
-}
-
-/**
- * Get keyboard for match based on user role and match status
- */
-function getMatchKeyboard(
-  match: MatchWithPlayers,
-  userId: string,
-  tournament: typeof tournaments.$inferSelect,
-  isAdminUser: boolean,
-): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  const isPlayer1 = match.player1Id === userId;
-  const isPlayer2 = match.player2Id === userId;
-  const isParticipant = isPlayer1 || isPlayer2;
-
-  // Match in progress - allow reporting result
-  if (match.status === "in_progress" && isParticipant) {
-    keyboard.text("📝 Внести результат", `match:report:${match.id}`).row();
-  }
-
-  // Scheduled match - allow starting (if both players are set)
-  if (
-    match.status === "scheduled" &&
-    match.player1Id &&
-    match.player2Id &&
-    isParticipant
-  ) {
-    keyboard.text("▶️ Начать матч", `match:start:${match.id}`).row();
-  }
-
-  // Pending confirmation - show confirm/dispute for opponent
-  if (match.status === "pending_confirmation" && isParticipant) {
-    if (match.reportedBy !== userId) {
-      // This is the opponent who needs to confirm
-      keyboard
-        .text("✅ Подтвердить", `match:confirm:${match.id}`)
-        .text("❌ Оспорить", `match:dispute:${match.id}`)
-        .row();
-    } else {
-      keyboard
-        .text("⏳ Ожидание подтверждения...", `match:waiting:${match.id}`)
-        .row();
-    }
-  }
-
-  // Admin/referee can set technical result
-  if (
-    isAdminUser &&
-    match.status !== "completed" &&
-    match.status !== "cancelled"
-  ) {
-    keyboard.text("⚙️ Тех. результат", `match:tech:${match.id}`).row();
-  }
-
-  // Back to bracket
-  keyboard.text("📊 К сетке", `bracket:view:${match.tournamentId}`).row();
-
-  return keyboard;
-}
 
 // === КОМАНДЫ ===
 
@@ -342,15 +188,15 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
     return;
   }
 
-  await ctx.answerCallbackQuery("Матч начат!");
-
-  // Refresh match view
-  const updatedMatch = await getMatch(matchId);
+  const updatedMatch = { ...match, ...result.match };
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, match.tournamentId),
   });
 
+  await ctx.answerCallbackQuery("Матч начат!");
+
   if (updatedMatch && tournament) {
+    await notifyMatchStart(bot, updatedMatch, tournament.name, userId);
     const text = formatMatchCard(updatedMatch, tournament);
     const keyboard = getMatchKeyboard(
       updatedMatch,
@@ -771,18 +617,24 @@ async function showBracket(
     matchesByRound.get(match.round)!.push(match);
   }
 
-  const bracketSize = getNextPowerOfTwo(tournament.maxParticipants);
+  // Get all player IDs from matches
+  const playerIds = new Set<string>();
+  for (const match of allMatches) {
+    if (match.player1Id) {
+      playerIds.add(match.player1Id);
+    }
+    if (match.player2Id) {
+      playerIds.add(match.player2Id);
+    }
+  }
+
+  const bracketSize = getNextPowerOfTwo(playerIds.size);
   const totalRounds = calculateRounds(bracketSize);
 
   let text = `📊 *Сетка турнира "${tournament.name}"*\n`;
   text += `Завершено: ${stats.completed}/${stats.total} матчей\n\n`;
 
   // Get all player names
-  const playerIds = new Set<string>();
-  for (const match of allMatches) {
-    if (match.player1Id) playerIds.add(match.player1Id);
-    if (match.player2Id) playerIds.add(match.player2Id);
-  }
 
   const playerMap = new Map<
     string,

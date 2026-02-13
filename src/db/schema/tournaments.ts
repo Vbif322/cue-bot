@@ -32,6 +32,7 @@ export const tournaments = prodSchema.table("tournaments", {
   format: varchar({ enum: tournamentFormat }).notNull(),
   status: varchar({ enum: tournamentStatus }).notNull().default("draft"),
   startDate: timestamp("start_date"),
+  confirmedParticipants: integer("confirmed_participants"),
   maxParticipants: integer("max_participants").notNull().default(16),
   winScore: integer("win_score").notNull().default(3),
   rules: text(),

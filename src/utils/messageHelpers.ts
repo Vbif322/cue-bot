@@ -48,7 +48,10 @@ export async function safeEditMessageText(
   } catch (error) {
     // Handle Grammy errors (Telegram API errors)
     if (error instanceof GrammyError) {
-      if (error.error_code === 400) {
+      if (
+        error.error_code === 400 &&
+        !error.description.includes("message is not modified") // если сообщение не изменилось, то ничего не делаем
+      ) {
         // Send new message instead
         await ctx.reply(text, {
           ...(parse_mode && { parse_mode }),

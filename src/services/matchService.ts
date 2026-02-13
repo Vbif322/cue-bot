@@ -2,28 +2,15 @@ import { and, eq, inArray, or, asc } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { matches, tournaments, users } from "../db/schema.js";
 import type { BracketMatch } from "./bracketGenerator.js";
+import type { Match, MatchWithPlayers } from "../bot/@types/match.js";
 import { completeTournament, getTournament } from "./tournamentService.js";
-
-export type Match = typeof matches.$inferSelect;
-
-export interface MatchWithPlayers extends Match {
-  player1Username?: string | null;
-  player1Name?: string | null;
-  player1TelegramId?: string | null;
-  player2Username?: string | null;
-  player2Name?: string | null;
-  player2TelegramId?: string | null;
-  winnerUsername?: string | null;
-  winnerName?: string | null;
-  winnerTelegramId?: string | null;
-}
 
 /**
  * Create matches in database from generated bracket
  */
 export async function createMatches(
   tournamentId: string,
-  bracket: BracketMatch[]
+  bracket: BracketMatch[],
 ): Promise<void> {
   // First, create all matches without nextMatchId (we'll update later)
   const createdMatches: { position: number; id: string }[] = [];
@@ -50,8 +37,12 @@ export async function createMatches(
   // Now update nextMatchId references
   for (const match of bracket) {
     if (match.nextMatchId !== undefined) {
-      const currentMatch = createdMatches.find((m) => m.position === match.position);
-      const nextMatch = createdMatches.find((m) => m.position === match.nextMatchId);
+      const currentMatch = createdMatches.find(
+        (m) => m.position === match.position,
+      );
+      const nextMatch = createdMatches.find(
+        (m) => m.position === match.nextMatchId,
+      );
 
       if (currentMatch && nextMatch) {
         await db
@@ -66,7 +57,9 @@ export async function createMatches(
 /**
  * Determine initial status for a match
  */
-function determineInitialStatus(match: BracketMatch): typeof matches.$inferSelect["status"] {
+function determineInitialStatus(
+  match: BracketMatch,
+): (typeof matches.$inferSelect)["status"] {
   // If both players are set, match is ready to play
   if (match.player1Id && match.player2Id) {
     return "scheduled";
@@ -79,7 +72,9 @@ function determineInitialStatus(match: BracketMatch): typeof matches.$inferSelec
 /**
  * Get match by ID with player information
  */
-export async function getMatch(matchId: string): Promise<MatchWithPlayers | null> {
+export async function getMatch(
+  matchId: string,
+): Promise<MatchWithPlayers | null> {
   const result = await db
     .select({
       match: matches,
@@ -142,7 +137,7 @@ export async function getMatch(matchId: string): Promise<MatchWithPlayers | null
  */
 export async function getPlayerCurrentMatch(
   tournamentId: string,
-  userId: string
+  userId: string,
 ): Promise<MatchWithPlayers | null> {
   const result = await db
     .select()
@@ -151,8 +146,12 @@ export async function getPlayerCurrentMatch(
       and(
         eq(matches.tournamentId, tournamentId),
         or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
-        inArray(matches.status, ["scheduled", "in_progress", "pending_confirmation"])
-      )
+        inArray(matches.status, [
+          "scheduled",
+          "in_progress",
+          "pending_confirmation",
+        ]),
+      ),
     )
     .orderBy(asc(matches.round))
     .limit(1);
@@ -166,7 +165,9 @@ export async function getPlayerCurrentMatch(
 /**
  * Get all active matches for a player across all tournaments
  */
-export async function getPlayerActiveMatches(userId: string): Promise<MatchWithPlayers[]> {
+export async function getPlayerActiveMatches(
+  userId: string,
+): Promise<MatchWithPlayers[]> {
   const result = await db
     .select()
     .from(matches)
@@ -175,8 +176,12 @@ export async function getPlayerActiveMatches(userId: string): Promise<MatchWithP
       and(
         eq(tournaments.status, "in_progress"),
         or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
-        inArray(matches.status, ["scheduled", "in_progress", "pending_confirmation"])
-      )
+        inArray(matches.status, [
+          "scheduled",
+          "in_progress",
+          "pending_confirmation",
+        ]),
+      ),
     )
     .orderBy(asc(matches.round));
 
@@ -192,7 +197,9 @@ export async function getPlayerActiveMatches(userId: string): Promise<MatchWithP
 /**
  * Get all matches for a tournament
  */
-export async function getTournamentMatches(tournamentId: string): Promise<Match[]> {
+export async function getTournamentMatches(
+  tournamentId: string,
+): Promise<Match[]> {
   return db.query.matches.findMany({
     where: eq(matches.tournamentId, tournamentId),
     orderBy: [asc(matches.round), asc(matches.position)],
@@ -205,7 +212,7 @@ export async function getTournamentMatches(tournamentId: string): Promise<Match[
 export async function getRoundMatches(
   tournamentId: string,
   round: number,
-  bracketType?: string
+  bracketType?: string,
 ): Promise<Match[]> {
   const conditions = [
     eq(matches.tournamentId, tournamentId),
@@ -229,7 +236,7 @@ export async function reportResult(
   matchId: string,
   reporterId: string,
   player1Score: number,
-  player2Score: number
+  player2Score: number,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
@@ -270,7 +277,8 @@ export async function reportResult(
   }
 
   // Determine winner
-  const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
+  const winnerId =
+    player1Score > player2Score ? match.player1Id : match.player2Id;
 
   // Update match
   await db
@@ -293,7 +301,7 @@ export async function reportResult(
  */
 export async function confirmResult(
   matchId: string,
-  confirmerId: string
+  confirmerId: string,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
@@ -307,7 +315,10 @@ export async function confirmResult(
 
   // Verify confirmer is the opponent (not the reporter)
   if (match.reportedBy === confirmerId) {
-    return { success: false, error: "Вы не можете подтвердить свой собственный результат" };
+    return {
+      success: false,
+      error: "Вы не можете подтвердить свой собственный результат",
+    };
   }
 
   if (match.player1Id !== confirmerId && match.player2Id !== confirmerId) {
@@ -336,7 +347,7 @@ export async function confirmResult(
  */
 export async function disputeResult(
   matchId: string,
-  userId: string
+  userId: string,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
@@ -376,7 +387,7 @@ export async function setTechnicalResult(
   matchId: string,
   winnerId: string,
   reason: string,
-  setById: string
+  setById: string,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
@@ -470,7 +481,10 @@ export async function advanceWinner(matchId: string): Promise<void> {
   await checkMatchReadiness(nextMatch.id);
 
   // Handle double elimination - loser goes to losers bracket
-  if (tournament.format === "double_elimination" && match.bracketType === "winners") {
+  if (
+    tournament.format === "double_elimination" &&
+    match.bracketType === "winners"
+  ) {
     await advanceLoserToLosersBracket(match);
   }
 }
@@ -503,7 +517,7 @@ async function advanceLoserToLosersBracket(match: Match): Promise<void> {
  * Check if tournament is complete
  */
 export async function checkTournamentCompletion(
-  tournamentId: string
+  tournamentId: string,
 ): Promise<boolean> {
   const tournament = await getTournament(tournamentId);
   if (!tournament) return false;
@@ -514,7 +528,7 @@ export async function checkTournamentCompletion(
   // For single elimination, check if final is complete
   if (tournament.format === "single_elimination") {
     const finalMatch = allMatches.find(
-      (m) => !m.nextMatchId && m.bracketType === "winners"
+      (m) => !m.nextMatchId && m.bracketType === "winners",
     );
     return finalMatch?.status === "completed";
   }
@@ -548,7 +562,7 @@ export async function getMatchStats(tournamentId: string): Promise<{
     total: allMatches.length,
     completed: allMatches.filter((m) => m.status === "completed").length,
     inProgress: allMatches.filter(
-      (m) => m.status === "in_progress" || m.status === "pending_confirmation"
+      (m) => m.status === "in_progress" || m.status === "pending_confirmation",
     ).length,
     scheduled: allMatches.filter((m) => m.status === "scheduled").length,
   };
@@ -557,29 +571,26 @@ export async function getMatchStats(tournamentId: string): Promise<{
 /**
  * Start a match (change status from scheduled to in_progress)
  */
-export async function startMatch(matchId: string): Promise<{ success: boolean; error?: string }> {
-  const match = await getMatch(matchId);
+export async function startMatch(
+  matchId: string,
+): Promise<{ success: boolean; error?: string; match?: Match }> {
+  try {
+    const updatedMatch = await db
+      .update(matches)
+      .set({
+        status: "in_progress",
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(matches.id, matchId))
+      .returning();
 
-  if (!match) {
-    return { success: false, error: "Матч не найден" };
+    if (!updatedMatch[0]) {
+      return { success: false, error: "Не удалось обновить матч" };
+    }
+
+    return { success: true, match: updatedMatch[0] };
+  } catch (error) {
+    return { success: false, error: JSON.stringify(error) };
   }
-
-  if (match.status !== "scheduled") {
-    return { success: false, error: "Матч не в статусе 'запланирован'" };
-  }
-
-  if (!match.player1Id || !match.player2Id) {
-    return { success: false, error: "Не все участники матча определены" };
-  }
-
-  await db
-    .update(matches)
-    .set({
-      status: "in_progress",
-      startedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(matches.id, matchId));
-
-  return { success: true };
 }
