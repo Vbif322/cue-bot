@@ -1,10 +1,13 @@
-import { and, eq, lt, inArray } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { Bot } from "grammy";
 import { db } from "../db/db.js";
 import { matches, tournaments } from "../db/schema.js";
 import type { BotContext } from "../bot/types.js";
 import { getMatch, setTechnicalResult } from "./matchService.js";
-import { sendMatchReminder, createAndSendNotification } from "./notificationService.js";
+import {
+  sendMatchReminder,
+  createAndSendNotification,
+} from "./notificationService.js";
 
 export interface TimeoutConfig {
   resultSubmissionHours: number; // Time to submit result (default: 24)
@@ -29,7 +32,7 @@ let currentConfig: TimeoutConfig = DEFAULT_CONFIG;
  */
 export function startTimeoutChecker(
   bot: Bot<BotContext>,
-  config: Partial<TimeoutConfig> = {}
+  config: Partial<TimeoutConfig> = {},
 ): void {
   botInstance = bot;
   currentConfig = { ...DEFAULT_CONFIG, ...config };
@@ -44,11 +47,11 @@ export function startTimeoutChecker(
 
   timeoutInterval = setInterval(
     checkAllTimeouts,
-    currentConfig.checkIntervalMinutes * 60 * 1000
+    currentConfig.checkIntervalMinutes * 60 * 1000,
   );
 
   console.log(
-    `Timeout checker started (interval: ${currentConfig.checkIntervalMinutes} min)`
+    `Timeout checker started (interval: ${currentConfig.checkIntervalMinutes} min)`,
   );
 }
 
@@ -86,14 +89,14 @@ async function checkMatchReminders(): Promise<void> {
 
   const reminderThreshold = new Date();
   reminderThreshold.setHours(
-    reminderThreshold.getHours() + currentConfig.reminderBeforeHours
+    reminderThreshold.getHours() + currentConfig.reminderBeforeHours,
   );
 
   // Find scheduled matches with scheduledAt within reminder window
   const matchesToRemind = await db.query.matches.findMany({
     where: and(
       eq(matches.status, "scheduled"),
-      lt(matches.scheduledAt, reminderThreshold)
+      lt(matches.scheduledAt, reminderThreshold),
     ),
   });
 
@@ -127,7 +130,7 @@ async function checkPendingConfirmations(): Promise<void> {
   const expiredMatches = await db.query.matches.findMany({
     where: and(
       eq(matches.status, "pending_confirmation"),
-      lt(matches.updatedAt, timeout)
+      lt(matches.updatedAt, timeout),
     ),
   });
 
@@ -188,7 +191,7 @@ async function checkInProgressMatches(): Promise<void> {
   const idleMatches = await db.query.matches.findMany({
     where: and(
       eq(matches.status, "in_progress"),
-      lt(matches.startedAt, timeout)
+      lt(matches.startedAt, timeout),
     ),
   });
 
@@ -256,7 +259,7 @@ export function updateTimeoutConfig(config: Partial<TimeoutConfig>): void {
 export async function assignTimeoutTechnicalLoss(
   matchId: string,
   loserId: string,
-  adminId: string
+  adminId: string,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
   if (!match) {
@@ -271,5 +274,10 @@ export async function assignTimeoutTechnicalLoss(
     return { success: false, error: "Невозможно определить победителя" };
   }
 
-  return setTechnicalResult(matchId, winnerId, "Техническое поражение по таймауту", adminId);
+  return setTechnicalResult(
+    matchId,
+    winnerId,
+    "Техническое поражение по таймауту",
+    adminId,
+  );
 }

@@ -23,14 +23,18 @@ const adminCommands: BotCommand[] = [
 
 export async function setupCommands(bot: Bot<BotContext>): Promise<void> {
   // Команды для всех пользователей в личных чатах
-  await bot.api.setMyCommands(userCommands, {
-    scope: { type: "all_private_chats" },
-  });
+  try {
+    await bot.api.setMyCommands(userCommands, {
+      scope: { type: "all_private_chats" },
+    });
 
-  // Команды для групповых чатов
-  await bot.api.setMyCommands(userCommands, {
-    scope: { type: "all_group_chats" },
-  });
+    // Команды для групповых чатов
+    await bot.api.setMyCommands(userCommands, {
+      scope: { type: "all_group_chats" },
+    });
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 export async function setAdminCommands(

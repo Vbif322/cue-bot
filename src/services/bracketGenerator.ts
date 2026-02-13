@@ -1,5 +1,5 @@
 import type { Tournament } from "../bot/@types/tournament.js";
-import type { TournamentParticipant } from "./tournamentService.js";
+import type { TournamentParticipant } from "../bot/@types/tournament.js";
 
 export interface BracketMatch {
   round: number;
@@ -50,7 +50,9 @@ export function shuffleArray<T>(array: T[]): T[] {
  * E.g., for 8 players: [1,8,4,5,2,7,3,6]
  */
 export function generateSeedPositions(bracketSize: number): number[] {
-  if (bracketSize === 2) return [1, 2];
+  if (bracketSize === 2) {
+    return [1, 2];
+  }
 
   const halfSize = bracketSize / 2;
   const topHalf = generateSeedPositions(halfSize);
@@ -79,9 +81,6 @@ export function generateSingleEliminationBracket(
   //   seed: index + 1,
   // }));
 
-  // console.log(seededParticipants);
-  // return;
-
   // Create null entries for BYEs
   const allSlots: (TournamentParticipant | null)[] = [];
   const seedPositions = generateSeedPositions(bracketSize);
@@ -106,16 +105,22 @@ export function generateSingleEliminationBracket(
     // Calculate next match position
     const nextMatchPos = Math.ceil((i + 1) / 2) + bracketSize / 2;
     const isTopHalf = i % 2 === 0;
+    const isFinal = totalRounds === 1;
 
-    matches.push({
+    const matchData: BracketMatch = {
       round: 1,
       position: matchPosition,
       player1Id: player1?.userId ?? null,
       player2Id: player2?.userId ?? null,
-      nextMatchId: nextMatchPos,
-      nextMatchPosition: isTopHalf ? "player1" : "player2",
       bracketType: "winners",
-    });
+    };
+
+    if (!isFinal) {
+      matchData.nextMatchId = nextMatchPos;
+      matchData.nextMatchPosition = isTopHalf ? "player1" : "player2";
+    }
+
+    matches.push(matchData);
     matchPosition++;
   }
 

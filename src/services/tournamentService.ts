@@ -1,15 +1,11 @@
-import { and, eq, inArray, asc } from "drizzle-orm";
+import { and, eq, inArray, asc, sql } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { tournaments, tournamentParticipants, users } from "../db/schema.js";
 import { shuffleArray } from "./bracketGenerator.js";
-import type { Status } from "../bot/@types/tournament.js";
-
-export interface TournamentParticipant {
-  userId: string;
-  username: string | null;
-  name: string | null;
-  seed: number | null;
-}
+import type {
+  TournamentStatus,
+  TournamentParticipant,
+} from "../bot/@types/tournament.js";
 
 export interface StartTournamentResult {
   canStart: boolean;
@@ -166,7 +162,7 @@ export async function getTournaments(options?: {
  */
 export async function updateTournamentStatus(
   tournamentId: string,
-  status: Status,
+  status: TournamentStatus,
 ): Promise<void> {
   await db
     .update(tournaments)
@@ -175,6 +171,38 @@ export async function updateTournamentStatus(
       updatedAt: new Date(),
     })
     .where(eq(tournaments.id, tournamentId));
+}
+
+/**
+ * Close tournament registration and save confirmed participants count
+ */
+export async function closeRegistrationWithCount(
+  tournamentId: string,
+): Promise<number> {
+  // Get participants count from tournamentParticipants table
+  const result = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+      ),
+    );
+
+  const count = result[0]?.count ?? 0;
+
+  // Update tournament status and confirmed participants count atomically
+  await db
+    .update(tournaments)
+    .set({
+      status: "registration_closed",
+      confirmedParticipants: count,
+      updatedAt: new Date(),
+    })
+    .where(eq(tournaments.id, tournamentId));
+
+  return count;
 }
 
 /**
