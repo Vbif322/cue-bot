@@ -51,7 +51,7 @@ export async function sendNotification(
   });
 
   if (!user || !user.telegram_id) return false;
-
+  console.log(`*${notification.title}*\n\n${notification.message}`);
   try {
     await bot.api.sendMessage(
       user.telegram_id,
@@ -113,7 +113,7 @@ export async function notifyMatchAssigned(
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player2Name}\n\n` +
-        `Используйте /my_match для просмотра деталей.`,
+        `Используйте /my\\_match для просмотра деталей.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
     });
@@ -128,17 +128,12 @@ export async function notifyMatchAssigned(
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player1Name}\n\n` +
-        `Используйте /my_match для просмотра деталей.`,
+        `Используйте /my\\_match для просмотра деталей.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
     });
   }
 }
-
-// export async function notifyMatchStart(match:Match, startedBy: string) {
-//   if (match.player1Id !== startedBy) {
-
-//   }
 // }
 /**
  * Notify match start
@@ -149,7 +144,6 @@ export async function notifyMatchStart(
   tournamentName: string,
   startedBy: string,
 ): Promise<void> {
-  console.log(match);
   const player1Name = match.player1Username
     ? `@${match.player1Username}`
     : match.player1Name || "Участник";
@@ -188,7 +182,7 @@ export async function notifyResultPending(
   // Find opponent
   const opponentId =
     match.player1Id === reportedByUserId ? match.player2Id : match.player1Id;
-
+  console.log(opponentId);
   if (!opponentId) return;
 
   const reporterName =
@@ -199,7 +193,6 @@ export async function notifyResultPending(
       : match.player2Username
         ? `@${match.player2Username}`
         : match.player2Name || "Соперник";
-
   await createAndSendNotification(bot, {
     userId: opponentId,
     type: "result_confirmation_request",
@@ -207,7 +200,7 @@ export async function notifyResultPending(
     message:
       `${reporterName} внёс результат: ${match.player1Score}:${match.player2Score}\n\n` +
       `Подтвердите или оспорьте результат.\n` +
-      `Используйте /my_match для просмотра.`,
+      `Используйте /my\\_match для просмотра`,
     tournamentId: match.tournamentId,
     matchId: match.id,
   });
@@ -238,6 +231,43 @@ export async function notifyResultConfirmed(
       userId: playerId,
       type: "result_confirmed",
       title: "Результат подтверждён",
+      message,
+      tournamentId: match.tournamentId,
+      matchId: match.id,
+    });
+  }
+}
+
+/**
+ * Notify both players about disputed result
+ */
+export async function notifyResultDisputed(
+  bot: Bot<BotContext>,
+  match: MatchWithPlayers,
+  disputedByUserId: string,
+): Promise<void> {
+  const disputerName =
+    match.player1Id === disputedByUserId
+      ? match.player1Username
+        ? `@${match.player1Username}`
+        : match.player1Name || "Игрок"
+      : match.player2Username
+        ? `@${match.player2Username}`
+        : match.player2Name || "Игрок";
+
+  const message =
+    `${disputerName} оспорил результат матча.\n\n` +
+    `Матч возвращён в статус "в процессе".\n` +
+    `Обратитесь к судье турнира для разрешения ситуации.`;
+
+  // Notify both players
+  for (const playerId of [match.player1Id, match.player2Id]) {
+    if (!playerId) continue;
+
+    await createAndSendNotification(bot, {
+      userId: playerId,
+      type: "result_dispute",
+      title: "Результат оспорен",
       message,
       tournamentId: match.tournamentId,
       matchId: match.id,
