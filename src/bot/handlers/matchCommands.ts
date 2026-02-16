@@ -28,7 +28,12 @@ import {
   getMatchStatusEmoji,
 } from "../ui/matchUI.js";
 import { bot } from "../../index.js";
-import { notifyMatchStart } from "../../services/notificationService.js";
+import {
+  notifyMatchStart,
+  notifyResultPending,
+  notifyResultConfirmed,
+  notifyResultDisputed,
+} from "../../services/notificationService.js";
 
 export const matchCommands = new Composer<BotContext>();
 
@@ -76,7 +81,7 @@ matchCommands.command("my_match", async (ctx) => {
   if (activeMatches.length > 1) {
     await ctx.reply(
       `У вас ещё ${activeMatches.length - 1} активных матчей.\n` +
-        `Используйте /my_matches для просмотра всех.`,
+        `Используйте /my\\_matches для просмотра всех.`,
     );
   }
 });
@@ -304,7 +309,6 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
   const player1Score = parseInt(ctx.match![2]!, 10);
   const player2Score = parseInt(ctx.match![3]!, 10);
   const userId = ctx.dbUser.id;
-  const match = await getMatch(matchId);
 
   const result = await reportResult(
     matchId,
@@ -324,24 +328,33 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery(
     "Результат внесён! Ожидаем подтверждения от соперника.",
   );
-  const chat_id =
-    userId === match?.player1Id
-      ? match.player2TelegramId
-      : match?.player1TelegramId;
-  if (chat_id) {
-    await bot.api.sendMessage(chat_id, "test");
-  }
 
-  // Show updated match
-  const tournament = match
+  // Get fresh match data after reportResult (includes updated scores and status)
+  const updatedMatch = await getMatch(matchId);
+  const tournament = updatedMatch
     ? await db.query.tournaments.findFirst({
-        where: eq(tournaments.id, match.tournamentId),
+        where: eq(tournaments.id, updatedMatch.tournamentId),
       })
     : null;
+  console.log(tournament, "1");
+  if (updatedMatch && tournament) {
+    // Send notification to opponent
+    try {
+      console.log(updatedMatch, "2");
+      await notifyResultPending(bot, updatedMatch, userId);
+    } catch (error) {
+      console.error("Failed to send result pending notification:", error);
+      // Don't fail the whole operation if notification fails
+    }
 
-  if (match && tournament) {
-    const text = formatMatchCard(match, tournament);
-    const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
+    // Show updated match UI
+    const text = formatMatchCard(updatedMatch, tournament);
+    const keyboard = getMatchKeyboard(
+      updatedMatch,
+      userId,
+      tournament,
+      isAdmin(ctx),
+    );
 
     await safeEditMessageText(ctx, {
       text,
@@ -368,7 +381,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery("Результат подтверждён!");
 
-  // Show updated match
+  // Show updated match and send notifications
   const match = await getMatch(matchId);
   const tournament = match
     ? await db.query.tournaments.findFirst({
@@ -377,6 +390,14 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
     : null;
 
   if (match && tournament) {
+    // Send notification to both players
+    try {
+      await notifyResultConfirmed(bot, match, tournament.name);
+    } catch (error) {
+      console.error("Failed to send result confirmed notification:", error);
+      // Don't fail the whole operation if notification fails
+    }
+
     const text = formatMatchCard(match, tournament);
     const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
 
@@ -407,7 +428,7 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
     "Результат оспорен. Обратитесь к судье турнира.",
   );
 
-  // Show updated match
+  // Show updated match and send notifications
   const match = await getMatch(matchId);
   const tournament = match
     ? await db.query.tournaments.findFirst({
@@ -416,6 +437,14 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
     : null;
 
   if (match && tournament) {
+    // Notify both players about the dispute
+    try {
+      await notifyResultDisputed(bot, match, userId);
+    } catch (error) {
+      console.error("Failed to send result disputed notification:", error);
+      // Don't fail the whole operation if notification fails
+    }
+
     const text =
       formatMatchCard(match, tournament) +
       "\n\n⚠️ Результат оспорен. Ожидайте решения судьи.";
@@ -431,10 +460,14 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
 
 // Ожидание (заглушка)
 matchCommands.callbackQuery(/^match:waiting:(.+)$/, async (ctx) => {
-  await ctx.answerCallbackQuery({
-    text: "Ожидаем подтверждения от соперника",
-    show_alert: false,
-  });
+  // await ctx.answerCallbackQuery({
+  //   text: "Ожидаем подтверждения от соперника",
+  //   show_alert: false,
+  // });
+  const userId = ctx.dbUser.id;
+  const matchId = ctx.match![1]!;
+  const updatedMatch = await getMatch(matchId);
+  await notifyResultPending(bot, updatedMatch, userId);
 });
 
 // Технический результат - меню
