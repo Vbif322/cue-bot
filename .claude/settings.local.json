@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx drizzle-kit generate:*)"
+      "Bash(npx drizzle-kit generate:*)",
+      "Bash(npx tsc:*)",
+      "Bash(echo:*)"
     ]
   }
 }

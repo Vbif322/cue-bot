@@ -16,17 +16,25 @@
   "main": "index.ts",
   "scripts": {
     "dev": "nodemon",
+    "dev:admin": "npm run dev --prefix admin",
     "build": "tsc",
+    "build:admin": "npm run build --prefix admin",
     "db:generate": "tsx node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx node_modules/drizzle-kit/bin.cjs migrate",
     "db:studio": "tsx node_modules/drizzle-kit/bin.cjs studio"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.9",
+    "@hono/zod-validator": "^0.7.6",
     "drizzle-orm": "^0.45.0",
     "grammy": "^1.38.4",
-    "pg": "^8.16.3"
+    "hono": "^4.12.2",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.16.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.10.1",
     "@types/pg": "^8.15.6",
     "drizzle-kit": "^0.31.8",
