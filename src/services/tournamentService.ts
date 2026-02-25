@@ -85,6 +85,23 @@ export async function getConfirmedParticipants(
  * Start tournament - change status to in_progress
  */
 export async function startTournament(tournamentId: string): Promise<void> {
+  // Get tournament to check format
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) {
+    throw new Error("Tournament not found");
+  }
+
+  // Validate double elimination requires exactly 16 participants
+  if (tournament.format === "double_elimination") {
+    const participants = await getConfirmedParticipants(tournamentId);
+    if (participants.length !== 16) {
+      throw new Error(
+        "Double elimination поддерживает только 16 участников. " +
+          `Текущее количество: ${participants.length}`,
+      );
+    }
+  }
+
   await db
     .update(tournaments)
     .set({

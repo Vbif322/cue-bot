@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { Bot } from "grammy";
+import type { Api } from "grammy";
 import { db } from "../db/db.js";
 import { notifications, users, tournaments, matches } from "../db/schema.js";
 import type { BotContext } from "../bot/types.js";
@@ -37,7 +37,7 @@ export async function createNotification(data: {
  * Send a notification to a user via Telegram
  */
 export async function sendNotification(
-  bot: Bot<BotContext>,
+  api: Api,
   notificationId: string,
 ): Promise<boolean> {
   const notification = await db.query.notifications.findFirst({
@@ -51,9 +51,9 @@ export async function sendNotification(
   });
 
   if (!user || !user.telegram_id) return false;
-  console.log(`*${notification.title}*\n\n${notification.message}`);
+
   try {
-    await bot.api.sendMessage(
+    await api.sendMessage(
       user.telegram_id,
       `*${notification.title}*\n\n${notification.message}`,
       { parse_mode: "Markdown" },
@@ -75,7 +75,7 @@ export async function sendNotification(
  * Create and send notification
  */
 export async function createAndSendNotification(
-  bot: Bot<BotContext>,
+  api: Api,
   data: {
     userId: string;
     type: NotificationType;
@@ -86,14 +86,14 @@ export async function createAndSendNotification(
   },
 ): Promise<boolean> {
   const notificationId = await createNotification(data);
-  return sendNotification(bot, notificationId);
+  return sendNotification(api, notificationId);
 }
 
 /**
  * Notify about match assignment
  */
 export async function notifyMatchAssigned(
-  bot: Bot<BotContext>,
+  api: Api,
   match: MatchWithPlayers,
   tournamentName: string,
 ): Promise<void> {
@@ -106,7 +106,7 @@ export async function notifyMatchAssigned(
 
   // Notify player 1
   if (match.player1Id) {
-    await createAndSendNotification(bot, {
+    await createAndSendNotification(api, {
       userId: match.player1Id,
       type: "bracket_formed",
       title: "Назначен матч",
@@ -121,7 +121,7 @@ export async function notifyMatchAssigned(
 
   // Notify player 2
   if (match.player2Id) {
-    await createAndSendNotification(bot, {
+    await createAndSendNotification(api, {
       userId: match.player2Id,
       type: "bracket_formed",
       title: "Назначен матч",
@@ -139,7 +139,7 @@ export async function notifyMatchAssigned(
  * Notify match start
  */
 export async function notifyMatchStart(
-  bot: Bot<BotContext>,
+  api: Api,
   match: MatchWithPlayers,
   tournamentName: string,
   startedBy: string,
@@ -157,7 +157,7 @@ export async function notifyMatchStart(
     const opponentName =
       playerId === match.player1Id ? player2Name : player1Name;
 
-    await createAndSendNotification(bot, {
+    await createAndSendNotification(api, {
       userId: playerId,
       type: "match_reminder",
       title: "Матч!",
@@ -175,14 +175,14 @@ export async function notifyMatchStart(
  * Notify about result pending confirmation
  */
 export async function notifyResultPending(
-  bot: Bot<BotContext>,
+  api: Api,
   match: MatchWithPlayers,
   reportedByUserId: string,
 ): Promise<void> {
   // Find opponent
   const opponentId =
     match.player1Id === reportedByUserId ? match.player2Id : match.player1Id;
-  console.log(opponentId);
+
   if (!opponentId) return;
 
   const reporterName =
@@ -193,7 +193,7 @@ export async function notifyResultPending(
       : match.player2Username
         ? `@${match.player2Username}`
         : match.player2Name || "Соперник";
-  await createAndSendNotification(bot, {
+  await createAndSendNotification(api, {
     userId: opponentId,
     type: "result_confirmation_request",
     title: "Подтвердите результат матча",
@@ -210,7 +210,7 @@ export async function notifyResultPending(
  * Notify both players about confirmed result
  */
 export async function notifyResultConfirmed(
-  bot: Bot<BotContext>,
+  api: Api,
   match: MatchWithPlayers,
   tournamentName: string,
 ): Promise<void> {
@@ -227,7 +227,7 @@ export async function notifyResultConfirmed(
   for (const playerId of [match.player1Id, match.player2Id]) {
     if (!playerId) continue;
 
-    await createAndSendNotification(bot, {
+    await createAndSendNotification(api, {
       userId: playerId,
       type: "result_confirmed",
       title: "Результат подтверждён",
@@ -242,7 +242,7 @@ export async function notifyResultConfirmed(
  * Notify both players about disputed result
  */
 export async function notifyResultDisputed(
-  bot: Bot<BotContext>,
+  api: Api,
   match: MatchWithPlayers,
   disputedByUserId: string,
 ): Promise<void> {
@@ -264,7 +264,7 @@ export async function notifyResultDisputed(
   for (const playerId of [match.player1Id, match.player2Id]) {
     if (!playerId) continue;
 
-    await createAndSendNotification(bot, {
+    await createAndSendNotification(api, {
       userId: playerId,
       type: "result_dispute",
       title: "Результат оспорен",
@@ -279,7 +279,7 @@ export async function notifyResultDisputed(
  * Notify about tournament completion
  */
 export async function notifyTournamentCompleted(
-  bot: Bot<BotContext>,
+  api: Api,
   tournamentId: string,
   winnerId: string,
   winnerName: string,
@@ -305,7 +305,7 @@ export async function notifyTournamentCompleted(
   for (const oderId of participantIds) {
     const isWinner = oderId === winnerId;
 
-    await createAndSendNotification(bot, {
+    await createAndSendNotification(api, {
       userId: oderId,
       type: "tournament_results",
       title: isWinner ? "Поздравляем с победой!" : "Турнир завершён",
@@ -321,7 +321,7 @@ export async function notifyTournamentCompleted(
  * Notify about disqualification
  */
 export async function notifyDisqualification(
-  bot: Bot<BotContext>,
+  api: Api,
   userId: string,
   tournamentId: string,
   reason: string,
@@ -330,7 +330,7 @@ export async function notifyDisqualification(
     where: eq(tournaments.id, tournamentId),
   });
 
-  await createAndSendNotification(bot, {
+  await createAndSendNotification(api, {
     userId,
     type: "disqualification",
     title: "Дисквалификация",
@@ -345,7 +345,7 @@ export async function notifyDisqualification(
  * Send match reminder
  */
 export async function sendMatchReminder(
-  bot: Bot<BotContext>,
+  api: Api,
   match: MatchWithPlayers,
   tournamentName: string,
 ): Promise<void> {
@@ -362,7 +362,7 @@ export async function sendMatchReminder(
     const opponentName =
       playerId === match.player1Id ? player2Name : player1Name;
 
-    await createAndSendNotification(bot, {
+    await createAndSendNotification(api, {
       userId: playerId,
       type: "match_reminder",
       title: "Напоминание о матче",

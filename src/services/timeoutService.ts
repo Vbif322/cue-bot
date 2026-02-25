@@ -112,7 +112,7 @@ async function checkMatchReminders(): Promise<void> {
     });
 
     if (tournament) {
-      await sendMatchReminder(botInstance, matchWithPlayers, tournament.name);
+      await sendMatchReminder(botInstance.api, matchWithPlayers, tournament.name);
     }
   }
 }
@@ -162,7 +162,7 @@ async function checkPendingConfirmations(): Promise<void> {
       match.player1Id === match.reportedBy ? match.player2Id : match.player1Id;
 
     if (opponentId) {
-      await createAndSendNotification(botInstance, {
+      await createAndSendNotification(botInstance.api, {
         userId: opponentId,
         type: "result_confirmed",
         title: "Результат автоматически подтверждён",
@@ -210,7 +210,7 @@ async function checkInProgressMatches(): Promise<void> {
     for (const playerId of [match.player1Id, match.player2Id]) {
       if (!playerId) continue;
 
-      await createAndSendNotification(botInstance, {
+      await createAndSendNotification(botInstance.api, {
         userId: playerId,
         type: "match_result_pending",
         title: "Напоминание: внесите результат",
