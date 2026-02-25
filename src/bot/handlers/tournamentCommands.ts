@@ -8,9 +8,6 @@ import { isAdmin } from "../permissions.js";
 import { safeEditMessageText } from "../../utils/messageHelpers.js";
 import {
   canStartTournament,
-  getConfirmedParticipants,
-  startTournament,
-  assignRandomSeeds,
   getTournament,
   updateTournamentStatus,
   deleteTournament,
@@ -18,15 +15,9 @@ import {
   closeRegistrationWithCount,
 } from "../../services/tournamentService.js";
 import {
-  generateBracket,
   getBracketStats,
 } from "../../services/bracketGenerator.js";
-import {
-  createMatches,
-  getRoundMatches,
-  getMatch,
-} from "../../services/matchService.js";
-import { notifyMatchAssigned } from "../../services/notificationService.js";
+import { startTournamentFull } from "../../services/tournamentStartService.js";
 import { FORMAT_LABELS, STATUS_LABELS } from "../../utils/constants.js";
 import {
   getTournamentInfo,
@@ -445,41 +436,7 @@ tournamentCommands.callbackQuery(
     await ctx.answerCallbackQuery("Запуск турнира...");
 
     try {
-      // 1. Assign random seeds
-      await assignRandomSeeds(tournamentId);
-
-      // 2. Get participants with seeds
-      const participants = await getConfirmedParticipants(tournamentId);
-
-      // 3. Generate bracket
-      const bracket = generateBracket(tournament.format, participants);
-
-      // 4. Create matches in database
-      await createMatches(tournamentId, bracket);
-
-      // 5. Update tournament status
-      await startTournament(tournamentId);
-
-      // 6. Notify first round participants
-      const firstRoundMatches = await getRoundMatches(tournamentId, 1);
-      for (const match of firstRoundMatches) {
-        try {
-          const matchWithPlayers = await getMatch(match.id);
-          if (matchWithPlayers) {
-            await notifyMatchAssigned(
-              ctx.api,
-              matchWithPlayers,
-              tournament.name
-            );
-          }
-        } catch (error) {
-          console.error(
-            `Failed to notify participants for match ${match.id}:`,
-            error
-          );
-          // Continue with other notifications even if one fails
-        }
-      }
+      const startResult = await startTournamentFull(tournamentId, ctx.api);
 
       const keyboard = new InlineKeyboard()
         .text("📊 Посмотреть сетку", `bracket:view:${tournamentId}`)
@@ -487,9 +444,9 @@ tournamentCommands.callbackQuery(
 
       await safeEditMessageText(ctx, {
         text:
-          `✅ *Турнир "${tournament.name}" запущен!*\n\n` +
-          `Участников: ${participants.length}\n` +
-          `Матчей создано: ${bracket.length}\n\n` +
+          `✅ *Турнир "${startResult.tournamentName}" запущен!*\n\n` +
+          `Участников: ${startResult.participantsCount}\n` +
+          `Матчей создано: ${startResult.matchesCreated}\n\n` +
           `Сетка сформирована, участники получили уведомления.\n` +
           `Используйте /my\\_match для просмотра своего текущего матча.`,
         parse_mode: "Markdown",

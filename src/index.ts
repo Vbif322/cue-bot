@@ -1,5 +1,4 @@
-import { Bot } from "grammy";
-import type { BotContext } from "./bot/types.js";
+import { bot } from "./bot/instance.js";
 import { authMiddleware } from "./bot/middleware/index.js";
 import {
   roleCommands,
@@ -8,13 +7,9 @@ import {
   matchCommands,
 } from "./bot/handlers/index.js";
 import { setupCommands, setAdminCommands } from "./bot/commands.js";
-
-const token = process.env.BOT_TOKEN;
-if (!token) {
-  throw new Error("BOT_TOKEN is not set");
-}
-
-export const bot = new Bot<BotContext>(token);
+import { createAdminServer } from "./admin/server/index.js";
+import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 
 bot.use(authMiddleware);
 bot.use(roleCommands);
@@ -23,7 +18,6 @@ bot.use(registrationCommands);
 bot.use(matchCommands);
 
 bot.command("start", async (ctx) => {
-  // Обновляем команды для пользователя при старте
   if (ctx.dbUser.role === "admin") {
     await setAdminCommands(bot, ctx.from!.id);
   }
@@ -42,10 +36,20 @@ bot.catch((err) => {
   console.error("Bot error:", err);
 });
 
-// Запуск бота
 async function start() {
   await setupCommands(bot);
   bot.start();
+
+  const app = createAdminServer();
+
+  // Serve static files from admin/dist in production
+  if (process.env.NODE_ENV === "production") {
+    app.use("/*", serveStatic({ root: "./admin/dist" }));
+  }
+
+  const port = Number(process.env.ADMIN_PORT ?? 3000);
+  serve({ fetch: app.fetch, port });
+  // console.log(`Admin panel running at http://localhost:${port}`);
 }
 
 start();

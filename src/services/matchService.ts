@@ -339,8 +339,8 @@ export async function confirmResult(
     .where(
       and(
         eq(matches.id, matchId),
-        eq(matches.status, "pending_confirmation") // Only if still pending
-      )
+        eq(matches.status, "pending_confirmation"), // Only if still pending
+      ),
     )
     .returning();
 
@@ -394,8 +394,8 @@ export async function disputeResult(
     .where(
       and(
         eq(matches.id, matchId),
-        eq(matches.status, "pending_confirmation") // Only if still pending
-      )
+        eq(matches.status, "pending_confirmation"), // Only if still pending
+      ),
     )
     .returning();
 
@@ -496,7 +496,8 @@ export async function advanceWinner(matchId: string): Promise<void> {
 
   // Use stored nextMatchPosition, fallback to position parity
   const slot =
-    match.nextMatchPosition ?? (match.position % 2 === 1 ? "player1" : "player2");
+    match.nextMatchPosition ??
+    (match.position % 2 === 1 ? "player1" : "player2");
 
   if (slot === "player1") {
     await db
