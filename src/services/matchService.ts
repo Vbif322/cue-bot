@@ -25,6 +25,8 @@ export async function createMatches(
         player1Id: match.player1Id,
         player2Id: match.player2Id,
         bracketType: match.bracketType,
+        nextMatchPosition: match.nextMatchPosition ?? null,
+        losersNextMatchPosition: match.losersNextMatchPosition ?? null,
         status: determineInitialStatus(match),
       })
       .returning({ id: matches.id, position: matches.position });
@@ -325,8 +327,8 @@ export async function confirmResult(
     return { success: false, error: "Вы не являетесь участником этого матча" };
   }
 
-  // Complete the match
-  await db
+  // Complete the match with optimistic locking
+  const updated = await db
     .update(matches)
     .set({
       status: "completed",
@@ -334,7 +336,21 @@ export async function confirmResult(
       completedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(matches.id, matchId));
+    .where(
+      and(
+        eq(matches.id, matchId),
+        eq(matches.status, "pending_confirmation") // Only if still pending
+      )
+    )
+    .returning();
+
+  // Check if update succeeded (race condition check)
+  if (!updated.length) {
+    return {
+      success: false,
+      error: "Статус матча изменился. Попробуйте обновить страницу.",
+    };
+  }
 
   // Advance winner to next match
   await advanceWinner(matchId);
@@ -364,8 +380,8 @@ export async function disputeResult(
     return { success: false, error: "Вы не являетесь участником этого матча" };
   }
 
-  // Reset to in_progress for admin/referee intervention
-  await db
+  // Reset to in_progress for admin/referee intervention with optimistic locking
+  const updated = await db
     .update(matches)
     .set({
       status: "in_progress",
@@ -375,7 +391,21 @@ export async function disputeResult(
       reportedBy: null,
       updatedAt: new Date(),
     })
-    .where(eq(matches.id, matchId));
+    .where(
+      and(
+        eq(matches.id, matchId),
+        eq(matches.status, "pending_confirmation") // Only if still pending
+      )
+    )
+    .returning();
+
+  // Check if update succeeded (race condition check)
+  if (!updated.length) {
+    return {
+      success: false,
+      error: "Статус матча изменился. Попробуйте обновить страницу.",
+    };
+  }
 
   return { success: true };
 }
@@ -448,9 +478,11 @@ export async function advanceWinner(matchId: string): Promise<void> {
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return;
 
+  const loserId =
+    match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
+
   // Check if this is the final match
   if (!match.nextMatchId) {
-    // Tournament is complete
     await completeTournament(match.tournamentId, match.winnerId);
     return;
   }
@@ -462,10 +494,11 @@ export async function advanceWinner(matchId: string): Promise<void> {
 
   if (!nextMatch) return;
 
-  // Determine which slot the winner goes to based on position parity
-  const isTopHalf = match.position % 2 === 1;
+  // Use stored nextMatchPosition, fallback to position parity
+  const slot =
+    match.nextMatchPosition ?? (match.position % 2 === 1 ? "player1" : "player2");
 
-  if (isTopHalf) {
+  if (slot === "player1") {
     await db
       .update(matches)
       .set({ player1Id: match.winnerId, updatedAt: new Date() })
@@ -483,9 +516,10 @@ export async function advanceWinner(matchId: string): Promise<void> {
   // Handle double elimination - loser goes to losers bracket
   if (
     tournament.format === "double_elimination" &&
-    match.bracketType === "winners"
+    match.bracketType === "winners" &&
+    loserId
   ) {
-    await advanceLoserToLosersBracket(match);
+    await advanceLoserToLosersBracket(match, loserId);
   }
 }
 
@@ -498,19 +532,57 @@ async function checkMatchReadiness(matchId: string): Promise<void> {
 }
 
 /**
- * Advance loser to losers bracket (for double elimination)
+ * Advance loser to losers bracket (for hybrid double elimination).
+ *
+ * Only R1 and R2 upper bracket losers go to lower bracket:
+ *   R1 upper (pos 1-8)  losers → R1 lower (pos 9-12),  odd→player1, even→player2
+ *   R2 upper (pos 13-16) losers → R2 lower (pos 17-20), always player2
+ *
+ * All other losers are eliminated.
  */
-async function advanceLoserToLosersBracket(match: Match): Promise<void> {
-  // This is a simplified implementation
-  // Full implementation would need proper losers bracket linking
-  const loserId =
-    match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
+async function advanceLoserToLosersBracket(
+  match: Match,
+  loserId: string,
+): Promise<void> {
+  // Only R1 and R2 upper bracket send losers to lower bracket
+  if (match.round > 2 || match.bracketType !== "winners") return;
 
-  if (!loserId) return;
+  let targetPosition: number;
+  let targetSlot: "player1Id" | "player2Id";
 
-  // Find appropriate losers bracket match
-  // This would need more complex logic based on bracket structure
-  // For now, we'll skip the detailed implementation
+  if (match.round === 1) {
+    // R1 upper (pos 1-8) → R1 lower (pos 9-12)
+    // Every 2 upper matches feed into 1 lower match
+    targetPosition = 9 + Math.floor((match.position - 1) / 2);
+    // Odd position → player1, even → player2
+    targetSlot = match.position % 2 === 1 ? "player1Id" : "player2Id";
+  } else {
+    // R2 upper (pos 13-16) → R2 lower (pos 17-20)
+    targetPosition = 17 + (match.position - 13);
+    // Always player2 (player1 slot is for R1 lower winner)
+    targetSlot = "player2Id";
+  }
+
+  const losersMatch = await db.query.matches.findFirst({
+    where: and(
+      eq(matches.tournamentId, match.tournamentId),
+      eq(matches.position, targetPosition),
+    ),
+  });
+
+  if (!losersMatch) {
+    console.error(
+      `Losers match not found at position ${targetPosition} for tournament ${match.tournamentId}`,
+    );
+    return;
+  }
+
+  await db
+    .update(matches)
+    .set({ [targetSlot]: loserId, updatedAt: new Date() })
+    .where(eq(matches.id, losersMatch.id));
+
+  await checkMatchReadiness(losersMatch.id);
 }
 
 /**

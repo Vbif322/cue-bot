@@ -21,7 +21,12 @@ import {
   generateBracket,
   getBracketStats,
 } from "../../services/bracketGenerator.js";
-import { createMatches } from "../../services/matchService.js";
+import {
+  createMatches,
+  getRoundMatches,
+  getMatch,
+} from "../../services/matchService.js";
+import { notifyMatchAssigned } from "../../services/notificationService.js";
 import { FORMAT_LABELS, STATUS_LABELS } from "../../utils/constants.js";
 import {
   getTournamentInfo,
@@ -455,6 +460,27 @@ tournamentCommands.callbackQuery(
       // 5. Update tournament status
       await startTournament(tournamentId);
 
+      // 6. Notify first round participants
+      const firstRoundMatches = await getRoundMatches(tournamentId, 1);
+      for (const match of firstRoundMatches) {
+        try {
+          const matchWithPlayers = await getMatch(match.id);
+          if (matchWithPlayers) {
+            await notifyMatchAssigned(
+              ctx.api,
+              matchWithPlayers,
+              tournament.name
+            );
+          }
+        } catch (error) {
+          console.error(
+            `Failed to notify participants for match ${match.id}:`,
+            error
+          );
+          // Continue with other notifications even if one fails
+        }
+      }
+
       const keyboard = new InlineKeyboard()
         .text("📊 Посмотреть сетку", `bracket:view:${tournamentId}`)
         .row();
@@ -464,13 +490,11 @@ tournamentCommands.callbackQuery(
           `✅ *Турнир "${tournament.name}" запущен!*\n\n` +
           `Участников: ${participants.length}\n` +
           `Матчей создано: ${bracket.length}\n\n` +
-          `Сетка сформирована, участники могут начинать играть.\n` +
+          `Сетка сформирована, участники получили уведомления.\n` +
           `Используйте /my\\_match для просмотра своего текущего матча.`,
         parse_mode: "Markdown",
         reply_markup: keyboard,
       });
-
-      // TODO: Send notifications to participants about tournament start
     } catch (error) {
       console.error("Error starting tournament:", error);
       await safeEditMessageText(ctx, {

@@ -197,103 +197,161 @@ function advanceToNextMatch(
 }
 
 /**
- * Generate Double Elimination bracket
+ * Generate hybrid Double Elimination bracket for 16 participants.
+ *
+ * Structure:
+ *   R1 upper (8 matches, pos 1-8)   → winners to R2 upper, losers to R1 lower
+ *   R1 lower (4 matches, pos 9-12)  → winners to R2 lower, losers eliminated
+ *   R2 upper (4 matches, pos 13-16) → winners to R3 merge, losers to R2 lower
+ *   R2 lower (4 matches, pos 17-20) → winners to R3 merge, losers eliminated
+ *   R3 merge (4 matches, pos 21-24) → winners to R4, losers eliminated
+ *   R4 semi  (2 matches, pos 25-26) → winners to R5
+ *   R5 final (1 match,   pos 27)    → champion
+ *
+ * Total: 27 matches
  */
 export function generateDoubleEliminationBracket(
   participants: TournamentParticipant[],
 ): BracketMatch[] {
+  if (participants.length !== 16) {
+    throw new Error(
+      "Double elimination поддерживает только 16 участников. " +
+        `Текущее количество: ${participants.length}`,
+    );
+  }
+
   const shuffled = shuffleArray(participants);
-  const bracketSize = getNextPowerOfTwo(shuffled.length);
-  const winnersRounds = calculateRounds(bracketSize);
+  const allMatches: BracketMatch[] = [];
 
-  // Start with winners bracket (same as single elimination)
-  const winnersMatches = generateSingleEliminationBracket(shuffled);
-  const matches: BracketMatch[] = [...winnersMatches];
-
-  let matchPosition = matches.length + 1;
-
-  // Calculate losers bracket structure
-  // Losers bracket has (2 * winnersRounds - 1) rounds
-  const losersRounds = 2 * winnersRounds - 1;
-
-  // In each losers round:
-  // - Odd rounds: losers from winners bracket drop in
-  // - Even rounds: only losers bracket participants play
-
-  const losersMatchesByRound: BracketMatch[][] = [];
-
-  // First losers round: losers from winners R1
-  const firstRoundMatches = bracketSize / 4;
-  const losersR1: BracketMatch[] = [];
-
-  for (let i = 0; i < firstRoundMatches; i++) {
-    losersR1.push({
+  // R1 upper: 8 matches (positions 1-8)
+  for (let i = 0; i < 8; i++) {
+    allMatches.push({
       round: 1,
-      position: matchPosition++,
+      position: i + 1,
+      player1Id: shuffled[i * 2]?.userId ?? null,
+      player2Id: shuffled[i * 2 + 1]?.userId ?? null,
+      bracketType: "winners",
+    });
+  }
+
+  // R1 lower: 4 matches (positions 9-12) — filled by R1 upper losers
+  for (let i = 0; i < 4; i++) {
+    allMatches.push({
+      round: 1,
+      position: 9 + i,
       player1Id: null,
       player2Id: null,
       bracketType: "losers",
     });
   }
-  losersMatchesByRound.push(losersR1);
 
-  // Continue losers bracket rounds
-  let prevRoundMatches = firstRoundMatches;
-
-  for (let round = 2; round <= losersRounds; round++) {
-    const isDropInRound = round % 2 === 1;
-    const currentMatches = isDropInRound
-      ? prevRoundMatches
-      : prevRoundMatches / 2;
-
-    const roundMatches: BracketMatch[] = [];
-    for (let i = 0; i < currentMatches; i++) {
-      roundMatches.push({
-        round,
-        position: matchPosition++,
-        player1Id: null,
-        player2Id: null,
-        bracketType: "losers",
-      });
-    }
-    losersMatchesByRound.push(roundMatches);
-
-    if (!isDropInRound) {
-      prevRoundMatches = currentMatches;
-    }
+  // R2 upper: 4 matches (positions 13-16)
+  for (let i = 0; i < 4; i++) {
+    allMatches.push({
+      round: 2,
+      position: 13 + i,
+      player1Id: null,
+      player2Id: null,
+      bracketType: "winners",
+    });
   }
 
-  // Add all losers matches
-  for (const roundMatches of losersMatchesByRound) {
-    matches.push(...roundMatches);
+  // R2 lower: 4 matches (positions 17-20)
+  for (let i = 0; i < 4; i++) {
+    allMatches.push({
+      round: 2,
+      position: 17 + i,
+      player1Id: null,
+      player2Id: null,
+      bracketType: "losers",
+    });
   }
 
-  // Grand Final
-  matches.push({
-    round: winnersRounds + 1,
-    position: matchPosition++,
-    player1Id: null, // Winner of winners bracket
-    player2Id: null, // Winner of losers bracket
-    bracketType: "grand_final",
+  // R3 merge: 4 matches (positions 21-24)
+  for (let i = 0; i < 4; i++) {
+    allMatches.push({
+      round: 3,
+      position: 21 + i,
+      player1Id: null,
+      player2Id: null,
+      bracketType: "winners",
+    });
+  }
+
+  // R4 semi: 2 matches (positions 25-26)
+  for (let i = 0; i < 2; i++) {
+    allMatches.push({
+      round: 4,
+      position: 25 + i,
+      player1Id: null,
+      player2Id: null,
+      bracketType: "winners",
+    });
+  }
+
+  // R5 final: 1 match (position 27)
+  allMatches.push({
+    round: 5,
+    position: 27,
+    player1Id: null,
+    player2Id: null,
+    bracketType: "winners",
   });
 
-  // Link winners bracket losers to losers bracket
-  // This is a simplified version - real implementation would need proper linking
-  for (const match of winnersMatches) {
-    if (match.round === 1) {
-      // Losers from R1 go to Losers R1
-      const losersMatchIndex = Math.floor((match.position - 1) / 2);
-      if (
-        losersMatchesByRound[0] &&
-        losersMatchesByRound[0][losersMatchIndex]
-      ) {
-        match.losersNextMatchPosition =
-          losersMatchesByRound[0][losersMatchIndex].position;
-      }
-    }
+  // === WINNER PATHS (nextMatchId + nextMatchPosition) ===
+
+  // R1 upper → R2 upper: pairs feed into one match
+  for (let i = 0; i < 8; i++) {
+    allMatches[i]!.nextMatchId = 13 + Math.floor(i / 2);
+    allMatches[i]!.nextMatchPosition = i % 2 === 0 ? "player1" : "player2";
   }
 
-  return matches;
+  // R1 lower → R2 lower: each winner goes to own match as player1
+  for (let i = 0; i < 4; i++) {
+    allMatches[8 + i]!.nextMatchId = 17 + i;
+    allMatches[8 + i]!.nextMatchPosition = "player1";
+  }
+
+  // R2 upper → R3 merge: as player1
+  for (let i = 0; i < 4; i++) {
+    allMatches[12 + i]!.nextMatchId = 21 + i;
+    allMatches[12 + i]!.nextMatchPosition = "player1";
+  }
+
+  // R2 lower → R3 merge: as player2
+  for (let i = 0; i < 4; i++) {
+    allMatches[16 + i]!.nextMatchId = 21 + i;
+    allMatches[16 + i]!.nextMatchPosition = "player2";
+  }
+
+  // R3 → R4
+  for (let i = 0; i < 4; i++) {
+    allMatches[20 + i]!.nextMatchId = 25 + Math.floor(i / 2);
+    allMatches[20 + i]!.nextMatchPosition = i % 2 === 0 ? "player1" : "player2";
+  }
+
+  // R4 → R5
+  for (let i = 0; i < 2; i++) {
+    allMatches[24 + i]!.nextMatchId = 27;
+    allMatches[24 + i]!.nextMatchPosition = i === 0 ? "player1" : "player2";
+  }
+
+  // === LOSER PATHS (losersNextMatchPosition) ===
+
+  // R1 upper losers → R1 lower (2 losers per lower match)
+  // Odd position → player1, even → player2
+  for (let i = 0; i < 8; i++) {
+    allMatches[i]!.losersNextMatchPosition = 9 + Math.floor(i / 2);
+  }
+
+  // R2 upper losers → R2 lower (each to own match, as player2)
+  for (let i = 0; i < 4; i++) {
+    allMatches[12 + i]!.losersNextMatchPosition = 17 + i;
+  }
+
+  // R1 lower, R2 lower, R3+ losers → eliminated (no losersNextMatchPosition)
+
+  return allMatches;
 }
 
 /**
@@ -390,12 +448,9 @@ export function getBracketStats(
         totalRounds: calculateRounds(bracketSize),
       };
     case "double_elimination":
-      // Winners: bracketSize - 1
-      // Losers: bracketSize - 1
-      // Grand Final: 1 (potentially 2 with reset)
       return {
-        totalMatches: 2 * bracketSize - 1,
-        totalRounds: calculateRounds(bracketSize) * 2 + 1,
+        totalMatches: 27,
+        totalRounds: 5,
       };
     case "round_robin":
       const n = participantsCount;
@@ -419,6 +474,20 @@ export function getRoundName(
 ): string {
   if (format === "round_robin") {
     return `Тур ${round}`;
+  }
+
+  if (format === "double_elimination") {
+    if (bracketType === "losers") {
+      if (round === 1) return "Нижняя сетка, раунд 1";
+      if (round === 2) return "Нижняя сетка, раунд 2";
+      return `Нижняя сетка, раунд ${round}`;
+    }
+    if (round === 1) return "1/8 финала";
+    if (round === 2) return "1/4 финала";
+    if (round === 3) return "Объединение";
+    if (round === 4) return "Полуфинал";
+    if (round === 5) return "Финал";
+    return `Раунд ${round}`;
   }
 
   if (bracketType === "losers") {

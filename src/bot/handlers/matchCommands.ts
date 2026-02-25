@@ -27,7 +27,6 @@ import {
   formatPlayerName,
   getMatchStatusEmoji,
 } from "../ui/matchUI.js";
-import { bot } from "../../index.js";
 import {
   notifyMatchStart,
   notifyResultPending,
@@ -201,7 +200,7 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery("Матч начат!");
 
   if (updatedMatch && tournament) {
-    await notifyMatchStart(bot, updatedMatch, tournament.name, userId);
+    await notifyMatchStart(ctx.api, updatedMatch, tournament.name, userId);
     const text = formatMatchCard(updatedMatch, tournament);
     const keyboard = getMatchKeyboard(
       updatedMatch,
@@ -341,7 +340,7 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
     // Send notification to opponent
     try {
       console.log(updatedMatch, "2");
-      await notifyResultPending(bot, updatedMatch, userId);
+      await notifyResultPending(ctx.api, updatedMatch, userId);
     } catch (error) {
       console.error("Failed to send result pending notification:", error);
       // Don't fail the whole operation if notification fails
@@ -392,7 +391,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   if (match && tournament) {
     // Send notification to both players
     try {
-      await notifyResultConfirmed(bot, match, tournament.name);
+      await notifyResultConfirmed(ctx.api, match, tournament.name);
     } catch (error) {
       console.error("Failed to send result confirmed notification:", error);
       // Don't fail the whole operation if notification fails
@@ -439,7 +438,7 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
   if (match && tournament) {
     // Notify both players about the dispute
     try {
-      await notifyResultDisputed(bot, match, userId);
+      await notifyResultDisputed(ctx.api, match, userId);
     } catch (error) {
       console.error("Failed to send result disputed notification:", error);
       // Don't fail the whole operation if notification fails
@@ -467,7 +466,14 @@ matchCommands.callbackQuery(/^match:waiting:(.+)$/, async (ctx) => {
   const userId = ctx.dbUser.id;
   const matchId = ctx.match![1]!;
   const updatedMatch = await getMatch(matchId);
-  await notifyResultPending(bot, updatedMatch, userId);
+  if (!updatedMatch) {
+    await ctx.answerCallbackQuery({
+      text: "Матч не найден",
+      show_alert: true,
+    });
+    return;
+  }
+  await notifyResultPending(ctx.api, updatedMatch, userId);
 });
 
 // Технический результат - меню
@@ -607,6 +613,69 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
 /**
+ * Format a section of matches (upper or lower bracket) for display
+ */
+function formatMatchSection(
+  sectionMatches: Awaited<ReturnType<typeof getTournamentMatches>>,
+  playerMap: Map<string, { username: string | null; name: string | null }>,
+  tournament: { format: string },
+  totalRounds: number,
+  keyboard: InstanceType<typeof InlineKeyboard>,
+): string {
+  const byRound = new Map<number, typeof sectionMatches>();
+  for (const m of sectionMatches) {
+    if (!byRound.has(m.round)) {
+      byRound.set(m.round, []);
+    }
+    byRound.get(m.round)!.push(m);
+  }
+
+  const rounds = Array.from(byRound.keys()).sort((a, b) => a - b);
+  let text = "";
+
+  for (const round of rounds) {
+    const roundMatches = byRound.get(round)!;
+    const roundName = getRoundName(
+      round,
+      totalRounds,
+      tournament.format,
+      roundMatches[0]?.bracketType || "winners",
+    );
+
+    text += `*${roundName}:*\n`;
+
+    for (const match of roundMatches) {
+      const p1 = match.player1Id ? playerMap.get(match.player1Id) : null;
+      const p2 = match.player2Id ? playerMap.get(match.player2Id) : null;
+
+      const player1Name = p1
+        ? formatPlayerName(p1.username, p1.name)
+        : "TBD";
+      const player2Name = p2
+        ? formatPlayerName(p2.username, p2.name)
+        : "TBD";
+
+      const emoji = getMatchStatusEmoji(match.status);
+      let score = "";
+
+      if (
+        match.status === "completed" ||
+        match.status === "pending_confirmation"
+      ) {
+        score = ` (${match.player1Score}:${match.player2Score})`;
+      }
+
+      text += `${emoji} ${player1Name} vs ${player2Name}${score}\n`;
+      keyboard.text(`#${match.position}`, `match:view:${match.id}`);
+    }
+    keyboard.row();
+    text += "\n";
+  }
+
+  return text;
+}
+
+/**
  * Show tournament bracket
  */
 async function showBracket(
@@ -662,7 +731,10 @@ async function showBracket(
   }
 
   const bracketSize = getNextPowerOfTwo(playerIds.size);
-  const totalRounds = calculateRounds(bracketSize);
+  const totalRounds =
+    tournament.format === "double_elimination"
+      ? 5
+      : calculateRounds(bracketSize);
 
   let text = `📊 *Сетка турнира "${tournament.name}"*\n`;
   text += `Завершено: ${stats.completed}/${stats.total} матчей\n\n`;
@@ -684,44 +756,78 @@ async function showBracket(
 
   const keyboard = new InlineKeyboard();
 
-  // Show rounds
-  const rounds = Array.from(matchesByRound.keys()).sort((a, b) => a - b);
-
-  for (const round of rounds) {
-    const roundMatches = matchesByRound.get(round)!;
-    const roundName = getRoundName(
-      round,
-      totalRounds,
-      tournament.format,
-      "winners",
+  if (tournament.format === "double_elimination") {
+    // Split matches by bracket type
+    const winnersMatches = allMatches.filter(
+      (m) => m.bracketType === "winners",
+    );
+    const losersMatches = allMatches.filter(
+      (m) => m.bracketType === "losers",
     );
 
-    text += `*${roundName}:*\n`;
+    text += `*═══ ВЕРХНЯЯ СЕТКА ═══*\n\n`;
+    text += formatMatchSection(
+      winnersMatches,
+      playerMap,
+      tournament,
+      totalRounds,
+      keyboard,
+    );
 
-    for (const match of roundMatches) {
-      const p1 = match.player1Id ? playerMap.get(match.player1Id) : null;
-      const p2 = match.player2Id ? playerMap.get(match.player2Id) : null;
-
-      const player1Name = p1 ? formatPlayerName(p1.username, p1.name) : "TBD";
-      const player2Name = p2 ? formatPlayerName(p2.username, p2.name) : "TBD";
-
-      const emoji = getMatchStatusEmoji(match.status);
-      let score = "";
-
-      if (
-        match.status === "completed" ||
-        match.status === "pending_confirmation"
-      ) {
-        score = ` (${match.player1Score}:${match.player2Score})`;
-      }
-
-      text += `${emoji} ${player1Name} vs ${player2Name}${score}\n`;
-
-      // Add button for each match
-      keyboard.text(`#${match.position}`, `match:view:${match.id}`);
+    if (losersMatches.length > 0) {
+      text += `*═══ НИЖНЯЯ СЕТКА ═══*\n\n`;
+      text += formatMatchSection(
+        losersMatches,
+        playerMap,
+        tournament,
+        totalRounds,
+        keyboard,
+      );
     }
-    keyboard.row();
-    text += "\n";
+  } else {
+    // Show rounds (existing logic for single_elimination and round_robin)
+    const rounds = Array.from(matchesByRound.keys()).sort((a, b) => a - b);
+
+    for (const round of rounds) {
+      const roundMatches = matchesByRound.get(round)!;
+      const roundName = getRoundName(
+        round,
+        totalRounds,
+        tournament.format,
+        "winners",
+      );
+
+      text += `*${roundName}:*\n`;
+
+      for (const match of roundMatches) {
+        const p1 = match.player1Id ? playerMap.get(match.player1Id) : null;
+        const p2 = match.player2Id ? playerMap.get(match.player2Id) : null;
+
+        const player1Name = p1
+          ? formatPlayerName(p1.username, p1.name)
+          : "TBD";
+        const player2Name = p2
+          ? formatPlayerName(p2.username, p2.name)
+          : "TBD";
+
+        const emoji = getMatchStatusEmoji(match.status);
+        let score = "";
+
+        if (
+          match.status === "completed" ||
+          match.status === "pending_confirmation"
+        ) {
+          score = ` (${match.player1Score}:${match.player2Score})`;
+        }
+
+        text += `${emoji} ${player1Name} vs ${player2Name}${score}\n`;
+
+        // Add button for each match
+        keyboard.text(`#${match.position}`, `match:view:${match.id}`);
+      }
+      keyboard.row();
+      text += "\n";
+    }
   }
 
   keyboard.text("🔄 Обновить", `bracket:view:${tournamentId}`).row();

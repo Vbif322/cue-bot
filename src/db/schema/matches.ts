@@ -39,7 +39,9 @@ export const matches = prodSchema.table("matches", {
   isTechnicalResult: boolean("is_technical_result").notNull().default(false),
   technicalReason: text("technical_reason"),
   nextMatchId: uuid("next_match_id"),
+  nextMatchPosition: varchar("next_match_position", { length: 10 }),
   bracketType: varchar({ length: 20 }).default("winners"),
+  losersNextMatchPosition: integer("losers_next_match_position"),
   createdAt,
   updatedAt,
 });
