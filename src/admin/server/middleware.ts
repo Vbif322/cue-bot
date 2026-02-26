@@ -16,7 +16,11 @@ declare module "hono" {
   }
 }
 
-export const JWT_SECRET = process.env.JWT_SECRET ?? "dev-secret-change-in-production";
+const rawJwtSecret = process.env.JWT_SECRET;
+if (!rawJwtSecret && process.env.NODE_ENV === "production") {
+  throw new Error("JWT_SECRET environment variable is required in production");
+}
+export const JWT_SECRET = rawJwtSecret ?? "dev-secret-change-in-production";
 
 export function signToken(payload: AdminUser): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
