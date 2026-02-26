@@ -50,13 +50,15 @@ export default function UsersPage() {
                       <p className="font-medium text-gray-900">
                         {u.name ?? u.username}
                         {isMe && (
-                          <span className="ml-2 text-xs text-gray-400">(вы)</span>
+                          <span className="ml-2 text-xs text-gray-400">
+                            (вы)
+                          </span>
                         )}
                       </p>
                       <p className="text-xs text-gray-500">@{u.username}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">
-                      {u.telegramId}
+                      {u.telegram_id}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -73,7 +75,8 @@ export default function UsersPage() {
                       {!isMe && (
                         <button
                           onClick={() => {
-                            const newRole = u.role === "admin" ? "user" : "admin";
+                            const newRole =
+                              u.role === "admin" ? "user" : "admin";
                             const label =
                               newRole === "admin"
                                 ? "сделать администратором"

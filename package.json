@@ -21,7 +21,8 @@
     "build:admin": "npm run build --prefix admin",
     "db:generate": "tsx node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx node_modules/drizzle-kit/bin.cjs migrate",
-    "db:studio": "tsx node_modules/drizzle-kit/bin.cjs studio"
+    "db:studio": "tsx node_modules/drizzle-kit/bin.cjs studio",
+    "seed:de": "tsx --env-file=.env scripts/seed-double-elim.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.9",

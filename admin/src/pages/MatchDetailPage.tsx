@@ -20,6 +20,8 @@ export default function MatchDetailPage() {
     refetchInterval: 15_000,
   });
 
+  console.log(match);
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["match", id] });
     setError("");
@@ -133,9 +135,7 @@ export default function MatchDetailPage() {
         {match.winnerId && (
           <p className="text-center text-sm text-green-600 mt-4">
             Победитель:{" "}
-            {match.winnerUsername
-              ? `@${match.winnerUsername}`
-              : match.winnerId}
+            {match.winnerUsername ? `@${match.winnerUsername}` : match.winnerId}
           </p>
         )}
       </div>
@@ -156,44 +156,46 @@ export default function MatchDetailPage() {
         )}
 
         {/* Report result */}
-        {match.status === "in_progress" && match.player1Id && match.player2Id && (
-          <ActionCard title="Внести результат">
-            <div className="flex items-center gap-3">
-              <div className="text-center">
-                <p className="text-xs text-gray-500 mb-1">
-                  {match.player1Name ?? match.player1Username}
-                </p>
-                <input
-                  type="number"
-                  min={0}
-                  value={p1Score}
-                  onChange={(e) => setP1Score(Number(e.target.value))}
-                  className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
-                />
+        {match.status === "in_progress" &&
+          match.player1Id &&
+          match.player2Id && (
+            <ActionCard title="Внести результат">
+              <div className="flex items-center gap-3">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">
+                    {match.player1Name ?? match.player1Username}
+                  </p>
+                  <input
+                    type="number"
+                    min={0}
+                    value={p1Score}
+                    onChange={(e) => setP1Score(Number(e.target.value))}
+                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                  />
+                </div>
+                <span className="text-gray-400">:</span>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">
+                    {match.player2Name ?? match.player2Username}
+                  </p>
+                  <input
+                    type="number"
+                    min={0}
+                    value={p2Score}
+                    onChange={(e) => setP2Score(Number(e.target.value))}
+                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                  />
+                </div>
+                <button
+                  onClick={() => reportMutation.mutate()}
+                  disabled={reportMutation.isPending}
+                  className="ml-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Подать
+                </button>
               </div>
-              <span className="text-gray-400">:</span>
-              <div className="text-center">
-                <p className="text-xs text-gray-500 mb-1">
-                  {match.player2Name ?? match.player2Username}
-                </p>
-                <input
-                  type="number"
-                  min={0}
-                  value={p2Score}
-                  onChange={(e) => setP2Score(Number(e.target.value))}
-                  className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
-                />
-              </div>
-              <button
-                onClick={() => reportMutation.mutate()}
-                disabled={reportMutation.isPending}
-                className="ml-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                Подать
-              </button>
-            </div>
-          </ActionCard>
-        )}
+            </ActionCard>
+          )}
 
         {/* Confirm/dispute */}
         {match.status === "pending_confirmation" && (
@@ -218,38 +220,43 @@ export default function MatchDetailPage() {
         )}
 
         {/* Technical result */}
-        {match.status !== "completed" && match.status !== "cancelled" && match.player1Id && match.player2Id && (
-          <ActionCard title="Технический результат">
-            <div className="space-y-2">
-              <select
-                value={techWinnerId}
-                onChange={(e) => setTechWinnerId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              >
-                <option value="">Выберите победителя</option>
-                <option value={match.player1Id}>
-                  {match.player1Name ?? match.player1Username}
-                </option>
-                <option value={match.player2Id}>
-                  {match.player2Name ?? match.player2Username}
-                </option>
-              </select>
-              <input
-                value={techReason}
-                onChange={(e) => setTechReason(e.target.value)}
-                placeholder="Причина (no_show, walkover, forfeit...)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-              <button
-                onClick={() => techMutation.mutate()}
-                disabled={techMutation.isPending || !techWinnerId || !techReason}
-                className="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 disabled:opacity-50"
-              >
-                Применить
-              </button>
-            </div>
-          </ActionCard>
-        )}
+        {match.status !== "completed" &&
+          match.status !== "cancelled" &&
+          match.player1Id &&
+          match.player2Id && (
+            <ActionCard title="Технический результат">
+              <div className="space-y-2">
+                <select
+                  value={techWinnerId}
+                  onChange={(e) => setTechWinnerId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                >
+                  <option value="">Выберите победителя</option>
+                  <option value={match.player1Id}>
+                    {match.player1Name ?? match.player1Username}
+                  </option>
+                  <option value={match.player2Id}>
+                    {match.player2Name ?? match.player2Username}
+                  </option>
+                </select>
+                <input
+                  value={techReason}
+                  onChange={(e) => setTechReason(e.target.value)}
+                  placeholder="Причина (no_show, walkover, forfeit...)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+                <button
+                  onClick={() => techMutation.mutate()}
+                  disabled={
+                    techMutation.isPending || !techWinnerId || !techReason
+                  }
+                  className="px-4 py-2 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                >
+                  Применить
+                </button>
+              </div>
+            </ActionCard>
+          )}
       </div>
     </div>
   );

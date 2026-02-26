@@ -21,7 +21,6 @@ export default function TournamentsPage() {
     queryKey: ["tournaments"],
     queryFn: tournamentsApi.list,
   });
-  console.log(tournaments);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => tournamentsApi.delete(id),
