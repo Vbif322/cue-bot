@@ -100,7 +100,7 @@ export default function TournamentDetailPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-col gap-3 mb-6 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
             <Link to="/tournaments" className="hover:text-gray-700">
@@ -200,7 +200,7 @@ export default function TournamentDetailPage() {
       )}
 
       {activeTab === "participants" && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
@@ -248,74 +248,123 @@ export default function TournamentDetailPage() {
       )}
 
       {activeTab === "matches" && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Раунд
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Игрок 1
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Счёт
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Игрок 2
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Статус
-                </th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {matches?.map((m) => (
-                <tr key={m.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-500">
+        <>
+          {/* Mobile match cards */}
+          <div className="md:hidden space-y-3">
+            {!matches?.length && (
+              <div className="text-center text-gray-400 py-8 text-sm">
+                Матчи не созданы
+              </div>
+            )}
+            {matches?.map((m) => (
+              <div
+                key={m.id}
+                className="bg-white rounded-xl border border-gray-200 p-4"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-500 font-medium">
                     R{m.round}
                     {m.bracketType === "losers" && (
-                      <span className="ml-1 text-xs text-orange-500">L</span>
+                      <span className="text-orange-500 ml-1">L</span>
                     )}
-                  </td>
-                  <td className="px-4 py-3">
+                  </span>
+                  <MatchStatusBadge status={m.status} />
+                </div>
+                <div className="flex items-center justify-center gap-3 my-3">
+                  <span className="font-medium text-gray-900 text-sm text-right flex-1">
                     {m.player1Name ?? m.player1Username ?? "TBD"}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-center">
+                  </span>
+                  <span className="font-mono text-gray-700 text-sm px-2">
                     {m.player1Score !== null && m.player2Score !== null
                       ? `${m.player1Score}:${m.player2Score}`
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3">
+                      : "vs"}
+                  </span>
+                  <span className="font-medium text-gray-900 text-sm text-left flex-1">
                     {m.player2Name ?? m.player2Username ?? "TBD"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <MatchStatusBadge status={m.status} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      to={`/matches/${m.id}`}
-                      className="text-blue-500 hover:text-blue-700 text-xs"
-                    >
-                      Управление
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-              {!matches?.length && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-6 text-center text-gray-400"
+                  </span>
+                </div>
+                <div className="text-right">
+                  <Link
+                    to={`/matches/${m.id}`}
+                    className="text-blue-500 text-xs"
                   >
-                    Матчи не созданы
-                  </td>
+                    Управление
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop matches table */}
+          <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Раунд
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Игрок 1
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Счёт
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Игрок 2
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Статус
+                  </th>
+                  <th className="px-4 py-3"></th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {matches?.map((m) => (
+                  <tr key={m.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-gray-500">
+                      R{m.round}
+                      {m.bracketType === "losers" && (
+                        <span className="ml-1 text-xs text-orange-500">L</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {m.player1Name ?? m.player1Username ?? "TBD"}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-center">
+                      {m.player1Score !== null && m.player2Score !== null
+                        ? `${m.player1Score}:${m.player2Score}`
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {m.player2Name ?? m.player2Username ?? "TBD"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <MatchStatusBadge status={m.status} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        to={`/matches/${m.id}`}
+                        className="text-blue-500 hover:text-blue-700 text-xs"
+                      >
+                        Управление
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+                {!matches?.length && (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-4 py-6 text-center text-gray-400"
+                    >
+                      Матчи не созданы
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
