@@ -14,7 +14,7 @@ export default function DashboardPage() {
   return (
     <div>
       <h2 className="text-xl font-semibold text-gray-900 mb-6">Обзор</h2>
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <StatCard label="Активных турниров" value={active.length} color="blue" />
         <StatCard label="Регистрация открыта" value={regOpen.length} color="green" />
         <StatCard label="Черновиков" value={draft.length} color="gray" />

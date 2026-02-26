@@ -93,7 +93,7 @@ export default function MatchDetailPage() {
 
       {/* Match card */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
           <MatchStatusBadge status={match.status} />
           {match.isTechnicalResult && (
             <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
@@ -103,8 +103,8 @@ export default function MatchDetailPage() {
         </div>
 
         <div className="grid grid-cols-3 gap-4 items-center">
-          <div className="text-center">
-            <p className="font-semibold text-gray-900">
+          <div className="text-center min-w-0">
+            <p className="font-semibold text-gray-900 truncate">
               {match.player1Name ?? match.player1Username ?? "TBD"}
             </p>
             {match.player1Username && (
@@ -122,8 +122,8 @@ export default function MatchDetailPage() {
             )}
           </div>
 
-          <div className="text-center">
-            <p className="font-semibold text-gray-900">
+          <div className="text-center min-w-0">
+            <p className="font-semibold text-gray-900 truncate">
               {match.player2Name ?? match.player2Username ?? "TBD"}
             </p>
             {match.player2Username && (
@@ -160,7 +160,7 @@ export default function MatchDetailPage() {
           match.player1Id &&
           match.player2Id && (
             <ActionCard title="Внести результат">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-end gap-3">
                 <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">
                     {match.player1Name ?? match.player1Username}
@@ -173,7 +173,7 @@ export default function MatchDetailPage() {
                     className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
                   />
                 </div>
-                <span className="text-gray-400">:</span>
+                <span className="text-gray-400 pb-1">:</span>
                 <div className="text-center">
                   <p className="text-xs text-gray-500 mb-1">
                     {match.player2Name ?? match.player2Username}
