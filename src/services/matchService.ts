@@ -78,60 +78,44 @@ function determineInitialStatus(
 export async function getMatch(
   matchId: string,
 ): Promise<MatchWithPlayers | null> {
-  const result = await db
+  const p1 = alias(users, "p1");
+  const p2 = alias(users, "p2");
+  const winner = alias(users, "winner");
+
+  const rows = await db
     .select({
       match: matches,
-      player1Username: users.username,
-      player1Name: users.name,
-      player1TelegramId: users.telegram_id,
+      player1Username: p1.username,
+      player1Name: p1.name,
+      player1TelegramId: p1.telegram_id,
+      player2Username: p2.username,
+      player2Name: p2.name,
+      player2TelegramId: p2.telegram_id,
+      winnerUsername: winner.username,
+      winnerName: winner.name,
+      winnerTelegramId: winner.telegram_id,
     })
     .from(matches)
-    .leftJoin(users, eq(matches.player1Id, users.id))
+    .leftJoin(p1, eq(matches.player1Id, p1.id))
+    .leftJoin(p2, eq(matches.player2Id, p2.id))
+    .leftJoin(winner, eq(matches.winnerId, winner.id))
     .where(eq(matches.id, matchId))
     .limit(1);
 
-  const matchData = result[0];
-  if (!matchData) return null;
-
-  // Get player2 info
-  let player2Username: string | null = null;
-  let player2Name: string | null = null;
-  let player2TelegramId: string | null = null;
-
-  if (matchData.match.player2Id) {
-    const player2 = await db.query.users.findFirst({
-      where: eq(users.id, matchData.match.player2Id),
-    });
-    player2Username = player2?.username ?? null;
-    player2Name = player2?.name ?? null;
-    player2TelegramId = player2?.telegram_id ?? null;
-  }
-
-  // Get winner info
-  let winnerUsername: string | null = null;
-  let winnerName: string | null = null;
-  let winnerTelegramId: string | null = null;
-
-  if (matchData.match.winnerId) {
-    const winner = await db.query.users.findFirst({
-      where: eq(users.id, matchData.match.winnerId),
-    });
-    winnerUsername = winner?.username ?? null;
-    winnerName = winner?.name ?? null;
-    winnerTelegramId = winner?.telegram_id ?? null;
-  }
+  const row = rows[0];
+  if (!row) return null;
 
   return {
-    ...matchData.match,
-    player1Username: matchData.player1Username,
-    player1Name: matchData.player1Name,
-    player1TelegramId: matchData.player1TelegramId,
-    player2Username,
-    player2Name,
-    player2TelegramId,
-    winnerUsername,
-    winnerName,
-    winnerTelegramId,
+    ...row.match,
+    player1Username: row.player1Username,
+    player1Name: row.player1Name,
+    player1TelegramId: row.player1TelegramId,
+    player2Username: row.player2Username,
+    player2Name: row.player2Name,
+    player2TelegramId: row.player2TelegramId,
+    winnerUsername: row.winnerUsername,
+    winnerName: row.winnerName,
+    winnerTelegramId: row.winnerTelegramId,
   };
 }
 
@@ -552,7 +536,7 @@ export async function advanceWinner(matchId: string): Promise<void> {
 /**
  * Check if match has both players - match remains scheduled until manually started
  */
-async function checkMatchReadiness(matchId: string): Promise<void> {
+async function checkMatchReadiness(_matchId: string): Promise<void> {
   // Match remains in "scheduled" status until manually started via startMatch()
   // This function is kept for future extensibility (e.g., notifications when match is ready)
 }

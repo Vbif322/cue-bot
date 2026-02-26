@@ -1,18 +1,19 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
+import { randomInt } from "crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../../db/db.js";
-import { users } from "../../db/schema.js";
-import { signToken, JWT_SECRET } from "./middleware.js";
+import { users, loginCodes } from "../../db/schema.js";
+import { signToken, JWT_SECRET, type AdminUser } from "./middleware.js";
 import type { Api } from "grammy";
 
-// In-memory store for pending login codes (TTL: 5 min)
-const pendingCodes = new Map<string, { code: string; expiresAt: number }>();
+const MAX_ATTEMPTS = 5;
+const CODE_TTL_MS = 5 * 60 * 1000;
 
 function generateCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100000, 1000000));
 }
 
 export function createAuthRouter(botApi: Api) {
@@ -23,7 +24,6 @@ export function createAuthRouter(botApi: Api) {
     zValidator("json", z.object({ username: z.string().min(1) })),
     async (c) => {
       const { username } = c.req.valid("json");
-
       const normalizedUsername = username.replace(/^@/, "");
 
       const user = await db.query.users.findFirst({
@@ -45,10 +45,17 @@ export function createAuthRouter(botApi: Api) {
       }
 
       const code = generateCode();
-      pendingCodes.set(normalizedUsername, {
-        code,
-        expiresAt: Date.now() + 5 * 60 * 1000,
-      });
+      const expiresAt = new Date(Date.now() + CODE_TTL_MS);
+
+      // Upsert code and reset attempt counter; delete expired codes opportunistically
+      await db.delete(loginCodes).where(lt(loginCodes.expiresAt, new Date()));
+      await db
+        .insert(loginCodes)
+        .values({ username: normalizedUsername, code, expiresAt, attempts: 0 })
+        .onConflictDoUpdate({
+          target: loginCodes.username,
+          set: { code, expiresAt, attempts: 0 },
+        });
 
       try {
         await botApi.sendMessage(
@@ -57,7 +64,9 @@ export function createAuthRouter(botApi: Api) {
           { parse_mode: "Markdown" },
         );
       } catch {
-        pendingCodes.delete(normalizedUsername);
+        await db
+          .delete(loginCodes)
+          .where(eq(loginCodes.username, normalizedUsername));
         return c.json(
           {
             error:
@@ -81,18 +90,35 @@ export function createAuthRouter(botApi: Api) {
       const { username, code } = c.req.valid("json");
       const normalizedUsername = username.replace(/^@/, "");
 
-      const pending = pendingCodes.get(normalizedUsername);
+      const pending = await db.query.loginCodes.findFirst({
+        where: eq(loginCodes.username, normalizedUsername),
+      });
 
-      if (!pending || pending.expiresAt < Date.now()) {
-        pendingCodes.delete(normalizedUsername);
+      if (!pending || pending.expiresAt <= new Date()) {
+        await db
+          .delete(loginCodes)
+          .where(eq(loginCodes.username, normalizedUsername));
         return c.json({ error: "Код недействителен или истёк" }, 401);
       }
 
+      if (pending.attempts >= MAX_ATTEMPTS) {
+        return c.json(
+          { error: "Слишком много попыток. Запросите новый код." },
+          429,
+        );
+      }
+
       if (pending.code !== code) {
+        await db
+          .update(loginCodes)
+          .set({ attempts: pending.attempts + 1 })
+          .where(eq(loginCodes.username, normalizedUsername));
         return c.json({ error: "Неверный код" }, 401);
       }
 
-      pendingCodes.delete(normalizedUsername);
+      await db
+        .delete(loginCodes)
+        .where(eq(loginCodes.username, normalizedUsername));
 
       const user = await db.query.users.findFirst({
         where: eq(users.username, normalizedUsername),
@@ -135,12 +161,19 @@ export function createAuthRouter(botApi: Api) {
     if (!token) return c.json({ user: null });
 
     try {
-      const payload = jwt.verify(token, JWT_SECRET) as {
-        id: string;
-        username: string;
-        role: string;
-      };
-      return c.json({ user: payload });
+      const payload = jwt.verify(token, JWT_SECRET) as AdminUser;
+
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, payload.id),
+      });
+
+      if (!user || user.role !== "admin") {
+        return c.json({ user: null });
+      }
+
+      return c.json({
+        user: { id: user.id, username: user.username, role: user.role },
+      });
     } catch {
       return c.json({ user: null });
     }
