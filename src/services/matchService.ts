@@ -1,4 +1,5 @@
 import { and, eq, inArray, or, asc } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "../db/db.js";
 import { matches, tournaments, users } from "../db/schema.js";
 import type { BracketMatch } from "./bracketGenerator.js";
@@ -201,11 +202,35 @@ export async function getPlayerActiveMatches(
  */
 export async function getTournamentMatches(
   tournamentId: string,
-): Promise<Match[]> {
-  return db.query.matches.findMany({
-    where: eq(matches.tournamentId, tournamentId),
-    orderBy: [asc(matches.round), asc(matches.position)],
-  });
+): Promise<MatchWithPlayers[]> {
+  const p1 = alias(users, "p1");
+  const p2 = alias(users, "p2");
+  const winner = alias(users, "winner");
+
+  const rows = await db
+    .select({
+      match: matches,
+      player1Username: p1.username,
+      player1Name: p1.name,
+      player2Username: p2.username,
+      player2Name: p2.name,
+      winnerUsername: winner.username,
+    })
+    .from(matches)
+    .leftJoin(p1, eq(matches.player1Id, p1.id))
+    .leftJoin(p2, eq(matches.player2Id, p2.id))
+    .leftJoin(winner, eq(matches.winnerId, winner.id))
+    .where(eq(matches.tournamentId, tournamentId))
+    .orderBy(asc(matches.round), asc(matches.position));
+
+  return rows.map((r) => ({
+    ...r.match,
+    player1Username: r.player1Username,
+    player1Name: r.player1Name,
+    player2Username: r.player2Username,
+    player2Name: r.player2Name,
+    winnerUsername: r.winnerUsername,
+  }));
 }
 
 /**

@@ -2,7 +2,10 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tournamentsApi, matchesApi } from "../lib/api.ts";
-import { TournamentStatusBadge, MatchStatusBadge } from "../components/StatusBadge.tsx";
+import {
+  TournamentStatusBadge,
+  MatchStatusBadge,
+} from "../components/StatusBadge.tsx";
 import type { TournamentStatus } from "../lib/api.ts";
 
 const FORMAT_LABELS = {
@@ -26,7 +29,9 @@ const STATUS_ACTION_LABELS: Partial<Record<TournamentStatus, string>> = {
 export default function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"info" | "participants" | "matches">("info");
+  const [activeTab, setActiveTab] = useState<
+    "info" | "participants" | "matches"
+  >("info");
   const [actionError, setActionError] = useState("");
 
   const { data: tournament, isLoading } = useQuery({
@@ -46,9 +51,10 @@ export default function TournamentDetailPage() {
     queryFn: () => matchesApi.byTournament(id!),
     enabled: !!id && activeTab === "matches",
   });
-
+  console.log(matches);
   const statusMutation = useMutation({
-    mutationFn: (status: TournamentStatus) => tournamentsApi.setStatus(id!, status),
+    mutationFn: (status: TournamentStatus) =>
+      tournamentsApi.setStatus(id!, status),
     onSuccess: () => {
       setActionError("");
       qc.invalidateQueries({ queryKey: ["tournament", id] });
@@ -74,7 +80,10 @@ export default function TournamentDetailPage() {
     if (!next) return;
 
     if (next === "in_progress") {
-      if (!confirm("Запустить турнир? Это создаст сетку и уведомит участников.")) return;
+      if (
+        !confirm("Запустить турнир? Это создаст сетку и уведомит участников.")
+      )
+        return;
       startMutation.mutate();
     } else {
       statusMutation.mutate(next);
@@ -100,10 +109,14 @@ export default function TournamentDetailPage() {
             <span>/</span>
             <span>{tournament.name}</span>
           </div>
-          <h2 className="text-xl font-semibold text-gray-900">{tournament.name}</h2>
+          <h2 className="text-xl font-semibold text-gray-900">
+            {tournament.name}
+          </h2>
           <div className="flex items-center gap-3 mt-2">
             <TournamentStatusBadge status={tournament.status} />
-            <span className="text-sm text-gray-500">{FORMAT_LABELS[tournament.format]}</span>
+            <span className="text-sm text-gray-500">
+              {FORMAT_LABELS[tournament.format]}
+            </span>
           </div>
         </div>
 
@@ -161,7 +174,10 @@ export default function TournamentDetailPage() {
       {/* Tab content */}
       {activeTab === "info" && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-          <InfoRow label="Статус" value={<TournamentStatusBadge status={tournament.status} />} />
+          <InfoRow
+            label="Статус"
+            value={<TournamentStatusBadge status={tournament.status} />}
+          />
           <InfoRow label="Формат" value={FORMAT_LABELS[tournament.format]} />
           <InfoRow
             label="Участники"
@@ -177,7 +193,9 @@ export default function TournamentDetailPage() {
           {tournament.description && (
             <InfoRow label="Описание" value={tournament.description} />
           )}
-          {tournament.rules && <InfoRow label="Правила" value={tournament.rules} />}
+          {tournament.rules && (
+            <InfoRow label="Правила" value={tournament.rules} />
+          )}
         </div>
       )}
 
@@ -186,9 +204,15 @@ export default function TournamentDetailPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Сид</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Игрок</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Статус</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  Сид
+                </th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  Игрок
+                </th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  Статус
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -210,7 +234,10 @@ export default function TournamentDetailPage() {
               ))}
               {!participants?.length && (
                 <tr>
-                  <td colSpan={3} className="px-4 py-6 text-center text-gray-400">
+                  <td
+                    colSpan={3}
+                    className="px-4 py-6 text-center text-gray-400"
+                  >
                     Нет участников
                   </td>
                 </tr>
@@ -225,11 +252,21 @@ export default function TournamentDetailPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Раунд</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Игрок 1</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Счёт</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Игрок 2</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Статус</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  Раунд
+                </th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  Игрок 1
+                </th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  Счёт
+                </th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  Игрок 2
+                </th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  Статус
+                </th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -268,7 +305,10 @@ export default function TournamentDetailPage() {
               ))}
               {!matches?.length && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-gray-400">
+                  <td
+                    colSpan={6}
+                    className="px-4 py-6 text-center text-gray-400"
+                  >
                     Матчи не созданы
                   </td>
                 </tr>
@@ -281,13 +321,7 @@ export default function TournamentDetailPage() {
   );
 }
 
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex gap-4">
       <span className="text-sm text-gray-500 w-36 shrink-0">{label}</span>

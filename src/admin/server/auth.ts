@@ -32,7 +32,10 @@ export function createAuthRouter(botApi: Api) {
 
       if (!user) {
         return c.json(
-          { error: "Пользователь не найден. Убедитесь что вы писали /start боту." },
+          {
+            error:
+              "Пользователь не найден. Убедитесь что вы писали /start боту.",
+          },
           404,
         );
       }
@@ -50,7 +53,7 @@ export function createAuthRouter(botApi: Api) {
       try {
         await botApi.sendMessage(
           user.telegram_id,
-          `Код для входа в админ-панель: *${code}*\n\nКод действителен 5 минут.`,
+          `Код для входа в админ-панель: \`\`\`${code}\`\`\`\n\nКод действителен 5 минут.`,
           { parse_mode: "Markdown" },
         );
       } catch {

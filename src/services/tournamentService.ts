@@ -94,9 +94,9 @@ export async function startTournament(tournamentId: string): Promise<void> {
   // Validate double elimination requires exactly 16 participants
   if (tournament.format === "double_elimination") {
     const participants = await getConfirmedParticipants(tournamentId);
-    if (participants.length !== 16) {
+    if (participants.length < 8) {
       throw new Error(
-        "Double elimination поддерживает только 16 участников. " +
+        "Double elimination поддерживает не менее 8 участников. " +
           `Текущее количество: ${participants.length}`,
       );
     }
