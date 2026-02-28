@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq, lt } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 import { randomInt } from "crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../../db/db.js";
-import { users, loginCodes } from "../../db/schema.js";
+import { users, loginCodes, loginTokens } from "../../db/schema.js";
 import { signToken, JWT_SECRET, type AdminUser } from "./middleware.js";
 import type { Api } from "grammy";
 
@@ -60,7 +60,7 @@ export function createAuthRouter(botApi: Api) {
       try {
         await botApi.sendMessage(
           user.telegram_id,
-          `Код для входа в админ-панель: \`\`\`${code}\`\`\`\n\nКод действителен 5 минут.`,
+          `Код для входа в админ-панель: \`${code}\`\n\nКод действителен 5 минут.`,
           { parse_mode: "Markdown" },
         );
       } catch {
@@ -145,6 +145,43 @@ export function createAuthRouter(botApi: Api) {
     },
   );
 
+  auth.get("/token", async (c) => {
+    const t = c.req.query("t");
+    if (!t) {
+      return c.redirect("/login?error=invalid");
+    }
+
+    const record = await db.query.loginTokens.findFirst({
+      where: and(
+        eq(loginTokens.token, t),
+        gt(loginTokens.expiresAt, new Date()),
+      ),
+    });
+    if (!record) {
+      return c.redirect("/login?error=invalid");
+    }
+
+    await db.delete(loginTokens).where(eq(loginTokens.token, t));
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, record.userId),
+    });
+
+    if (!user || user.role !== "admin")
+      return c.redirect("/login?error=forbidden");
+
+    const token = signToken({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+    });
+    c.header(
+      "Set-Cookie",
+      `admin_token=${token}; HttpOnly; Path=/; Max-Age=${24 * 60 * 60}; SameSite=Strict`,
+    );
+    return c.redirect("/");
+  });
+
   auth.post("/logout", (c) => {
     c.header(
       "Set-Cookie",
@@ -158,8 +195,9 @@ export function createAuthRouter(botApi: Api) {
     const tokenMatch = cookie.match(/admin_token=([^;]+)/);
     const token = tokenMatch?.[1];
 
-    if (!token) return c.json({ user: null });
-
+    if (!token) {
+      return c.json({ user: null });
+    }
     try {
       const payload = jwt.verify(token, JWT_SECRET) as AdminUser;
 
