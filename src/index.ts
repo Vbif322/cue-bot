@@ -48,21 +48,13 @@ bot.command("dashboard", async (ctx) => {
     expiresAt: new Date(Date.now() + 5 * 60 * 1000),
   });
 
-  const adminUrl =
-    process.env.ADMIN_URL ??
-    (process.env.NODE_ENV === "development"
-      ? "http://localhost:5173"
-      : `http://localhost:${process.env.ADMIN_PORT ?? 3000}`);
-  const url = `${adminUrl}/api/auth/token?t=${token}`;
+  const url = `https://cuebot.ru/api/auth/token?t=${token}`;
 
-  const isPublicUrl =
-    adminUrl.startsWith("https://") && !adminUrl.includes("localhost");
-  if (isPublicUrl) {
-    const keyboard = new InlineKeyboard().url("Открыть панель управления", url);
-    await ctx.reply("Ссылка действительна 5 минут", { reply_markup: keyboard });
-  } else {
-    await ctx.reply(`Ссылка действительна 5 минут:\n${url}`);
-  }
+  const keyboard = new InlineKeyboard().webApp(
+    "Открыть панель управления",
+    url,
+  );
+  await ctx.reply("Ссылка действительна 5 минут", { reply_markup: keyboard });
 });
 
 bot.catch((err) => {
