@@ -21,6 +21,7 @@ export type ApiMatch = Omit<
   player2Username: string | null;
   player2Name: string | null;
   winnerUsername: string | null;
+  tableName?: string | null;
 };
 
 export type ApiMatchStats = {
@@ -41,4 +42,5 @@ export interface MatchWithPlayers extends Match {
   winnerUsername?: string | null;
   winnerName?: string | null;
   winnerTelegramId?: string | null;
+  tableName?: string | null;
 }

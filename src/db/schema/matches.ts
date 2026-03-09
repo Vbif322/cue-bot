@@ -9,6 +9,7 @@ import {
 import { createdAt, prodSchema, updatedAt } from "../schemaHelpers.js";
 import { tournaments } from "./tournaments.js";
 import { users } from "./users.js";
+import { tables } from "./tables.js";
 
 export const matchStatus = [
   "scheduled",
@@ -42,6 +43,7 @@ export const matches = prodSchema.table("matches", {
   nextMatchPosition: varchar("next_match_position", { length: 10 }),
   bracketType: varchar({ length: 20 }).default("winners"),
   losersNextMatchPosition: integer("losers_next_match_position"),
+  tableId: uuid("table_id").references(() => tables.id, { onDelete: "set null" }),
   createdAt,
   updatedAt,
 });

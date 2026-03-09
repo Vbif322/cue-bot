@@ -6,8 +6,15 @@ import {
   getTournament,
 } from "./tournamentService.js";
 import { generateBracket } from "./bracketGenerator.js";
-import { createMatches, getRoundMatches, getMatch } from "./matchService.js";
+import {
+  createMatches,
+  getRoundMatches,
+  getMatch,
+  assignTableAndStart,
+  getNextReadyMatch,
+} from "./matchService.js";
 import { notifyMatchAssigned } from "./notificationService.js";
+import { getTournamentTables } from "./tableService.js";
 
 export interface StartTournamentFullResult {
   participantsCount: number;
@@ -21,7 +28,8 @@ export interface StartTournamentFullResult {
  * 2. Generate bracket
  * 3. Create matches in database
  * 4. Set tournament status to in_progress
- * 5. Notify first-round participants via Telegram
+ * 5. Assign tables to first N ready matches (auto-start with notification)
+ * 6. Notify remaining first-round participants via Telegram
  */
 export async function startTournamentFull(
   tournamentId: string,
@@ -45,9 +53,21 @@ export async function startTournamentFull(
   // 5. Update tournament status to in_progress
   await startTournament(tournamentId);
 
-  // 6. Notify first round participants (errors are non-fatal)
+  // 6. Assign tables to first N ready matches
+  const tournamentTables = await getTournamentTables(tournamentId);
+  const autoStartedMatchIds = new Set<string>();
+
+  for (const table of tournamentTables) {
+    const next = await getNextReadyMatch(tournamentId);
+    if (!next) break;
+    const ok = await assignTableAndStart(next.id, table.id, botApi);
+    if (ok) autoStartedMatchIds.add(next.id);
+  }
+
+  // 7. Notify R1 participants not already notified via table auto-start
   const firstRoundMatches = await getRoundMatches(tournamentId, 1);
   for (const match of firstRoundMatches) {
+    if (autoStartedMatchIds.has(match.id)) continue;
     try {
       const matchWithPlayers = await getMatch(match.id);
       if (matchWithPlayers) {

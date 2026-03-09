@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { tournamentsApi } from "../lib/api.ts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { tournamentsApi, tablesApi } from "../lib/api.ts";
 
 export default function CreateTournamentModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -13,16 +13,50 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
     winScore: 3,
     startDate: "",
   });
+  const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
+  const [newTableInputs, setNewTableInputs] = useState<string[]>([]);
   const [error, setError] = useState("");
 
+  const { data: existingTables = [] } = useQuery({
+    queryKey: ["tables"],
+    queryFn: () => tablesApi.list(),
+  });
+
   const create = useMutation({
-    mutationFn: () => tournamentsApi.create(form),
+    mutationFn: () =>
+      tournamentsApi.create({
+        ...form,
+        description: form.description || undefined,
+        rules: form.rules || undefined,
+        startDate: form.startDate || undefined,
+        tableIds: selectedTableIds.length > 0 ? selectedTableIds : undefined,
+        newTableNames: newTableInputs.filter((n) => n.trim()).length > 0
+          ? newTableInputs.filter((n) => n.trim())
+          : undefined,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tournaments"] });
+      qc.invalidateQueries({ queryKey: ["tables"] });
       onClose();
     },
     onError: (e: Error) => setError(e.message),
   });
+
+  const toggleTable = (id: string) => {
+    setSelectedTableIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  const addNewTableInput = () => setNewTableInputs((prev) => [...prev, ""]);
+
+  const updateNewTable = (i: number, val: string) => {
+    setNewTableInputs((prev) => prev.map((v, idx) => (idx === i ? val : v)));
+  };
+
+  const removeNewTable = (i: number) => {
+    setNewTableInputs((prev) => prev.filter((_, idx) => idx !== i));
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start md:items-center justify-center z-50 p-4 overflow-y-auto">
@@ -42,15 +76,11 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
           className="p-5 space-y-4"
         >
           {error && (
-            <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg">
-              {error}
-            </div>
+            <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg">{error}</div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Название *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Название *</label>
             <input
               required
               value={form.name}
@@ -60,14 +90,10 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Формат
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Формат</label>
             <select
               value={form.format}
-              onChange={(e) =>
-                setForm({ ...form, format: e.target.value as typeof form.format })
-              }
+              onChange={(e) => setForm({ ...form, format: e.target.value as typeof form.format })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="single_elimination">Single Elimination</option>
@@ -78,40 +104,30 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Макс. участников
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Макс. участников</label>
               <input
                 type="number"
                 min={2}
                 max={64}
                 value={form.maxParticipants}
-                onChange={(e) =>
-                  setForm({ ...form, maxParticipants: Number(e.target.value) })
-                }
+                onChange={(e) => setForm({ ...form, maxParticipants: Number(e.target.value) })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Win score
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Win score</label>
               <input
                 type="number"
                 min={1}
                 value={form.winScore}
-                onChange={(e) =>
-                  setForm({ ...form, winScore: Number(e.target.value) })
-                }
+                onChange={(e) => setForm({ ...form, winScore: Number(e.target.value) })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Дата начала
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Дата начала</label>
             <input
               type="datetime-local"
               value={form.startDate}
@@ -121,15 +137,63 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Описание
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Описание</label>
             <textarea
               rows={2}
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
+          </div>
+
+          {/* Tables section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Столы</label>
+
+            {existingTables.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {existingTables.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => toggleTable(t.id)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      selectedTableIds.includes(t.id)
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {newTableInputs.map((val, i) => (
+              <div key={i} className="flex gap-2 mb-2">
+                <input
+                  value={val}
+                  onChange={(e) => updateNewTable(i, e.target.value)}
+                  placeholder={`Новый стол ${i + 1}`}
+                  className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeNewTable(i)}
+                  className="text-gray-400 hover:text-red-500 text-lg leading-none px-1"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              onClick={addNewTableInput}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              + Новый стол
+            </button>
           </div>
 
           <div className="flex gap-3 pt-2">

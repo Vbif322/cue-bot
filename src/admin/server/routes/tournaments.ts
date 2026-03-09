@@ -15,6 +15,11 @@ import {
 } from "../../../services/tournamentService.js";
 import { startTournamentFull } from "../../../services/tournamentStartService.js";
 import { getMatchStats } from "../../../services/matchService.js";
+import {
+  createTable,
+  getTournamentTables,
+  setTournamentTables,
+} from "../../../services/tableService.js";
 import { requireAdmin } from "../middleware.js";
 import type { Api } from "grammy";
 
@@ -23,20 +28,22 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.use("/*", requireAdmin);
 
-  // List all tournaments
   router.get("/", async (c) => {
     const list = await getTournaments({ limit: 100, includesDrafts: true });
     return c.json({ data: list });
   });
 
-  // Get single tournament
   router.get("/:id", async (c) => {
     const tournament = await getTournament(c.req.param("id"));
     if (!tournament) return c.json({ error: "Не найден" }, 404);
     return c.json({ data: tournament });
   });
 
-  // Create tournament
+  router.get("/:id/tables", async (c) => {
+    const list = await getTournamentTables(c.req.param("id"));
+    return c.json({ data: list });
+  });
+
   router.post(
     "/",
     zValidator(
@@ -49,7 +56,8 @@ export function createTournamentsRouter(botApi: Api) {
         maxParticipants: z.number().int().min(2).max(64).default(16),
         winScore: z.number().int().min(1).default(3),
         startDate: z.string().optional(),
-        createdBy: z.string().optional(),
+        tableIds: z.array(z.string().uuid()).optional(),
+        newTableNames: z.array(z.string().min(1).max(100)).optional(),
       }),
     ),
     async (c) => {
@@ -71,11 +79,21 @@ export function createTournamentsRouter(botApi: Api) {
         })
         .returning();
 
+      if (!tournament) return c.json({ error: "Ошибка создания турнира" }, 500);
+
+      const existingIds = body.tableIds ?? [];
+      const newNames = body.newTableNames ?? [];
+      const newIds = await Promise.all(newNames.map((n) => createTable(n).then((t) => t.id)));
+      const allTableIds = [...existingIds, ...newIds];
+
+      if (allTableIds.length > 0) {
+        await setTournamentTables(tournament.id, allTableIds);
+      }
+
       return c.json({ data: tournament }, 201);
     },
   );
 
-  // Update tournament status
   router.patch(
     "/:id/status",
     zValidator(
@@ -106,7 +124,6 @@ export function createTournamentsRouter(botApi: Api) {
     },
   );
 
-  // Start tournament (full orchestration)
   router.post("/:id/start", async (c) => {
     const id = c.req.param("id");
 
@@ -126,7 +143,6 @@ export function createTournamentsRouter(botApi: Api) {
     }
   });
 
-  // Delete tournament
   router.delete("/:id", async (c) => {
     const id = c.req.param("id");
     const tournament = await getTournament(id);
@@ -144,11 +160,9 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ ok: true });
   });
 
-  // Get tournament participants
   router.get("/:id/participants", async (c) => {
     const id = c.req.param("id");
 
-    // Get full status from DB
     const dbParticipants = await db
       .select({
         userId: tournamentParticipants.userId,
@@ -164,13 +178,11 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ data: dbParticipants });
   });
 
-  // Get tournament match stats
   router.get("/:id/stats", async (c) => {
     const stats = await getMatchStats(c.req.param("id"));
     return c.json({ data: stats });
   });
 
-  // Add participant to tournament
   router.post(
     "/:id/participants",
     zValidator("json", z.object({ userId: z.string().uuid() })),
@@ -187,7 +199,6 @@ export function createTournamentsRouter(botApi: Api) {
     },
   );
 
-  // Remove participant from tournament
   router.delete("/:id/participants/:userId", async (c) => {
     const tournamentId = c.req.param("id");
     const userId = c.req.param("userId");

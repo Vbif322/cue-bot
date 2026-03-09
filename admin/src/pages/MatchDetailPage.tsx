@@ -95,6 +95,11 @@ export default function MatchDetailPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <MatchStatusBadge status={match.status} />
+          {match.tableName && (
+            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">
+              {match.tableName}
+            </span>
+          )}
           {match.isTechnicalResult && (
             <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
               Технический результат: {match.technicalReason}
