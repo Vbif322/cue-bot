@@ -5,6 +5,7 @@ import { useMe, useLogout } from "../lib/useAuth.ts";
 
 const navItems = [
   { to: "/tournaments", label: "Турниры" },
+  { to: "/tables", label: "Столы" },
   { to: "/users", label: "Пользователи" },
 ];
 

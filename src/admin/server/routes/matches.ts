@@ -14,7 +14,7 @@ import {
 import { requireAdmin } from "../middleware.js";
 import type { Api } from "grammy";
 
-export function createMatchesRouter(_botApi: Api) {
+export function createMatchesRouter(botApi: Api) {
   const router = new Hono();
 
   router.use("/*", requireAdmin);
@@ -75,7 +75,7 @@ export function createMatchesRouter(_botApi: Api) {
     zValidator("json", z.object({ confirmerId: z.string().uuid() })),
     async (c) => {
       const { confirmerId } = c.req.valid("json");
-      const result = await confirmResult(c.req.param("id"), confirmerId);
+      const result = await confirmResult(c.req.param("id"), confirmerId, botApi);
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },
@@ -111,6 +111,7 @@ export function createMatchesRouter(_botApi: Api) {
         winnerId,
         reason,
         admin.id,
+        botApi,
       );
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });

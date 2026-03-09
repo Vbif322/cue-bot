@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tournamentsApi, matchesApi } from "../lib/api.ts";
+import type { ApiTable } from "../lib/api.ts";
 import {
   TournamentStatusBadge,
   MatchStatusBadge,
@@ -51,7 +52,12 @@ export default function TournamentDetailPage() {
     queryFn: () => matchesApi.byTournament(id!),
     enabled: !!id && activeTab === "matches",
   });
-  console.log(matches);
+
+  const { data: tournamentTables } = useQuery<ApiTable[]>({
+    queryKey: ["tournament-tables", id],
+    queryFn: () => tournamentsApi.tables(id!),
+    enabled: !!id,
+  });
   const statusMutation = useMutation({
     mutationFn: (status: TournamentStatus) =>
       tournamentsApi.setStatus(id!, status),
@@ -190,6 +196,25 @@ export default function TournamentDetailPage() {
               value={new Date(tournament.startDate).toLocaleString("ru-RU")}
             />
           )}
+          <InfoRow
+            label="Столы"
+            value={
+              tournamentTables && tournamentTables.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {tournamentTables.map((t) => (
+                    <span
+                      key={t.id}
+                      className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded-full"
+                    >
+                      {t.name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                "—"
+              )
+            }
+          />
           {tournament.description && (
             <InfoRow label="Описание" value={tournament.description} />
           )}
@@ -262,12 +287,19 @@ export default function TournamentDetailPage() {
                 className="bg-white rounded-xl border border-gray-200 p-4"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-gray-500 font-medium">
-                    R{m.round}
-                    {m.bracketType === "losers" && (
-                      <span className="text-orange-500 ml-1">L</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 font-medium">
+                      R{m.round}
+                      {m.bracketType === "losers" && (
+                        <span className="text-orange-500 ml-1">L</span>
+                      )}
+                    </span>
+                    {m.tableName && (
+                      <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">
+                        {m.tableName}
+                      </span>
                     )}
-                  </span>
+                  </div>
                   <MatchStatusBadge status={m.status} />
                 </div>
                 <div className="flex items-center justify-center gap-3 my-3">
@@ -313,6 +345,9 @@ export default function TournamentDetailPage() {
                     Игрок 2
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Стол
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Статус
                   </th>
                   <th className="px-4 py-3"></th>
@@ -338,6 +373,9 @@ export default function TournamentDetailPage() {
                     <td className="px-4 py-3">
                       {m.player2Name ?? m.player2Username ?? "TBD"}
                     </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">
+                      {m.tableName ?? "—"}
+                    </td>
                     <td className="px-4 py-3">
                       <MatchStatusBadge status={m.status} />
                     </td>
@@ -354,7 +392,7 @@ export default function TournamentDetailPage() {
                 {!matches?.length && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-4 py-6 text-center text-gray-400"
                     >
                       Матчи не созданы

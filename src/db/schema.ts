@@ -7,3 +7,5 @@ export * from "./schema/notifications.js";
 export * from "./schema/disqualifications.js";
 export * from "./schema/loginCodes.js";
 export * from "./schema/loginTokens.js";
+export * from "./schema/tables.js";
+export * from "./schema/tournamentTables.js";
