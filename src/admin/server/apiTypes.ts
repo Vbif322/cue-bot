@@ -16,3 +16,4 @@ export type {
 } from "../../bot/@types/match.js";
 export type { ApiError, StartTournamentResponse } from "../../bot/@types/api.js";
 export type { Table, ApiTable } from "../../bot/@types/table.js";
+export type { Venue, ApiVenue } from "../../bot/@types/venue.js";
