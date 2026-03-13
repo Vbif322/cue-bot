@@ -12,16 +12,20 @@ export async function getTable(id: string): Promise<Table | null> {
   return (await db.query.tables.findFirst({ where: eq(tables.id, id) })) ?? null;
 }
 
-export async function createTable(name: string): Promise<Table> {
+export async function createTable(name: string, venueId: string): Promise<Table> {
   const [table] = await db
     .insert(tables)
-    .values({ name })
+    .values({ name, venueId })
     .returning();
   return table!;
 }
 
-export async function deleteTable(id: string): Promise<void> {
-  await db.delete(tables).where(eq(tables.id, id));
+export async function deleteTable(id: string): Promise<boolean> {
+  const [row] = await db
+    .delete(tables)
+    .where(eq(tables.id, id))
+    .returning({ id: tables.id });
+  return !!row;
 }
 
 export async function getTournamentTables(tournamentId: string): Promise<Table[]> {

@@ -20,18 +20,30 @@ export function createTablesRouter() {
 
   router.post(
     "/",
-    zValidator("json", z.object({ name: z.string().min(1).max(100) })),
+    zValidator(
+      "json",
+      z.object({
+        name: z.string().min(1).max(100),
+        venueId: z.string().uuid(),
+      }),
+    ),
     async (c) => {
-      const { name } = c.req.valid("json");
-      const table = await createTable(name);
+      const { name, venueId } = c.req.valid("json");
+      const table = await createTable(name, venueId);
       return c.json({ data: table }, 201);
     },
   );
 
-  router.delete("/:id", async (c) => {
-    await deleteTable(c.req.param("id"));
-    return c.json({ ok: true });
-  });
+  router.delete(
+    "/:id",
+    zValidator("param", z.object({ id: z.string().uuid() })),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const deleted = await deleteTable(id);
+      if (!deleted) return c.json({ error: "Not found" }, 404);
+      return c.json({ ok: true });
+    },
+  );
 
   return router;
 }

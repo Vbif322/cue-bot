@@ -6,6 +6,7 @@ import type {
   ApiMatchStats,
   ApiUser,
   ApiTable,
+  ApiVenue,
   StartTournamentResponse,
   TournamentStatus,
 } from "@server/apiTypes";
@@ -17,6 +18,7 @@ export type {
   ApiMatchStats,
   ApiUser,
   ApiTable,
+  ApiVenue,
   StartTournamentResponse,
   TournamentStatus,
 };
@@ -94,7 +96,6 @@ export const tournamentsApi = {
     winScore?: number;
     startDate?: string;
     tableIds?: string[];
-    newTableNames?: string[];
   }) =>
     apiFetch<ApiTournament>("/api/tournaments", {
       method: "POST",
@@ -203,12 +204,33 @@ export const usersApi = {
 export const tablesApi = {
   list: () => apiFetch<ApiTable[]>("/api/tables"),
 
-  create: (name: string) =>
+  create: (name: string, venueId: string) =>
     apiFetch<ApiTable>("/api/tables", {
       method: "POST",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, venueId }),
     }),
 
   delete: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/tables/${id}`, { method: "DELETE" }),
+};
+
+// ── Venues ────────────────────────────────────────────────────────────────────
+
+export const venuesApi = {
+  list: () => apiFetch<ApiVenue[]>("/api/venues"),
+
+  create: (data: { name: string; address: string; image?: string }) =>
+    apiFetch<ApiVenue>("/api/venues", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: string, data: { name?: string; address?: string; image?: string | null }) =>
+    apiFetch<ApiVenue>(`/api/venues/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/venues/${id}`, { method: "DELETE" }),
 };

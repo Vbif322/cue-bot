@@ -14,7 +14,6 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
     startDate: "",
   });
   const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
-  const [newTableInputs, setNewTableInputs] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   const { data: existingTables = [] } = useQuery({
@@ -30,9 +29,6 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
         rules: form.rules || undefined,
         startDate: form.startDate || undefined,
         tableIds: selectedTableIds.length > 0 ? selectedTableIds : undefined,
-        newTableNames: newTableInputs.filter((n) => n.trim()).length > 0
-          ? newTableInputs.filter((n) => n.trim())
-          : undefined,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tournaments"] });
@@ -46,16 +42,6 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
     setSelectedTableIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
-  };
-
-  const addNewTableInput = () => setNewTableInputs((prev) => [...prev, ""]);
-
-  const updateNewTable = (i: number, val: string) => {
-    setNewTableInputs((prev) => prev.map((v, idx) => (idx === i ? val : v)));
-  };
-
-  const removeNewTable = (i: number) => {
-    setNewTableInputs((prev) => prev.filter((_, idx) => idx !== i));
   };
 
   return (
@@ -169,31 +155,6 @@ export default function CreateTournamentModal({ onClose }: { onClose: () => void
               </div>
             )}
 
-            {newTableInputs.map((val, i) => (
-              <div key={i} className="flex gap-2 mb-2">
-                <input
-                  value={val}
-                  onChange={(e) => updateNewTable(i, e.target.value)}
-                  placeholder={`Новый стол ${i + 1}`}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeNewTable(i)}
-                  className="text-gray-400 hover:text-red-500 text-lg leading-none px-1"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-
-            <button
-              type="button"
-              onClick={addNewTableInput}
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              + Новый стол
-            </button>
           </div>
 
           <div className="flex gap-3 pt-2">

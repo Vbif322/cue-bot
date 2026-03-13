@@ -7,7 +7,7 @@ import TournamentsPage from "./pages/TournamentsPage.tsx";
 import TournamentDetailPage from "./pages/TournamentDetailPage.tsx";
 import MatchDetailPage from "./pages/MatchDetailPage.tsx";
 import UsersPage from "./pages/UsersPage.tsx";
-import TablesPage from "./pages/TablesPage.tsx";
+import VenuesPage from "./pages/VenuesPage.tsx";
 
 export default function App() {
   const { data, isLoading } = useMe();
@@ -36,7 +36,7 @@ export default function App() {
         <Route path="/tournaments" element={<TournamentsPage />} />
         <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
         <Route path="/matches/:id" element={<MatchDetailPage />} />
-        <Route path="/tables" element={<TablesPage />} />
+        <Route path="/venues" element={<VenuesPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="*" element={<Navigate to="/tournaments" replace />} />
       </Routes>

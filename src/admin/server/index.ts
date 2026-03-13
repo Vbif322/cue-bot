@@ -6,6 +6,7 @@ import { createTournamentsRouter } from "./routes/tournaments.js";
 import { createMatchesRouter } from "./routes/matches.js";
 import { createUsersRouter } from "./routes/users.js";
 import { createTablesRouter } from "./routes/tables.js";
+import { createVenuesRouter } from "./routes/venues.js";
 
 export function createAdminServer() {
   const app = new Hono();
@@ -32,6 +33,7 @@ export function createAdminServer() {
   app.route("/api/matches", createMatchesRouter(bot.api));
   app.route("/api/users", createUsersRouter());
   app.route("/api/tables", createTablesRouter());
+  app.route("/api/venues", createVenuesRouter());
 
   return app;
 }

@@ -16,7 +16,6 @@ import {
 import { startTournamentFull } from "../../../services/tournamentStartService.js";
 import { getMatchStats } from "../../../services/matchService.js";
 import {
-  createTable,
   getTournamentTables,
   setTournamentTables,
 } from "../../../services/tableService.js";
@@ -57,7 +56,6 @@ export function createTournamentsRouter(botApi: Api) {
         winScore: z.number().int().min(1).default(3),
         startDate: z.string().optional(),
         tableIds: z.array(z.string().uuid()).optional(),
-        newTableNames: z.array(z.string().min(1).max(100)).optional(),
       }),
     ),
     async (c) => {
@@ -81,10 +79,7 @@ export function createTournamentsRouter(botApi: Api) {
 
       if (!tournament) return c.json({ error: "Ошибка создания турнира" }, 500);
 
-      const existingIds = body.tableIds ?? [];
-      const newNames = body.newTableNames ?? [];
-      const newIds = await Promise.all(newNames.map((n) => createTable(n).then((t) => t.id)));
-      const allTableIds = [...existingIds, ...newIds];
+      const allTableIds = body.tableIds ?? [];
 
       if (allTableIds.length > 0) {
         await setTournamentTables(tournament.id, allTableIds);
