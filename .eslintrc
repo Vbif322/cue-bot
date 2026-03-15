@@ -1,0 +1,51 @@
+{
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2024,
+    "sourceType": "module",
+    "project": "./tsconfig.json",
+  },
+  "plugins": ["@typescript-eslint", "import", "n", "promise", "unused-imports"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:import/recommended",
+    "plugin:import/typescript",
+    "eslint-config-love",
+    "plugin:prettier/recommended",
+  ],
+  "rules": {
+    "linebreak-style": "off", // обеспечивает единообразие окончаний строк независимо от операционной системы (!реализует prettier!)
+
+    "global-require": 2, // require() в глобальном контексте
+
+    "unused-imports/no-unused-imports": "error", // нельзя импортировать неиспользуемые модули
+
+    "no-unused-vars": "off", // нельзя объявлять неиспользуемые переменные
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      { "varsIgnorePattern": "^_", "argsIgnorePattern": "^_" }, // не проверять названия параметров функции наличием _ в начале
+    ], // нельзя объявлять неиспользуемые переменные (дополняет typescript)
+
+    "@typescript-eslint/no-unsafe-argument": "warn", // нельзя передавать any или unknown в функцию, которая ждёт конкретный тип
+    "@typescript-eslint/no-unsafe-assignment": "warn", // нельзя присваивать any или unknown переменной с другим типом
+    "@typescript-eslint/no-unsafe-member-access": "warn", // нельзя обращаться к свойствам у значения с типом any или unknown
+    "@typescript-eslint/no-unsafe-call": "warn", // нельзя вызывать значение типа any или unknown как функцию
+
+    "@typescript-eslint/strict-boolean-expressions": "warn", // запрещает использовать в условии значения, которые не гарантированно boolean
+
+    "@typescript-eslint/method-signature-style": "off", // какой стиль сигнатуры использовать в интерфейсах/типах
+
+    "@typescript-eslint/consistent-type-imports": "error", // проверяет, чтобы импорты типов (interface, type) всегда писались в явном виде import type
+
+    "@typescript-eslint/no-floating-promises": "error", // проверяет, чтобы у промисов не было «потерянных» вызовов без await или .then()
+
+    "no-named-as-default-member": "off", // запрещает использовать именованные экспорты по умолчанию
+
+    // !!
+    "no-param-reassign": ["off", { "props": true }], // запрещает изменять аргументы функции
+
+    "import/no-named-as-default-member": "off", // обращение к именованному экспорту через default-импорт (много ложных срабатываний)
+    "import/no-unresolved": "off", // импортируемый модуль реально существует (конфликтует с TypeScript path aliases)
+  },
+}
