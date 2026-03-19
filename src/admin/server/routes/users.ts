@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import { db } from "../../../db/db.js";
 import {
   users,
@@ -14,9 +14,10 @@ export function createUsersRouter() {
 
   router.use("/*", requireAdmin);
 
-  // List all users
+  // List all users (excludes ghost/guest users)
   router.get("/", async (c) => {
     const allUsers = await db.query.users.findMany({
+      where: (u) => ne(u.isGuest, true),
       orderBy: (u, { asc }) => [asc(u.username)],
     });
     return c.json({ data: allUsers });

@@ -23,4 +23,5 @@ export type ApiTournamentParticipant = Pick<
 > & {
   username: string | null;
   name: string | null;
+  isGuest: boolean;
 };
