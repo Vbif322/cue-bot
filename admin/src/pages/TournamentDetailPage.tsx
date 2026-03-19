@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { tournamentsApi, matchesApi } from "../lib/api.ts";
+import { tournamentsApi, matchesApi, usersApi } from "../lib/api.ts";
 import type { ApiTable } from "../lib/api.ts";
 import {
   TournamentStatusBadge,
@@ -30,10 +30,21 @@ const STATUS_ACTION_LABELS: Partial<Record<TournamentStatus, string>> = {
 export default function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<
-    "info" | "participants" | "matches"
-  >("info");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get("tab") ?? "info") as
+    | "info"
+    | "participants"
+    | "matches";
+  const setActiveTab = (tab: string) =>
+    setSearchParams({ tab }, { replace: true });
   const [actionError, setActionError] = useState("");
+
+  const [showModal, setShowModal] = useState(false);
+  const [modalTab, setModalTab] = useState<"user" | "guest">("user");
+  const [userSearch, setUserSearch] = useState("");
+  const [guestName, setGuestName] = useState("");
+  const [guestTelegramUsername, setGuestTelegramUsername] = useState("");
+  const [addError, setAddError] = useState("");
 
   const { data: tournament, isLoading } = useQuery({
     queryKey: ["tournament", id],
@@ -58,6 +69,35 @@ export default function TournamentDetailPage() {
     queryFn: () => tournamentsApi.tables(id!),
     enabled: !!id,
   });
+
+  const { data: allUsers } = useQuery({
+    queryKey: ["users"],
+    queryFn: () => usersApi.list(),
+    enabled: showModal && modalTab === "user",
+  });
+
+  const addParticipantMutation = useMutation({
+    mutationFn: (body: Parameters<typeof tournamentsApi.addParticipant>[1]) =>
+      tournamentsApi.addParticipant(id!, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tournament-participants", id] });
+      setShowModal(false);
+      setGuestName("");
+      setGuestTelegramUsername("");
+      setUserSearch("");
+      setAddError("");
+    },
+    onError: (e: Error) => setAddError(e.message),
+  });
+
+  const removeParticipantMutation = useMutation({
+    mutationFn: (userId: string) =>
+      tournamentsApi.removeParticipant(id!, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tournament-participants", id] });
+    },
+  });
+
   const statusMutation = useMutation({
     mutationFn: (status: TournamentStatus) =>
       tournamentsApi.setStatus(id!, status),
@@ -225,50 +265,240 @@ export default function TournamentDetailPage() {
       )}
 
       {activeTab === "participants" && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Сид
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Игрок
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Статус
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {participants?.map((p) => (
-                <tr key={p.userId}>
-                  <td className="px-4 py-3 text-gray-500">{p.seed ?? "—"}</td>
-                  <td className="px-4 py-3 font-medium">
-                    {p.name ?? p.username ?? p.userId}
-                    {p.username && (
-                      <span className="text-gray-400 font-normal ml-1">
-                        @{p.username}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs text-gray-500">{p.status}</span>
-                  </td>
+        <div>
+          <div className="flex justify-end mb-3">
+            <button
+              onClick={() => {
+                setShowModal(true);
+                setModalTab("user");
+                setUserSearch("");
+                setGuestName("");
+                setGuestTelegramUsername("");
+                setAddError("");
+              }}
+              className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+            >
+              + Добавить участника
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Сид
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Игрок
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Статус
+                  </th>
+                  <th className="px-4 py-3"></th>
                 </tr>
-              ))}
-              {!participants?.length && (
-                <tr>
-                  <td
-                    colSpan={3}
-                    className="px-4 py-6 text-center text-gray-400"
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {participants?.map((p) => (
+                  <tr key={p.userId}>
+                    <td className="px-4 py-3 text-gray-500">
+                      {p.seed ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 font-medium">
+                      <span>{p.name ?? p.username ?? p.userId}</span>
+                      {!p.isGuest && p.username && (
+                        <span className="text-gray-400 font-normal ml-1">
+                          @{p.username}
+                        </span>
+                      )}
+                      {p.isGuest && (
+                        <span className="ml-2 px-1.5 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">
+                          Гость
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs text-gray-500">{p.status}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => {
+                          if (confirm("Удалить участника?")) {
+                            removeParticipantMutation.mutate(p.userId);
+                          }
+                        }}
+                        disabled={removeParticipantMutation.isPending}
+                        className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                      >
+                        Удалить
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!participants?.length && (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-4 py-6 text-center text-gray-400"
+                    >
+                      Нет участников
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Add participant modal */}
+          {showModal && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                  <h3 className="font-semibold text-gray-900">
+                    Добавить участника
+                  </h3>
+                  <button
+                    onClick={() => setShowModal(false)}
+                    className="text-gray-400 hover:text-gray-600 text-lg leading-none"
                   >
-                    Нет участников
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    ×
+                  </button>
+                </div>
+
+                {/* Modal tabs */}
+                <div className="flex gap-1 px-5 pt-4 border-b border-gray-200">
+                  {(["user", "guest"] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => {
+                        setModalTab(t);
+                        setAddError("");
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                        modalTab === t
+                          ? "border-blue-600 text-blue-600"
+                          : "border-transparent text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      {t === "user" ? "Пользователь бота" : "Гость"}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="p-5 space-y-3">
+                  {modalTab === "user" && (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Поиск по имени или @username..."
+                        value={userSearch}
+                        onChange={(e) => setUserSearch(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <div className="max-h-52 overflow-y-auto divide-y divide-gray-100 border border-gray-200 rounded-lg">
+                        {(() => {
+                          const participantIds = new Set(
+                            participants?.map((p) => p.userId) ?? [],
+                          );
+                          const q = userSearch.toLowerCase();
+                          const filtered = (allUsers ?? []).filter(
+                            (u) =>
+                              !participantIds.has(u.id) &&
+                              (!q ||
+                                u.username.toLowerCase().includes(q) ||
+                                (u.name ?? "").toLowerCase().includes(q)),
+                          );
+                          if (filtered.length === 0)
+                            return (
+                              <div className="px-3 py-4 text-center text-gray-400 text-sm">
+                                Пользователи не найдены
+                              </div>
+                            );
+                          return filtered.map((u) => (
+                            <button
+                              key={u.id}
+                              onClick={() =>
+                                addParticipantMutation.mutate({
+                                  type: "user",
+                                  userId: u.id,
+                                })
+                              }
+                              disabled={addParticipantMutation.isPending}
+                              className="w-full text-left px-3 py-2.5 hover:bg-blue-50 text-sm disabled:opacity-50"
+                            >
+                              <span className="font-medium">
+                                {u.name ?? u.username}
+                              </span>
+                              <span className="text-gray-400 ml-1.5">
+                                @{u.username}
+                              </span>
+                            </button>
+                          ));
+                        })()}
+                      </div>
+                    </>
+                  )}
+
+                  {modalTab === "guest" && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Имя участника *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Иван Петров"
+                          value={guestName}
+                          onChange={(e) => setGuestName(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Telegram username (необязательно)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="@username"
+                          value={guestTelegramUsername}
+                          onChange={(e) =>
+                            setGuestTelegramUsername(
+                              e.target.value.replace(/^@/, ""),
+                            )
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (!guestName.trim()) {
+                            setAddError("Введите имя участника");
+                            return;
+                          }
+                          addParticipantMutation.mutate({
+                            type: "guest",
+                            guestName: guestName.trim(),
+                            telegramUsername:
+                              guestTelegramUsername.trim() || undefined,
+                          });
+                        }}
+                        disabled={addParticipantMutation.isPending}
+                        className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {addParticipantMutation.isPending
+                          ? "Добавление..."
+                          : "Добавить гостя"}
+                      </button>
+                    </>
+                  )}
+
+                  {addError && (
+                    <p className="text-xs text-red-600">{addError}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

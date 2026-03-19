@@ -1,4 +1,4 @@
-import { date, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, uuid, varchar } from "drizzle-orm/pg-core";
 import { prodSchema } from "../schemaHelpers.js";
 
 export const users = prodSchema.table("users", {
@@ -13,4 +13,5 @@ export const users = prodSchema.table("users", {
   role: varchar({ enum: ["user", "admin"] })
     .notNull()
     .default("user"),
+  isGuest: boolean("is_guest").notNull().default(false),
 });
