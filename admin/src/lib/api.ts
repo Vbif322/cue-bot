@@ -121,10 +121,15 @@ export const tournamentsApi = {
 
   stats: (id: string) => apiFetch<ApiMatchStats>(`/api/tournaments/${id}/stats`),
 
-  addParticipant: (tournamentId: string, userId: string) =>
+  addParticipant: (
+    tournamentId: string,
+    body:
+      | { type: "user"; userId: string }
+      | { type: "guest"; guestName: string; telegramUsername?: string },
+  ) =>
     apiFetch<{ ok: boolean }>(`/api/tournaments/${tournamentId}/participants`, {
       method: "POST",
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify(body),
     }),
 
   removeParticipant: (tournamentId: string, userId: string) =>
