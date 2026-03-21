@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
@@ -166,7 +165,6 @@ export function createTournamentsRouter(botApi: Api) {
         seed: tournamentParticipants.seed,
         username: users.username,
         name: users.name,
-        isGuest: users.isGuest,
       })
       .from(tournamentParticipants)
       .innerJoin(users, eq(tournamentParticipants.userId, users.id))
@@ -182,40 +180,10 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.post(
     "/:id/participants",
-    zValidator(
-      "json",
-      z.discriminatedUnion("type", [
-        z.object({ type: z.literal("user"), userId: z.string().uuid() }),
-        z.object({
-          type: z.literal("guest"),
-          guestName: z.string().min(1).max(255),
-          telegramUsername: z.string().max(255).optional(),
-        }),
-      ]),
-    ),
+    zValidator("json", z.object({ userId: z.string().uuid() })),
     async (c) => {
       const tournamentId = c.req.param("id");
-      const body = c.req.valid("json");
-
-      let userId: string;
-
-      if (body.type === "guest") {
-        const ghostTelegramId = `ghost_${randomUUID()}`;
-        const [ghostUser] = await db
-          .insert(users)
-          .values({
-            telegram_id: ghostTelegramId,
-            username: body.telegramUsername ?? body.guestName.slice(0, 255),
-            name: body.guestName,
-            isGuest: true,
-          })
-          .returning({ id: users.id });
-
-        if (!ghostUser) return c.json({ error: "Ошибка создания участника" }, 500);
-        userId = ghostUser.id;
-      } else {
-        userId = body.userId;
-      }
+      const { userId } = c.req.valid("json");
 
       await db
         .insert(tournamentParticipants)
@@ -238,23 +206,6 @@ export function createTournamentsRouter(botApi: Api) {
           eq(tournamentParticipants.userId, userId),
         ),
       );
-
-    // Clean up ghost user if they have no remaining participations
-    const [user] = await db
-      .select({ isGuest: users.isGuest })
-      .from(users)
-      .where(eq(users.id, userId));
-
-    if (user?.isGuest) {
-      const remaining = await db
-        .select({ userId: tournamentParticipants.userId })
-        .from(tournamentParticipants)
-        .where(eq(tournamentParticipants.userId, userId));
-
-      if (remaining.length === 0) {
-        await db.delete(users).where(eq(users.id, userId));
-      }
-    }
 
     return c.json({ ok: true });
   });
