@@ -173,13 +173,13 @@ export function buildTournamentKeyboard(
         .text("Закрыть регистрацию", `tournament_close_reg:${info.id}`)
         .row();
       keyboard
-        .text("👥 Подтвердить участников", `adm:pending_list:${info.id}`)
+        .text("👥 Управление участниками", `adm:pending_list:${info.id}`)
         .row();
     }
     if (info.status === "registration_closed") {
       keyboard.text("🚀 Начать турнир", `tournament_start:${info.id}`).row();
       keyboard
-        .text("👥 Подтвердить участников", `adm:pending_list:${info.id}`)
+        .text("👥 Управление участниками", `adm:pending_list:${info.id}`)
         .row();
     }
     if (info.status === "in_progress") {

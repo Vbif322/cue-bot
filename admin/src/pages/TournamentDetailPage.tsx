@@ -96,6 +96,14 @@ export default function TournamentDetailPage() {
     onError: (e: Error) => setActionError(e.message),
   });
 
+  const removeParticipantMutation = useMutation({
+    mutationFn: (userId: string) =>
+      tournamentsApi.removeParticipant(id!, userId),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["tournament-participants", id] }),
+    onError: (e: Error) => setActionError(e.message),
+  });
+
   const handleNextAction = () => {
     if (!tournament) return;
     const next = NEXT_STATUS[tournament.status];
@@ -273,42 +281,61 @@ export default function TournamentDetailPage() {
                     <ParticipantStatusBadge status={p.status} />
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {p.status === "pending" &&
-                      (tournament.status === "registration_open" ||
-                        tournament.status === "registration_closed") && (
-                        <div className="flex gap-2 justify-end">
+                    {(tournament.status === "registration_open" ||
+                      tournament.status === "registration_closed") && (
+                      <div className="flex gap-2 justify-end">
+                        {p.status === "pending" && (
+                          <>
+                            <button
+                              onClick={() =>
+                                confirmParticipantMutation.mutate(p.userId)
+                              }
+                              disabled={
+                                (confirmParticipantMutation.isPending &&
+                                  confirmParticipantMutation.variables ===
+                                    p.userId) ||
+                                (rejectParticipantMutation.isPending &&
+                                  rejectParticipantMutation.variables ===
+                                    p.userId)
+                              }
+                              className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                            >
+                              Подтвердить
+                            </button>
+                            <button
+                              onClick={() =>
+                                rejectParticipantMutation.mutate(p.userId)
+                              }
+                              disabled={
+                                (confirmParticipantMutation.isPending &&
+                                  confirmParticipantMutation.variables ===
+                                    p.userId) ||
+                                (rejectParticipantMutation.isPending &&
+                                  rejectParticipantMutation.variables ===
+                                    p.userId)
+                              }
+                              className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
+                            >
+                              Отклонить
+                            </button>
+                          </>
+                        )}
+                        {p.status === "confirmed" && (
                           <button
                             onClick={() =>
-                              confirmParticipantMutation.mutate(p.userId)
+                              removeParticipantMutation.mutate(p.userId)
                             }
                             disabled={
-                              (confirmParticipantMutation.isPending &&
-                                confirmParticipantMutation.variables ===
-                                  p.userId) ||
-                              (rejectParticipantMutation.isPending &&
-                                rejectParticipantMutation.variables === p.userId)
-                            }
-                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                          >
-                            Подтвердить
-                          </button>
-                          <button
-                            onClick={() =>
-                              rejectParticipantMutation.mutate(p.userId)
-                            }
-                            disabled={
-                              (confirmParticipantMutation.isPending &&
-                                confirmParticipantMutation.variables ===
-                                  p.userId) ||
-                              (rejectParticipantMutation.isPending &&
-                                rejectParticipantMutation.variables === p.userId)
+                              removeParticipantMutation.isPending &&
+                              removeParticipantMutation.variables === p.userId
                             }
                             className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
                           >
-                            Отклонить
+                            Снять
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
