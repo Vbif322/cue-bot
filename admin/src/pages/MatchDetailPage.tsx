@@ -20,6 +20,8 @@ export default function MatchDetailPage() {
     refetchInterval: 15_000,
   });
 
+  console.log(match);
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["match", id] });
     setError("");
@@ -72,7 +74,7 @@ export default function MatchDetailPage() {
     <div>
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
         <Link
-          to={`/tournaments/${match.tournamentId}?tab=matches`}
+          to={`/tournaments/${match.tournamentId}`}
           className="hover:text-gray-700"
         >
           Турнир
