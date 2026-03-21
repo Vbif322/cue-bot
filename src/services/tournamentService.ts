@@ -259,6 +259,23 @@ export async function confirmParticipant(
 }
 
 /**
+ * Delete a participant record entirely (confirmed → removed from tournament)
+ */
+export async function deleteParticipant(
+  tournamentId: string,
+  userId: string,
+): Promise<void> {
+  await db
+    .delete(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    );
+}
+
+/**
  * Reject a participant (pending → cancelled).
  * Returns true if the row was updated (i.e. participant was in pending state).
  */

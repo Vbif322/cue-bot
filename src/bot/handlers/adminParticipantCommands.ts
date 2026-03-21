@@ -6,6 +6,7 @@ import type { BotContext } from "../types.js";
 import {
   confirmParticipant,
   rejectParticipant,
+  deleteParticipant,
   getTournament,
 } from "../../services/tournamentService.js";
 import {
@@ -18,7 +19,7 @@ import { bot } from "../instance.js";
 export const adminParticipantCommands = new Composer<BotContext>();
 
 // In-memory map: shortKey → { tournamentId, userId }
-const pendingActionsMap = new Map<
+const participantActionsMap = new Map<
   string,
   { tournamentId: string; userId: string }
 >();
@@ -28,14 +29,14 @@ function generateKey(): string {
 }
 
 function clearKeysForTournament(tournamentId: string): void {
-  for (const [key, value] of pendingActionsMap.entries()) {
+  for (const [key, value] of participantActionsMap.entries()) {
     if (value.tournamentId === tournamentId) {
-      pendingActionsMap.delete(key);
+      participantActionsMap.delete(key);
     }
   }
 }
 
-async function showPendingList(
+async function showParticipantManagement(
   ctx: BotContext,
   tournamentId: string,
   cachedTournament?: Awaited<ReturnType<typeof getTournament>>,
@@ -64,33 +65,63 @@ async function showPendingList(
       ),
     );
 
+  const confirmed = await db
+    .select({
+      userId: tournamentParticipants.userId,
+      username: users.username,
+      name: users.name,
+    })
+    .from(tournamentParticipants)
+    .innerJoin(users, eq(tournamentParticipants.userId, users.id))
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.status, "confirmed"),
+      ),
+    );
+
   // Clear old keys for this tournament and populate fresh ones
   clearKeysForTournament(tournamentId);
 
-  if (pending.length === 0) {
-    await ctx.answerCallbackQuery({ text: "Нет ожидающих участников" });
+  const keyboard = new InlineKeyboard();
+  let message = `*${tournament.name}*\n`;
+
+  if (pending.length === 0 && confirmed.length === 0) {
+    await ctx.answerCallbackQuery({ text: "Нет участников" });
     await safeEditMessageText(ctx, {
-      text: `*${tournament.name}*\n\nНет участников, ожидающих подтверждения.`,
+      text: `${message}\nНет участников.`,
       parse_mode: "Markdown",
     });
     return;
   }
 
-  const keyboard = new InlineKeyboard();
-  let message = `*${tournament.name}*\nОжидают подтверждения: ${pending.length}\n\n`;
+  if (pending.length > 0) {
+    message += `\n*Ожидают подтверждения (${pending.length}):*\n`;
+    for (const p of pending) {
+      const displayName = p.name ?? p.username ?? "Игрок";
+      const handle = p.username ? ` (@${p.username})` : "";
+      message += `${displayName}${handle}\n`;
 
-  for (const participant of pending) {
-    const displayName = participant.name ?? participant.username ?? "Игрок";
-    const handle = participant.username ? ` (@${participant.username})` : "";
-    message += `${displayName}${handle}\n`;
+      const key = generateKey();
+      participantActionsMap.set(key, { tournamentId, userId: p.userId });
+      keyboard
+        .text("✅ Подтвердить", `adm:c:${key}`)
+        .text("❌ Отклонить", `adm:r:${key}`)
+        .row();
+    }
+  }
 
-    const key = generateKey();
-    pendingActionsMap.set(key, { tournamentId, userId: participant.userId });
+  if (confirmed.length > 0) {
+    message += `\n*Подтверждённые (${confirmed.length}):*\n`;
+    for (const p of confirmed) {
+      const displayName = p.name ?? p.username ?? "Игрок";
+      const handle = p.username ? ` (@${p.username})` : "";
+      message += `${displayName}${handle}\n`;
 
-    keyboard
-      .text("✅ Подтвердить", `adm:c:${key}`)
-      .text("❌ Отклонить", `adm:r:${key}`)
-      .row();
+      const key = generateKey();
+      participantActionsMap.set(key, { tournamentId, userId: p.userId });
+      keyboard.text(`🚫 Снять ${displayName}`, `adm:rm:${key}`).row();
+    }
   }
 
   await ctx.answerCallbackQuery();
@@ -101,7 +132,7 @@ async function showPendingList(
   });
 }
 
-// Show pending participants list for a tournament
+// Show participant management list
 adminParticipantCommands.callbackQuery(
   /^adm:pending_list:(.+)$/,
   async (ctx) => {
@@ -114,7 +145,7 @@ adminParticipantCommands.callbackQuery(
     }
 
     const tournamentId = ctx.match![1]!;
-    await showPendingList(ctx, tournamentId);
+    await showParticipantManagement(ctx, tournamentId);
   },
 );
 
@@ -126,7 +157,7 @@ adminParticipantCommands.callbackQuery(/^adm:c:(.+)$/, async (ctx) => {
   }
 
   const key = ctx.match![1]!;
-  const entry = pendingActionsMap.get(key);
+  const entry = participantActionsMap.get(key);
 
   if (!entry) {
     await ctx.answerCallbackQuery({
@@ -149,7 +180,7 @@ adminParticipantCommands.callbackQuery(/^adm:c:(.+)$/, async (ctx) => {
     );
   }
 
-  await showPendingList(ctx, tournamentId, tournament);
+  await showParticipantManagement(ctx, tournamentId, tournament ?? undefined);
 });
 
 // Reject participant
@@ -160,7 +191,7 @@ adminParticipantCommands.callbackQuery(/^adm:r:(.+)$/, async (ctx) => {
   }
 
   const key = ctx.match![1]!;
-  const entry = pendingActionsMap.get(key);
+  const entry = participantActionsMap.get(key);
 
   if (!entry) {
     await ctx.answerCallbackQuery({
@@ -183,5 +214,31 @@ adminParticipantCommands.callbackQuery(/^adm:r:(.+)$/, async (ctx) => {
     );
   }
 
-  await showPendingList(ctx, tournamentId, tournament);
+  await showParticipantManagement(ctx, tournamentId, tournament ?? undefined);
+});
+
+// Remove confirmed participant
+adminParticipantCommands.callbackQuery(/^adm:rm:(.+)$/, async (ctx) => {
+  if (ctx.dbUser.role !== "admin") {
+    await ctx.answerCallbackQuery({ text: "Нет доступа", show_alert: true });
+    return;
+  }
+
+  const key = ctx.match![1]!;
+  const entry = participantActionsMap.get(key);
+
+  if (!entry) {
+    await ctx.answerCallbackQuery({
+      text: "Список устарел. Откройте снова.",
+      show_alert: true,
+    });
+    return;
+  }
+
+  const { tournamentId, userId } = entry;
+  const tournament = await getTournament(tournamentId);
+
+  await deleteParticipant(tournamentId, userId);
+
+  await showParticipantManagement(ctx, tournamentId, tournament ?? undefined);
 });

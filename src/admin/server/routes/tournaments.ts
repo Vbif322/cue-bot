@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../../../db/db.js";
 import { tournaments, tournamentParticipants, users } from "../../../db/schema.js";
 import {
@@ -14,6 +14,7 @@ import {
   canStartTournament,
   confirmParticipant,
   rejectParticipant,
+  deleteParticipant,
 } from "../../../services/tournamentService.js";
 import {
   notifyRegistrationConfirmed,
@@ -254,14 +255,7 @@ export function createTournamentsRouter(botApi: Api) {
     const tournamentId = c.req.param("id");
     const userId = c.req.param("userId");
 
-    await db
-      .delete(tournamentParticipants)
-      .where(
-        and(
-          eq(tournamentParticipants.tournamentId, tournamentId),
-          eq(tournamentParticipants.userId, userId),
-        ),
-      );
+    await deleteParticipant(tournamentId, userId);
 
     return c.json({ ok: true });
   });
