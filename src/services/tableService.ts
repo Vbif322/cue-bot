@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { tables, tournamentTables } from "../db/schema.js";
 
@@ -6,6 +6,13 @@ export type Table = typeof tables.$inferSelect;
 
 export async function getTables(): Promise<Table[]> {
   return db.query.tables.findMany({ orderBy: [asc(tables.name)] });
+}
+
+export async function getTablesByVenue(venueId: string): Promise<Table[]> {
+  return db.query.tables.findMany({
+    where: eq(tables.venueId, venueId),
+    orderBy: [asc(tables.name)],
+  });
 }
 
 export async function getTable(id: string): Promise<Table | null> {
@@ -54,4 +61,33 @@ export async function setTournamentTables(
       );
     }
   });
+}
+
+export async function validateTableIdsForVenue(
+  tableIds: string[],
+  venueId: string,
+): Promise<void> {
+  if (tableIds.length === 0) {
+    return;
+  }
+
+  if (new Set(tableIds).size !== tableIds.length) {
+    throw new Error("Список столов содержит дубликаты");
+  }
+
+  const rows = await db
+    .select({
+      id: tables.id,
+      venueId: tables.venueId,
+    })
+    .from(tables)
+    .where(inArray(tables.id, tableIds));
+
+  if (rows.length !== tableIds.length) {
+    throw new Error("Один или несколько столов не найдены");
+  }
+
+  if (rows.some((row) => row.venueId !== venueId)) {
+    throw new Error("Можно выбрать только столы выбранной площадки");
+  }
 }

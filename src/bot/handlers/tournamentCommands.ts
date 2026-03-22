@@ -8,6 +8,7 @@ import { isAdmin } from "../permissions.js";
 import { safeEditMessageText } from "../../utils/messageHelpers.js";
 import {
   canStartTournament,
+  getTournaments,
   getTournament,
   updateTournamentStatus,
   deleteTournament,
@@ -33,10 +34,14 @@ import {
   getCreationState,
   handleNameInput,
   handleDateInput,
+  handleVenueSelection,
   handleDisciplineSelection,
   handleFormatSelection,
   handleMaxParticipantsSelection,
   handleWinScoreSelection,
+  handleTableSelectionToggle,
+  handleTableSelectionDone,
+  handleTableSelectionSkip,
 } from "../wizards/tournamentCreationWizard.js";
 
 export const tournamentCommands = new Composer<BotContext>();
@@ -52,7 +57,7 @@ tournamentCommands.command("create_tournament", adminOnly(), async (ctx) => {
   const userId = ctx.from!.id;
 
   const msg = await ctx.reply(
-    "Создание нового турнира\n\n" + `Шаг 1/6: Введите название турнира:`,
+    "Создание нового турнира\n\n" + `Шаг 1/8: Введите название турнира:`,
   );
 
   startCreationWizard(userId, msg.message_id);
@@ -78,10 +83,7 @@ tournamentCommands.command("tournaments", async (ctx) => {
   const admin = isAdmin(ctx);
 
   // Get all tournaments
-  const allTournaments = await db.query.tournaments.findMany({
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
-    limit: 10,
-  });
+  const allTournaments = await getTournaments({ limit: 10, includesDrafts: true });
 
   if (allTournaments.length === 0) {
     await ctx.reply("Турниров пока нет.");
@@ -469,6 +471,10 @@ tournamentCommands.callbackQuery(/^discipline:(.+)$/, async (ctx) => {
   await handleDisciplineSelection(ctx, ctx.match![1]!);
 });
 
+tournamentCommands.callbackQuery(/^venue:(.+)$/, async (ctx) => {
+  await handleVenueSelection(ctx, ctx.match![1]!);
+});
+
 tournamentCommands.callbackQuery(/^format:(.+)$/, async (ctx) => {
   await handleFormatSelection(ctx, ctx.match![1]!);
 });
@@ -481,6 +487,18 @@ tournamentCommands.callbackQuery(/^participants:(\d+)$/, async (ctx) => {
 tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
   const winScore = parseInt(ctx.match![1]!, 10);
   await handleWinScoreSelection(ctx, winScore);
+});
+
+tournamentCommands.callbackQuery(/^tables_toggle:(.+)$/, async (ctx) => {
+  await handleTableSelectionToggle(ctx, ctx.match![1]!);
+});
+
+tournamentCommands.callbackQuery("tables_done", async (ctx) => {
+  await handleTableSelectionDone(ctx);
+});
+
+tournamentCommands.callbackQuery("tables_skip", async (ctx) => {
+  await handleTableSelectionSkip(ctx);
 });
 
 // ============================================================================

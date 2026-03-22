@@ -16,6 +16,7 @@ export interface TournamentInfo {
   discipline: string;
   format: string;
   status: string;
+  venueName: string | null;
   maxParticipants: number;
   startDate: Date | null;
   winScore: number;
@@ -72,6 +73,7 @@ export async function getTournamentInfo(
     discipline: string;
     format: string;
     status: string;
+    venueName: string | null;
     maxParticipants: number;
     startDate: Date | null;
     winScore: number;
@@ -100,6 +102,7 @@ export function buildTournamentMessage(
 ): string {
   return (
     `📋 *${info.name}*\n\n` +
+    `Площадка: ${info.venueName ?? "Не указана"}\n` +
     `Дисциплина: ${DISCIPLINE_LABELS[info.discipline] || info.discipline}\n` +
     `Формат: ${FORMAT_LABELS[info.format] || info.format}\n` +
     `Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
@@ -121,6 +124,7 @@ export function buildTournamentListItem(
 ): string {
   return (
     `📋 *${info.name}*\n` +
+    `   Площадка: ${info.venueName ?? "Не указана"}\n` +
     `   Дисциплина: ${DISCIPLINE_LABELS[info.discipline] || info.discipline}\n` +
     `   Формат: ${FORMAT_LABELS[info.format] || info.format}\n` +
     `   Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
