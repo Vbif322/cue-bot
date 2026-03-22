@@ -5,6 +5,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "../../../db/db.js";
 import { tournaments, tournamentParticipants, users } from "../../../db/schema.js";
 import {
+  createTournamentDraft,
   getTournament,
   getTournaments,
   updateTournamentStatus,
@@ -15,10 +16,7 @@ import {
 } from "../../../services/tournamentService.js";
 import { startTournamentFull } from "../../../services/tournamentStartService.js";
 import { getMatchStats } from "../../../services/matchService.js";
-import {
-  getTournamentTables,
-  setTournamentTables,
-} from "../../../services/tableService.js";
+import { getTournamentTables } from "../../../services/tableService.js";
 import { requireAdmin } from "../middleware.js";
 import type { Api } from "grammy";
 
@@ -55,6 +53,7 @@ export function createTournamentsRouter(botApi: Api) {
         maxParticipants: z.number().int().min(2).max(64).default(16),
         winScore: z.number().int().min(1).default(3),
         startDate: z.string().optional(),
+        venueId: z.string().uuid(),
         tableIds: z.array(z.string().uuid()).optional(),
       }),
     ),
@@ -62,30 +61,28 @@ export function createTournamentsRouter(botApi: Api) {
       const body = c.req.valid("json");
       const admin = c.get("adminUser");
 
-      const [tournament] = await db
-        .insert(tournaments)
-        .values({
+      try {
+        const tournament = await createTournamentDraft({
           name: body.name,
           description: body.description ?? null,
           rules: body.rules ?? null,
-          format: body.format,
           discipline: "snooker",
+          format: body.format,
           maxParticipants: body.maxParticipants,
           winScore: body.winScore,
           startDate: body.startDate ? new Date(body.startDate) : null,
+          venueId: body.venueId,
+          ...(body.tableIds ? { tableIds: body.tableIds } : {}),
           createdBy: admin.id,
-        })
-        .returning();
+        });
 
-      if (!tournament) return c.json({ error: "Ошибка создания турнира" }, 500);
-
-      const allTableIds = body.tableIds ?? [];
-
-      if (allTableIds.length > 0) {
-        await setTournamentTables(tournament.id, allTableIds);
+        return c.json({ data: tournament }, 201);
+      } catch (error) {
+        return c.json(
+          { error: error instanceof Error ? error.message : "Ошибка создания турнира" },
+          400,
+        );
       }
-
-      return c.json({ data: tournament }, 201);
     },
   );
 

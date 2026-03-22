@@ -5,6 +5,7 @@ import { tournaments, tournamentParticipants } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import { formatDate } from "../../utils/dateHelpers.js";
 import { safeEditMessageText } from "../../utils/messageHelpers.js";
+import { getTournament } from "../../services/tournamentService.js";
 import {
   getTournamentInfo,
   buildTournamentMessage,
@@ -29,9 +30,7 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
   const userId = ctx.dbUser.id;
 
   // 1. Проверить существование турнира
-  const tournament = await db.query.tournaments.findFirst({
-    where: eq(tournaments.id, tournamentId),
-  });
+  const tournament = await getTournament(tournamentId);
 
   if (!tournament) {
     await ctx.answerCallbackQuery({
@@ -112,9 +111,7 @@ registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
   const tournamentId = ctx.match![1]!;
   const userId = ctx.dbUser.id;
 
-  const tournament = await db.query.tournaments.findFirst({
-    where: eq(tournaments.id, tournamentId),
-  });
+  const tournament = await getTournament(tournamentId);
 
   if (!tournament) {
     await ctx.answerCallbackQuery({

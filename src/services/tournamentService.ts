@@ -1,10 +1,20 @@
-import { and, eq, inArray, asc, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { db } from "../db/db.js";
-import { tournaments, tournamentParticipants, users } from "../db/schema.js";
+import {
+  tournamentTables,
+  tournaments,
+  tournamentParticipants,
+  tournamentFormat,
+  users,
+  venues,
+  discipline,
+} from "../db/schema.js";
 import { shuffleArray } from "./bracketGenerator.js";
+import { validateTableIdsForVenue } from "./tableService.js";
 import type {
   TournamentStatus,
   TournamentParticipant,
+  TournamentReadModel,
 } from "../bot/@types/tournament.js";
 
 export interface StartTournamentResult {
@@ -12,6 +22,25 @@ export interface StartTournamentResult {
   error?: string;
   participantsCount: number;
 }
+
+export interface CreateTournamentDraftInput {
+  name: string;
+  description?: string | null;
+  rules?: string | null;
+  discipline: (typeof discipline)[number];
+  format: (typeof tournamentFormat)[number];
+  maxParticipants: number;
+  winScore: number;
+  startDate?: Date | null;
+  venueId: string;
+  tableIds?: string[];
+  createdBy: string;
+}
+
+const tournamentReadColumns = {
+  ...getTableColumns(tournaments),
+  venueName: venues.name,
+};
 
 /**
  * Check if tournament can be started
@@ -111,6 +140,63 @@ export async function startTournament(tournamentId: string): Promise<void> {
     .where(eq(tournaments.id, tournamentId));
 }
 
+export async function createTournamentDraft(
+  input: CreateTournamentDraftInput,
+): Promise<TournamentReadModel> {
+  const venue = await db.query.venues.findFirst({
+    where: eq(venues.id, input.venueId),
+  });
+
+  if (!venue) {
+    throw new Error("Площадка не найдена");
+  }
+
+  const tableIds = input.tableIds ?? [];
+  await validateTableIdsForVenue(tableIds, input.venueId);
+
+  const created = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(tournaments)
+      .values({
+        name: input.name,
+        description: input.description ?? null,
+        rules: input.rules ?? null,
+        discipline: input.discipline,
+        format: input.format,
+        maxParticipants: input.maxParticipants,
+        winScore: input.winScore,
+        startDate: input.startDate ?? null,
+        venueId: input.venueId,
+        createdBy: input.createdBy,
+        status: "draft",
+      })
+      .returning({ id: tournaments.id });
+
+    if (!inserted) {
+      throw new Error("Ошибка создания турнира");
+    }
+
+    if (tableIds.length > 0) {
+      await tx.insert(tournamentTables).values(
+        tableIds.map((tableId, position) => ({
+          tournamentId: inserted.id,
+          tableId,
+          position,
+        })),
+      );
+    }
+
+    return inserted;
+  });
+
+  const tournament = await getTournament(created.id);
+  if (!tournament) {
+    throw new Error("Ошибка загрузки турнира после создания");
+  }
+
+  return tournament;
+}
+
 /**
  * Complete tournament with winner
  */
@@ -130,10 +216,16 @@ export async function completeTournament(
 /**
  * Get tournament by ID
  */
-export async function getTournament(tournamentId: string) {
-  return db.query.tournaments.findFirst({
-    where: eq(tournaments.id, tournamentId),
-  });
+export async function getTournament(
+  tournamentId: string,
+): Promise<TournamentReadModel | null> {
+  const rows = await db
+    .select(tournamentReadColumns)
+    .from(tournaments)
+    .leftJoin(venues, eq(tournaments.venueId, venues.id))
+    .where(eq(tournaments.id, tournamentId));
+
+  return rows[0] ?? null;
 }
 
 /**
@@ -164,14 +256,25 @@ export async function assignRandomSeeds(tournamentId: string): Promise<void> {
 export async function getTournaments(options?: {
   limit?: number;
   includesDrafts?: boolean;
-}) {
+}): Promise<TournamentReadModel[]> {
   const { limit = 10, includesDrafts = true } = options || {};
 
-  return db.query.tournaments.findMany({
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
-    limit,
-    where: includesDrafts ? undefined : (t, { ne }) => ne(t.status, "draft"),
-  });
+  if (includesDrafts) {
+    return db
+      .select(tournamentReadColumns)
+      .from(tournaments)
+      .leftJoin(venues, eq(tournaments.venueId, venues.id))
+      .orderBy(desc(tournaments.createdAt))
+      .limit(limit);
+  }
+
+  return db
+    .select(tournamentReadColumns)
+    .from(tournaments)
+    .leftJoin(venues, eq(tournaments.venueId, venues.id))
+    .where(sql`${tournaments.status} <> 'draft'`)
+    .orderBy(desc(tournaments.createdAt))
+    .limit(limit);
 }
 
 /**

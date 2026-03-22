@@ -1,6 +1,7 @@
 import { integer, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 import { createdAt, prodSchema, updatedAt } from "../schemaHelpers.js";
 import { users } from "./users.js";
+import { venues } from "./venues.js";
 
 export const tournamentStatus = [
   "draft",
@@ -36,6 +37,9 @@ export const tournaments = prodSchema.table("tournaments", {
   maxParticipants: integer("max_participants").notNull().default(16),
   winScore: integer("win_score").notNull().default(3),
   rules: text(),
+  venueId: uuid("venue_id")
+    .notNull()
+    .references(() => venues.id),
   createdBy: uuid("created_by")
     .notNull()
     .references(() => users.id),
