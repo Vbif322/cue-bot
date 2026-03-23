@@ -7,7 +7,7 @@ export type Table = typeof tables.$inferSelect;
 /**
  * Извлекает все столы из базы данных и возвращает их в порядке возрастания по имени
  *
- * @returns promise с массивом столов
+ * @returns {Promise<Table[]>} Массив столов
  */
 export async function getTables(): Promise<Table[]> {
   return db.query.tables.findMany({ orderBy: [asc(tables.name)] });
@@ -16,8 +16,8 @@ export async function getTables(): Promise<Table[]> {
 /**
  * Извлекает все столы, принадлежащие данной площадке
  *
- * @param venueId - идентификатор площадки, к которой принадлежат столы
- * @returns promise с массивом столов
+ * @param {string} venueId Идентификатор площадки, к которой принадлежат столы
+ * @returns {Promise<Table[]>} Массив столов
  */
 export async function getTablesByVenue(venueId: string): Promise<Table[]> {
   return db.query.tables.findMany({
@@ -29,8 +29,8 @@ export async function getTablesByVenue(venueId: string): Promise<Table[]> {
 /**
  * Извлекает стол по его идентификатору
  *
- * @param id - идентификатор извлекаемого стола
- * @returns promise с извлеченным столом или null
+ * @param {string} id Идентификатор извлекаемого стола
+ * @returns {Promise<Table | null>} Стол или null
  */
 export async function getTable(id: string): Promise<Table | null> {
   return (
@@ -41,9 +41,9 @@ export async function getTable(id: string): Promise<Table | null> {
 /**
  * Создает новый стол с заданным названием и идентификатором площадки
  *
- * @param name - имя стола, который нужно создать
- * @param venueId - идентификатор площадки, к которой принадлежит стол
- * @returns promise с созданным столом
+ * @param {string} name Название стола, который нужно создать
+ * @param {string} venueId Идентификатор площадки, к которой принадлежит стол
+ * @returns {Promise<Table>} Созданный стол
  */
 export async function createTable(
   name: string,
@@ -57,8 +57,8 @@ export async function createTable(
 /**
  * Удаляет стол по его идентификатору
  *
- * @param id - идентификатор удаляемого стола
- * @returns promise с результатом удаления
+ * @param {string} id Идентификатор удаляемого стола
+ * @returns {Promise<boolean>} true, если стол был удален, иначе false
  */
 export async function deleteTable(id: string): Promise<boolean> {
   const [row] = await db
@@ -72,8 +72,8 @@ export async function deleteTable(id: string): Promise<boolean> {
 /**
  * Возвращает столы, принадлежащие данному турниру
  *
- * @param tournamentId - идентификатор турнира
- * @returns promise с массивом столов
+ * @param {string} tournamentId Идентификатор турнира
+ * @returns {Promise<Table[]>} Массив столов
  */
 
 export async function getTournamentTables(
@@ -92,9 +92,9 @@ export async function getTournamentTables(
 /**
  * Переназначает столы для данного турнира
  *
- * @param tournamentId - идентификатор турнира
- * @param tableIds - массив идентификаторов столов
- * @returns promise без результата
+ * @param {string} tournamentId Идентификатор турнира
+ * @param {string[]} tableIds Массив идентификаторов столов
+ * @returns {Promise<void>}
  */
 export async function setTournamentTables(
   tournamentId: string,
@@ -122,13 +122,13 @@ export async function setTournamentTables(
 /**
  * Проверяет, что все указанные столы принадлежат данной площадке
  *
- * @throws {Error} если один или несколько столов не найдены
- * @throws {Error} если не все столы принадлежат данной площадке
+ * @throws {Error} Если один или несколько столов не найдены
+ * @throws {Error} Если не все столы принадлежат данной площадке
  *
- * @param {string[]} tableIds - массив идентификаторов столов
- * @param {string} venueId - идентификатор площадки
+ * @param {string[]} tableIds Массив идентификаторов столов
+ * @param {string} venueId Идентификатор площадки
  *
- * @returns promise без результата
+ * @returns {Promise<void>}
  */
 export async function validateTableIdsForVenue(
   tableIds: string[],
