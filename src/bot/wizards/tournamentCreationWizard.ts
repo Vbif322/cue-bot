@@ -21,16 +21,14 @@ type CreationStep =
   | 'tables';
 
 interface CreationData {
-  venueId?: string;
-  venueName?: string;
-
   name?: string;
   discipline?: string;
   format?: string;
   maxParticipants?: number;
   winScore?: number;
   startDate?: Date;
-
+  venueId?: string;
+  venueName?: string;
   selectedTableIds?: string[];
 }
 
@@ -46,9 +44,6 @@ const creationState = new Map<number, CreationState>();
 
 export const tournamentCreationWizard = new Composer<BotContext>();
 
-/**
- * Start tournament creation wizard
- */
 export function startCreationWizard(userId: number, messageId: number): void {
   creationState.set(userId, {
     step: 'name',
@@ -57,25 +52,14 @@ export function startCreationWizard(userId: number, messageId: number): void {
   });
 }
 
-/**
- * Cancel tournament creation
- */
 export function cancelCreation(userId: number): boolean {
   return creationState.delete(userId);
 }
 
-/**
- * Get creation state for user
- */
 export function getCreationState(userId: number): CreationState | undefined {
   return creationState.get(userId);
 }
 
-// === STEP HANDLERS ===
-
-/**
- * Handle name input (Step 1)
- */
 export async function handleNameInput(
   ctx: BotContext,
   text: string,
@@ -89,7 +73,6 @@ export async function handleNameInput(
 
   if (text.length < 3) {
     await ctx.reply('Название должно быть минимум 3 символа.');
-
     return true;
   }
 
@@ -99,13 +82,9 @@ export async function handleNameInput(
   await ctx.reply(
     `Название: ${text}\n\nШаг 2/${STEPS_COUNT}: Введите дату турнира:`,
   );
-
   return true;
 }
 
-/**
- * Handle date input (Step 2)
- */
 export async function handleDateInput(
   ctx: BotContext,
   text: string,
@@ -118,20 +97,15 @@ export async function handleDateInput(
   }
 
   const parsedDate = parseDate(text);
-
   if (!parsedDate) {
     await ctx.reply('Не удалось распознать дату, попробуйте еще раз');
-
     return true;
   }
 
   const venues = await getVenues();
-
   if (venues.length === 0) {
     creationState.delete(userId);
-
     await ctx.reply('Нельзя создать турнир: в системе нет ни одной площадки.');
-
     return true;
   }
 
@@ -147,25 +121,21 @@ export async function handleDateInput(
   return true;
 }
 
-/**
- * Handle venue selection (Step 3)
- */
 export async function handleVenueSelection(
   ctx: BotContext,
   venueId: string,
 ): Promise<void> {
-  if (!ctx.from) return;
+  if (!ctx.from) {
+    return;
+  }
 
   const state = creationState.get(ctx.from.id);
-
   if (!state || state.step !== 'venue') {
     await ctx.answerCallbackQuery('Сессия создания истекла');
-
     return;
   }
 
   const venue = await getVenue(venueId);
-
   if (!venue) {
     await ctx.answerCallbackQuery({
       text: 'Площадка не найдена',
@@ -176,17 +146,14 @@ export async function handleVenueSelection(
 
   state.data.venueId = venue.id;
   state.data.venueName = venue.name;
-
   state.step = 'discipline';
 
   const keyboard = new InlineKeyboard();
-
   for (const disc of discipline) {
     keyboard.text(DISCIPLINE_LABELS[disc] || disc, `discipline:${disc}`).row();
   }
 
   await ctx.answerCallbackQuery();
-
   await safeEditMessageText(ctx, {
     text:
       `Площадка: ${venue.name}\n\n` +
@@ -339,7 +306,6 @@ export async function handleTableSelectionToggle(
   }
 
   const tables = await getTablesByVenue(state.data.venueId);
-
   if (!tables.some((table) => table.id === tableId)) {
     await ctx.answerCallbackQuery({
       text: 'Можно выбрать только столы выбранной площадки',
@@ -349,7 +315,6 @@ export async function handleTableSelectionToggle(
   }
 
   const selected = new Set(state.data.selectedTableIds ?? []);
-
   if (selected.has(tableId)) {
     selected.delete(tableId);
   } else {
@@ -358,7 +323,6 @@ export async function handleTableSelectionToggle(
   state.data.selectedTableIds = Array.from(selected);
 
   await ctx.answerCallbackQuery();
-
   await renderTablesStep(ctx, state, tables);
 }
 
@@ -400,11 +364,9 @@ function buildVenuesKeyboard(
   venues: Awaited<ReturnType<typeof getVenues>>,
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-
   for (const venue of venues) {
     keyboard.text(venue.name, `venue:${venue.id}`).row();
   }
-
   return keyboard;
 }
 
