@@ -141,6 +141,17 @@ export async function startTournament(tournamentId: string): Promise<void> {
     .where(eq(tournaments.id, tournamentId));
 }
 
+/**
+ * Создает черновик турнира
+ *
+ * @param {CreateTournamentDraftInput} input Данные для создания турнира
+ *
+ * @returns {Promise<TournamentReadModel>} Созданный турнир
+ *
+ * @throws {Error} Если не удалось найти площадку с указанным id
+ * @throws {Error} Если не удалось создать турнир
+ * @throws {Error} Если не удалось загрузить турнир после создания
+ */
 export async function createTournamentDraft(
   input: CreateTournamentDraftInput,
 ): Promise<TournamentReadModel> {
