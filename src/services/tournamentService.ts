@@ -1,4 +1,4 @@
-import { and, eq, inArray, asc, sql } from "drizzle-orm";
+import { and, eq, asc, sql } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { tournaments, tournamentParticipants, users } from "../db/schema.js";
 import { shuffleArray } from "./bracketGenerator.js";
@@ -68,7 +68,7 @@ export async function getConfirmedParticipants(
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+        eq(tournamentParticipants.status, "confirmed"),
       ),
     )
     .orderBy(asc(tournamentParticipants.createdAt));
@@ -203,7 +203,7 @@ export async function closeRegistrationWithCount(
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+        eq(tournamentParticipants.status, "confirmed"),
       ),
     );
 
@@ -234,4 +234,65 @@ export async function deleteTournament(tournamentId: string): Promise<void> {
  */
 export function canDeleteTournament(status: string): boolean {
   return status === "draft" || status === "cancelled";
+}
+
+/**
+ * Confirm a participant (pending → confirmed).
+ * Returns true if the row was updated (i.e. participant was in pending state).
+ */
+export async function confirmParticipant(
+  tournamentId: string,
+  userId: string,
+): Promise<boolean> {
+  const result = await db
+    .update(tournamentParticipants)
+    .set({ status: "confirmed" })
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+        eq(tournamentParticipants.status, "pending"),
+      ),
+    )
+    .returning({ userId: tournamentParticipants.userId });
+  return result.length > 0;
+}
+
+/**
+ * Delete a participant record entirely (confirmed → removed from tournament)
+ */
+export async function deleteParticipant(
+  tournamentId: string,
+  userId: string,
+): Promise<void> {
+  await db
+    .delete(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    );
+}
+
+/**
+ * Reject a participant (pending → cancelled).
+ * Returns true if the row was updated (i.e. participant was in pending state).
+ */
+export async function rejectParticipant(
+  tournamentId: string,
+  userId: string,
+): Promise<boolean> {
+  const result = await db
+    .update(tournamentParticipants)
+    .set({ status: "cancelled" })
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+        eq(tournamentParticipants.status, "pending"),
+      ),
+    )
+    .returning({ userId: tournamentParticipants.userId });
+  return result.length > 0;
 }

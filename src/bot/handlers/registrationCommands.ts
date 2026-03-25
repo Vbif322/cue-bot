@@ -73,11 +73,14 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
   }
 
   // 5. Создать или обновить запись
+  const isAdmin = ctx.dbUser.role === "admin";
+  const registrationStatus = isAdmin ? "confirmed" : "pending";
+
   if (existing) {
     // Перерегистрация после отмены
     await db
       .update(tournamentParticipants)
-      .set({ status: "confirmed", createdAt: new Date() })
+      .set({ status: registrationStatus, createdAt: new Date() })
       .where(
         and(
           eq(tournamentParticipants.tournamentId, tournamentId),
@@ -88,15 +91,16 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
     await db.insert(tournamentParticipants).values({
       tournamentId,
       userId,
-      status: "confirmed",
+      status: registrationStatus,
     });
   }
 
   // 6. Обновить сообщение
-  await ctx.answerCallbackQuery({ text: "Вы зарегистрированы!" });
+  await ctx.answerCallbackQuery({
+    text: isAdmin ? "Вы зарегистрированы!" : "Заявка отправлена! Ожидайте подтверждения.",
+  });
 
   const updatedInfo = await getTournamentInfo(tournament, userId);
-  const isAdmin = ctx.dbUser.role === "admin";
   const updatedText = buildTournamentMessage(updatedInfo, isAdmin);
   const newKeyboard = buildTournamentKeyboard(updatedInfo, isAdmin);
 
@@ -231,4 +235,3 @@ registrationCommands.command("my_tournaments", async (ctx) => {
     reply_markup: keyboard,
   });
 });
-
