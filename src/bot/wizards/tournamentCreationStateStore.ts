@@ -1,4 +1,4 @@
-import type { IDiscipline, ITournamentFormat } from '../../db/schema.js';
+import type { IDiscipline, ITournamentFormat } from '@/db/schema.js';
 
 // #region Types / Interfaces
 
@@ -25,6 +25,18 @@ export interface ICreationState {
 
 export interface ITournamentCreationStateStore {
   start(userId: number): ICreationState;
+
+  get(userId: number): ICreationState | undefined;
+  getOrThrow(userId: number): ICreationState;
+
+  hasStep(userId: number, step: ICreationStep): boolean;
+  ensureStep(userId: number, step: ICreationStep): ICreationState;
+
+  updateData(userId: number, data: Partial<ICreationData>): ICreationState;
+  setStep(userId: number, step: ICreationStep): ICreationState;
+  update(userId: number, patch: Partial<ICreationState>): ICreationState;
+
+  clear(userId: number): boolean;
 }
 
 // #endregion
