@@ -2,8 +2,12 @@
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // File Layout
+    "baseUrl": ".",
     "rootDir": "./src",
     "outDir": "./build",
+    "paths": {
+      "@/*": ["src/*"]
+    },
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
@@ -37,8 +41,7 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
-    "moduleDetection": "force",
-    "skipLibCheck": true,
+    "moduleDetection": "force"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "build"]
