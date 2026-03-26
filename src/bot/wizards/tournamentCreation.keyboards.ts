@@ -2,19 +2,22 @@ import { InlineKeyboard } from 'grammy';
 
 import { DISCIPLINE_LABELS, FORMAT_LABELS } from '@/utils/constants.js';
 import { discipline, tournamentFormat } from '@/db/schema/tournaments.js';
-import type { getTablesByVenue } from '@/services/tableService.js';
-import type { getVenues } from '@/services/venueService.js';
+
+import type { Venue } from '../@types/venue.js';
+import type { Table } from '../@types/table.js';
 
 // #region Types / Interfaces
 
 export interface ITournamentCreationKeyboards {
-  buildVenuesKeyboard(venues: IVenueList): InlineKeyboard;
+  buildVenuesKeyboard(
+    venues: Array<Pick<Venue, 'id' | 'name'>>,
+  ): InlineKeyboard;
   buildDisciplineKeyboard(): InlineKeyboard;
   buildFormatKeyboard(): InlineKeyboard;
   buildParticipantsKeyboard(): InlineKeyboard;
   buildWinScoreKeyboard(): InlineKeyboard;
   buildTablesKeyboard(
-    tables: ITableList,
+    tables: Array<Pick<Table, 'id' | 'name'>>,
     selectedTableIds: string[],
   ): InlineKeyboard;
 
@@ -22,16 +25,15 @@ export interface ITournamentCreationKeyboards {
   buildTournamentCreatedKeyboard(tournamentId: string): InlineKeyboard;
 }
 
-export type IVenueList = Awaited<ReturnType<typeof getVenues>>;
-export type ITableList = Awaited<ReturnType<typeof getTablesByVenue>>;
-
 // #endregion
 
 // #region Class
 
 /** Обработка клавиатуры */
 export class TournamentCreationKeyboards implements ITournamentCreationKeyboards {
-  buildVenuesKeyboard(venues: IVenueList): InlineKeyboard {
+  buildVenuesKeyboard(
+    venues: Array<Pick<Venue, 'id' | 'name'>>,
+  ): InlineKeyboard {
     const keyboard = new InlineKeyboard();
 
     for (const venue of venues) {
@@ -83,7 +85,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
   }
 
   buildTablesKeyboard(
-    tables: ITableList,
+    tables: Array<Pick<Table, 'id' | 'name'>>,
     selectedTableIds: string[],
   ): InlineKeyboard {
     const keyboard = new InlineKeyboard();
@@ -104,7 +106,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
   }
 
   buildTablesSkipOnlyKeyboard(): InlineKeyboard {
-    return new InlineKeyboard().text('Пропустить', 'tables_skip');
+    return new InlineKeyboard().text('Завершить', 'tables_skip');
   }
 
   buildTournamentCreatedKeyboard(tournamentId: string): InlineKeyboard {
