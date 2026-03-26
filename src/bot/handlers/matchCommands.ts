@@ -88,7 +88,7 @@ matchCommands.command('my_match', async (ctx) => {
 // /bracket [id] - показать сетку турнира
 matchCommands.command('bracket', async (ctx) => {
   const args = ctx.message?.text?.split(' ').slice(1);
-  let tournamentId = args?.[0]?.trim();
+  const tournamentId = args?.[0]?.trim();
 
   if (!tournamentId) {
     // Show list of active tournaments
@@ -122,14 +122,14 @@ matchCommands.command('bracket', async (ctx) => {
 
 // Просмотр сетки турнира
 matchCommands.callbackQuery(/^bracket:view:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match[1]!;
   await ctx.answerCallbackQuery();
   await showBracket(ctx, tournamentId, true);
 });
 
 // Просмотр конкретного матча
 matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match[1]!;
   const userId = ctx.dbUser.id;
 
   const match = await getMatch(matchId);
@@ -164,7 +164,7 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
 
 // Начать матч
 matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match[1]!;
   const userId = ctx.dbUser.id;
 
   const match = await getMatch(matchId);
@@ -219,7 +219,7 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
 
 // Показать форму внесения результата
 matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match[1]!;
   const userId = ctx.dbUser.id;
 
   const match = await getMatch(matchId);
@@ -304,9 +304,9 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
 
 // Выбор счёта
 matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
-  const player1Score = parseInt(ctx.match![2]!, 10);
-  const player2Score = parseInt(ctx.match![3]!, 10);
+  const matchId = ctx.match[1]!;
+  const player1Score = parseInt(ctx.match[2]!, 10);
+  const player2Score = parseInt(ctx.match[3]!, 10);
   const userId = ctx.dbUser.id;
 
   const result = await reportResult(
@@ -365,7 +365,7 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
 
 // Подтвердить результат
 matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match[1]!;
   const userId = ctx.dbUser.id;
 
   const result = await confirmResult(matchId, userId);
@@ -410,7 +410,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
 
 // Оспорить результат
 matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match[1]!;
   const userId = ctx.dbUser.id;
 
   const result = await disputeResult(matchId, userId);
@@ -464,7 +464,7 @@ matchCommands.callbackQuery(/^match:waiting:(.+)$/, async (ctx) => {
   //   show_alert: false,
   // });
   const userId = ctx.dbUser.id;
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match[1]!;
   const updatedMatch = await getMatch(matchId);
   if (!updatedMatch) {
     await ctx.answerCallbackQuery({
@@ -486,7 +486,7 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
     return;
   }
 
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match[1]!;
   const match = await getMatch(matchId);
 
   if (!match) {
@@ -539,9 +539,9 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
     return;
   }
 
-  const matchId = ctx.match![1]!;
-  const playerIndex = ctx.match![2]!; // "1" или "2"
-  const reason = ctx.match![3]!;
+  const matchId = ctx.match[1]!;
+  const playerIndex = ctx.match[2]!; // "1" или "2"
+  const reason = ctx.match[3]!;
   const userId = ctx.dbUser.id;
 
   // Получаем матч для определения winnerId по индексу

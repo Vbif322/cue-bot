@@ -208,7 +208,7 @@ tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
  * Show tournament info when selected from list
  */
 tournamentCommands.callbackQuery(/^tournament_info:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match[1]!;
   await ctx.answerCallbackQuery();
   await showTournamentDetails(ctx, tournamentId, true);
 });
@@ -222,7 +222,7 @@ tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match[1]!;
   await updateTournamentStatus(tournamentId, 'registration_open');
 
   await ctx.answerCallbackQuery('Регистрация открыта');
@@ -240,7 +240,7 @@ tournamentCommands.callbackQuery(/^tournament_close_reg:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match[1]!;
 
   try {
     // Close registration and get participant count
@@ -271,7 +271,7 @@ tournamentCommands.callbackQuery(/^tournament_delete:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match[1]!;
   await deleteTournament(tournamentId);
 
   await ctx.answerCallbackQuery('Турнир удалён');
@@ -291,7 +291,7 @@ tournamentCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]!;
+    const tournamentId = ctx.match[1]!;
     const tournament = await getTournament(tournamentId);
 
     if (!tournament) {
@@ -320,7 +320,7 @@ tournamentCommands.callbackQuery(
       text:
         `Вы уверены, что хотите удалить турнир?\n\n` +
         `📋 *${tournament.name}*\n` +
-        `Статус: ${STATUS_LABELS[tournament.status as keyof typeof STATUS_LABELS] || tournament.status}`,
+        `Статус: ${STATUS_LABELS[tournament.status] || tournament.status}`,
       parse_mode: 'Markdown',
       reply_markup: keyboard,
     });
@@ -350,7 +350,7 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match[1]!;
   const result = await canStartTournament(tournamentId);
 
   if (!result.canStart) {
@@ -373,10 +373,7 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
   }
 
   const stats = getBracketStats(
-    tournament.format as
-      | 'single_elimination'
-      | 'double_elimination'
-      | 'round_robin',
+    tournament.format,
     result.participantsCount,
   );
 
@@ -413,7 +410,7 @@ tournamentCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]!;
+    const tournamentId = ctx.match[1]!;
 
     // Double-check if tournament can be started
     const result = await canStartTournament(tournamentId);
@@ -469,29 +466,29 @@ tournamentCommands.callbackQuery(
 // ============================================================================
 
 tournamentCommands.callbackQuery(/^discipline:(.+)$/, async (ctx) => {
-  await handleDisciplineSelection(ctx, ctx.match![1]!);
+  await handleDisciplineSelection(ctx, ctx.match[1]!);
 });
 
 tournamentCommands.callbackQuery(/^venue:(.+)$/, async (ctx) => {
-  await handleVenueSelection(ctx, ctx.match![1]!);
+  await handleVenueSelection(ctx, ctx.match[1]!);
 });
 
 tournamentCommands.callbackQuery(/^format:(.+)$/, async (ctx) => {
-  await handleFormatSelection(ctx, ctx.match![1]!);
+  await handleFormatSelection(ctx, ctx.match[1]!);
 });
 
 tournamentCommands.callbackQuery(/^participants:(\d+)$/, async (ctx) => {
-  const participants = parseInt(ctx.match![1]!, 10);
+  const participants = parseInt(ctx.match[1]!, 10);
   await handleMaxParticipantsSelection(ctx, participants);
 });
 
 tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
-  const winScore = parseInt(ctx.match![1]!, 10);
+  const winScore = parseInt(ctx.match[1]!, 10);
   await handleWinScoreSelection(ctx, winScore);
 });
 
 tournamentCommands.callbackQuery(/^tables_toggle:(.+)$/, async (ctx) => {
-  await handleTableSelectionToggle(ctx, ctx.match![1]!);
+  await handleTableSelectionToggle(ctx, ctx.match[1]!);
 });
 
 tournamentCommands.callbackQuery('tables_done', async (ctx) => {
