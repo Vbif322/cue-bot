@@ -121,22 +121,22 @@ cue-bot/
 
 ### Запуск и сборка
 
-| Команда | Описание |
-|---------|----------|
-| `npm run dev` | Бот + API-сервер (nodemon, порт из `ADMIN_PORT`) |
-| `npm run dev:admin` | Vite dev-сервер SPA (порт 5173, прокси → 3000) |
+| Команда               | Описание                                                |
+| --------------------- | ------------------------------------------------------- |
+| `npm run dev`         | Бот + API-сервер (nodemon, порт из `ADMIN_PORT`)        |
+| `npm run dev:admin`   | Vite dev-сервер SPA (порт 5173, прокси → 3000)          |
 | `npm run build:admin` | Сборка SPA в `admin/dist/` (раздаётся Hono в продакшне) |
-| `npm run build` | Компиляция TypeScript серверного кода |
+| `npm run build`       | Компиляция TypeScript серверного кода                   |
 
 ### Переменные окружения
 
-| Переменная | Описание |
-|------------|----------|
-| `BOT_TOKEN` | Токен Telegram-бота |
-| `DATABASE_URL` | Строка подключения к PostgreSQL |
-| `JWT_SECRET` | Секрет для подписи JWT (admin-панель) |
-| `ADMIN_PORT` | Порт HTTP-сервера (по умолчанию 3000) |
-| `NODE_ENV` | `development` / `production` |
+| Переменная     | Описание                              |
+| -------------- | ------------------------------------- |
+| `BOT_TOKEN`    | Токен Telegram-бота                   |
+| `DATABASE_URL` | Строка подключения к PostgreSQL       |
+| `JWT_SECRET`   | Секрет для подписи JWT (admin-панель) |
+| `ADMIN_PORT`   | Порт HTTP-сервера (по умолчанию 3000) |
+| `NODE_ENV`     | `development` / `production`          |
 
 ---
 
@@ -233,6 +233,7 @@ cue-bot/
 ### Описание таблиц
 
 #### users
+
 Пользователи бота.
 
 - **telegram_id**: Уникальный ID Telegram
@@ -240,6 +241,7 @@ cue-bot/
 - **role**: `user` | `admin`
 
 #### tournaments
+
 Турниры.
 
 - **discipline**: `snooker`
@@ -248,12 +250,14 @@ cue-bot/
 - **winScore**: До скольки побед играется каждый матч
 
 #### tournamentParticipants
+
 Регистрации участников.
 
 - **seed**: Порядковый номер в сетке (назначается при старте турнира)
 - **status**: `pending` | `confirmed` | `cancelled`
 
 #### matches
+
 Матчи.
 
 - **bracketType**: `winners` | `losers` | `grand_final`
@@ -262,15 +266,19 @@ cue-bot/
 - **isTechnicalResult**: признак технического результата
 
 #### tournamentReferees
+
 Судьи турниров (составная PK: tournamentId + userId).
 
 #### tournamentTables
+
 Привязка физических столов к турниру (составная PK: tournamentId + tableId), с сортировкой по position.
 
 #### tables
+
 Физические бильярдные столы (name, опциональный venueId).
 
 #### notifications
+
 Уведомления пользователям.
 
 - **type**: `bracket_formed` | `match_reminder` | `result_confirmation_request` | `result_confirmed` | `result_dispute` | `tournament_results` | `disqualification`
@@ -278,9 +286,11 @@ cue-bot/
 - **isRead**: прочитано ли
 
 #### loginCodes
+
 Одноразовые 6-значные коды для входа в admin-панель (TTL 5 мин, max 5 попыток).
 
 #### loginTokens
+
 Одноразовые URL-токены для входа (альтернативный способ — через ссылку из Telegram).
 
 ---
@@ -328,6 +338,7 @@ draft
 ```
 
 При запуске турнира:
+
 1. Случайно назначаются seeds участникам
 2. `bracketGenerator` строит структуру матчей
 3. Матчи создаются в БД с привязкой nextMatchId
@@ -344,6 +355,7 @@ draft
 ```
 
 Проверки при регистрации:
+
 1. Статус турнира = `registration_open`
 2. Пользователь не зарегистрирован
 3. Есть свободные места (< maxParticipants)
@@ -385,34 +397,36 @@ draft
 
 ### Команды для пользователей
 
-| Команда | Описание |
-|---------|----------|
-| `/start` | Регистрация / приветствие |
-| `/tournaments` | Список всех турниров |
-| `/my_tournaments` | Мои турниры |
-| `/my_match` | Текущий активный матч |
-| `/bracket` | Турнирная сетка |
+| Команда           | Описание                  |
+| ----------------- | ------------------------- |
+| `/start`          | Регистрация / приветствие |
+| `/tournaments`    | Список всех турниров      |
+| `/my_tournaments` | Мои турниры               |
+| `/my_match`       | Текущий активный матч     |
+| `/bracket`        | Турнирная сетка           |
 
 ### Команды для администраторов
 
-| Команда | Описание |
-|---------|----------|
-| `/create_tournament` | Создать турнир (wizard) |
+| Команда              | Описание                         |
+| -------------------- | -------------------------------- |
+| `/create_tournament` | Создать турнир (wizard)          |
 | `/delete_tournament` | Удалить турнир (draft/cancelled) |
-| `/set_admin` | Назначить администратора |
-| `/remove_admin` | Снять администратора |
-| `/assign_referee` | Назначить судью турнира |
-| `/remove_referee` | Снять судью турнира |
+| `/set_admin`         | Назначить администратора         |
+| `/remove_admin`      | Снять администратора             |
+| `/assign_referee`    | Назначить судью турнира          |
+| `/remove_referee`    | Снять судью турнира              |
 
 ### Callback Query паттерны
 
 #### Регистрация
+
 - `reg:join:{tournamentId}` — зарегистрироваться
 - `reg:cancel:{tournamentId}` — отменить регистрацию
 - `reg:view:{tournamentId}` — просмотр турнира
 - `reg:full:{tournamentId}` — заглушка (мест нет)
 
 #### Управление турниром
+
 - `tournament_info:{id}` — информация
 - `tournament_open_reg:{id}` — открыть регистрацию
 - `tournament_close_reg:{id}` — закрыть регистрацию
@@ -423,9 +437,11 @@ draft
 - `tournament_delete_cancel` — отмена
 
 #### Wizard создания
+
 - `discipline:{value}`, `format:{value}`, `participants:{n}`, `winscore:{n}`
 
 #### Матчи
+
 - `match:view:{id}` — просмотр
 - `match:start:{id}` — начать
 - `match:report:{id}` — форма результата
@@ -436,6 +452,7 @@ draft
 - `match:tech_win:{id}:{winnerId}:{reason}` — установить тех. результат
 
 #### Сетка
+
 - `bracket:view:{tournamentId}` — просмотр сетки
 
 ---
@@ -473,6 +490,7 @@ draft
 ### tournamentStartService
 
 Оркестрирует запуск турнира, избегая циклических зависимостей между matchService и tournamentService:
+
 1. Назначение seeds
 2. Генерация сетки через bracketGenerator
 3. Создание матчей
@@ -486,6 +504,7 @@ draft
 - `getRoundName(round, totalRounds, format, bracketType)` — название раунда (Финал, Полуфинал, Гранд-финал и т.д.)
 
 **Алгоритм single_elimination:**
+
 1. Размер сетки — ближайшая степень двойки к числу участников
 2. Топ сиды (1, 2) получают Bye если участников меньше степени двойки
 3. Расстановка: #1 vs #N, #(N/2) vs #(N/2+1), #2 vs #(N-1), ...
@@ -496,6 +515,7 @@ draft
 Реализован. Отправляет уведомления через `bot.api.sendMessage`, сохраняет записи в таблицу `notifications`.
 
 Покрытые события:
+
 - Назначен матч (`notifyMatchAssigned`)
 - Матч начат (`notifyMatchStart`)
 - Результат ожидает подтверждения (`notifyResultPending`)
@@ -508,6 +528,7 @@ draft
 ### tableService
 
 Управление физическими бильярдными столами:
+
 - `getTables()`, `getTable(id)`, `createTable(name)`, `deleteTable(id)`
 - `getTournamentTables(tournamentId)` — столы, привязанные к турниру
 - `setTournamentTables(tournamentId, tableIds)` — задать список столов для турнира (транзакция)
@@ -515,6 +536,7 @@ draft
 ### Middleware и Guards
 
 **authMiddleware** — для каждого входящего сообщения:
+
 1. Поиск пользователя в БД по telegram_id
 2. Если не найден — создаётся с ролью `user`
 3. Обновление username
@@ -563,14 +585,14 @@ scheduled → in_progress → pending_confirmation → completed
 
 Все `/api/*`-маршруты кроме `/api/auth/*` и `/api/health` защищены JWT-middleware.
 
-| Префикс | Описание |
-|---------|----------|
-| `GET /api/health` | Проверка работоспособности |
-| `/api/auth/*` | Вход, выход, проверка сессии |
+| Префикс              | Описание                              |
+| -------------------- | ------------------------------------- |
+| `GET /api/health`    | Проверка работоспособности            |
+| `/api/auth/*`        | Вход, выход, проверка сессии          |
 | `/api/tournaments/*` | CRUD турниров, управление участниками |
-| `/api/matches/*` | Просмотр и управление матчами |
-| `/api/users/*` | Список пользователей, изменение ролей |
-| `/api/tables/*` | CRUD столов, привязка к турнирам |
+| `/api/matches/*`     | Просмотр и управление матчами         |
+| `/api/users/*`       | Список пользователей, изменение ролей |
+| `/api/tables/*`      | CRUD столов, привязка к турнирам      |
 
 ### Страницы SPA
 
