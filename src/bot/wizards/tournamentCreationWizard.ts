@@ -1,5 +1,4 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import type { BotContext } from '../types.js';
 import { discipline, tournamentFormat } from '../../db/schema.js';
 import { parseDate, formatDate } from '../../utils/dateHelpers.js';
 import { DISCIPLINE_LABELS, FORMAT_LABELS } from '../../utils/constants.js';
@@ -7,6 +6,8 @@ import { safeEditMessageText } from '../../utils/messageHelpers.js';
 import { createTournamentDraft } from '../../services/tournamentService.js';
 import { getVenue, getVenues } from '../../services/venueService.js';
 import { getTablesByVenue } from '../../services/tableService.js';
+
+import type { BotContext } from '../types.js';
 
 const STEPS_COUNT = 8;
 
