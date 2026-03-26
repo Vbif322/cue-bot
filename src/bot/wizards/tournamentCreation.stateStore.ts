@@ -172,7 +172,24 @@ export class TournamentCreationStateStore implements ITournamentCreationStateSto
       ...state,
       data: {
         ...state.data,
-        ...patch,
+
+        ...(patch.venue
+          ? {
+              venue: state.data.venue
+                ? { ...state.data.venue, ...patch.venue }
+                : patch.venue,
+            }
+          : {}),
+
+        ...(patch.tournament
+          ? {
+              tournament: state.data.tournament
+                ? { ...state.data.tournament, ...patch.tournament }
+                : patch.tournament,
+            }
+          : {}),
+
+        ...(patch.tableIds !== undefined ? { tableIds: patch.tableIds } : {}),
       },
     };
 
@@ -194,20 +211,10 @@ export class TournamentCreationStateStore implements ITournamentCreationStateSto
    * @returns {ICreationState} Обновленное состояние создания
    */
   update(userId: number, patch: Partial<ICreationState>): ICreationState {
-    const state = this.getOrThrow(userId);
+    if (patch.step) this.setStep(userId, patch.step);
+    if (patch.data) this.updateData(userId, patch.data);
 
-    const nextState: ICreationState = {
-      ...state,
-      ...patch,
-      data: {
-        ...state.data,
-        ...(patch.data ?? {}),
-      },
-    };
-
-    this.storage.set(userId, nextState);
-
-    return nextState;
+    return this.getOrThrow(userId);
   }
 
   /**
