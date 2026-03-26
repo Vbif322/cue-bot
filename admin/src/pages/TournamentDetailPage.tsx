@@ -1,70 +1,106 @@
-import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { tournamentsApi, matchesApi } from "../lib/api.ts";
-import type { ApiTable } from "../lib/api.ts";
+import { useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { tournamentsApi, matchesApi, usersApi } from '../lib/api.ts';
+import type { ApiTable } from '../lib/api.ts';
 import {
   TournamentStatusBadge,
   MatchStatusBadge,
-} from "../components/StatusBadge.tsx";
-import type { TournamentStatus } from "../lib/api.ts";
+} from '../components/StatusBadge.tsx';
+import type { TournamentStatus } from '../lib/api.ts';
 
 const FORMAT_LABELS = {
-  single_elimination: "Single Elimination",
-  double_elimination: "Double Elimination",
-  round_robin: "Round Robin",
+  single_elimination: 'Single Elimination',
+  double_elimination: 'Double Elimination',
+  round_robin: 'Round Robin',
 };
 
 const NEXT_STATUS: Partial<Record<TournamentStatus, TournamentStatus>> = {
-  draft: "registration_open",
-  registration_open: "registration_closed",
-  registration_closed: "in_progress",
+  draft: 'registration_open',
+  registration_open: 'registration_closed',
+  registration_closed: 'in_progress',
 };
 
 const STATUS_ACTION_LABELS: Partial<Record<TournamentStatus, string>> = {
-  draft: "Открыть регистрацию",
-  registration_open: "Закрыть регистрацию",
-  registration_closed: "Запустить турнир",
+  draft: 'Открыть регистрацию',
+  registration_open: 'Закрыть регистрацию',
+  registration_closed: 'Запустить турнир',
 };
 
 export default function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<
-    "info" | "participants" | "matches"
-  >("info");
-  const [actionError, setActionError] = useState("");
+    'info' | 'participants' | 'matches'
+  >('info');
+  const [actionError, setActionError] = useState('');
+
+  const [showModal, setShowModal] = useState(false);
+  const [modalTab, setModalTab] = useState<'user' | 'external'>('user');
+  const [userSearch, setUserSearch] = useState('');
+  const [externalName, setExternalName] = useState('');
+  const [externalUsername, setExternalUsername] = useState('');
+  const [addError, setAddError] = useState('');
 
   const { data: tournament, isLoading } = useQuery({
-    queryKey: ["tournament", id],
+    queryKey: ['tournament', id],
     queryFn: () => tournamentsApi.get(id!),
     enabled: !!id,
   });
 
   const { data: participants } = useQuery({
-    queryKey: ["tournament-participants", id],
+    queryKey: ['tournament-participants', id],
     queryFn: () => tournamentsApi.participants(id!),
-    enabled: !!id && activeTab === "participants",
+    enabled: !!id && activeTab === 'participants',
   });
 
   const { data: matches } = useQuery({
-    queryKey: ["tournament-matches", id],
+    queryKey: ['tournament-matches', id],
     queryFn: () => matchesApi.byTournament(id!),
-    enabled: !!id && activeTab === "matches",
+    enabled: !!id && activeTab === 'matches',
   });
 
   const { data: tournamentTables } = useQuery<ApiTable[]>({
-    queryKey: ["tournament-tables", id],
+    queryKey: ['tournament-tables', id],
     queryFn: () => tournamentsApi.tables(id!),
     enabled: !!id,
   });
+
+  const { data: allUsers } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => usersApi.list(),
+    enabled: showModal && modalTab === 'user',
+  });
+
+  const addParticipantMutation = useMutation({
+    mutationFn: (body: Parameters<typeof tournamentsApi.addParticipant>[1]) =>
+      tournamentsApi.addParticipant(id!, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tournament-participants', id] });
+      setShowModal(false);
+      setUserSearch('');
+      setExternalName('');
+      setExternalUsername('');
+      setAddError('');
+    },
+    onError: (e: Error) => setAddError(e.message),
+  });
+
+  const removeParticipantMutation = useMutation({
+    mutationFn: (userId: string) =>
+      tournamentsApi.removeParticipant(id!, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tournament-participants', id] });
+    },
+  });
+
   const statusMutation = useMutation({
     mutationFn: (status: TournamentStatus) =>
       tournamentsApi.setStatus(id!, status),
     onSuccess: () => {
-      setActionError("");
-      qc.invalidateQueries({ queryKey: ["tournament", id] });
-      qc.invalidateQueries({ queryKey: ["tournaments"] });
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['tournament', id] });
+      qc.invalidateQueries({ queryKey: ['tournaments'] });
     },
     onError: (e: Error) => setActionError(e.message),
   });
@@ -72,10 +108,10 @@ export default function TournamentDetailPage() {
   const startMutation = useMutation({
     mutationFn: () => tournamentsApi.start(id!),
     onSuccess: () => {
-      setActionError("");
-      qc.invalidateQueries({ queryKey: ["tournament", id] });
-      qc.invalidateQueries({ queryKey: ["tournaments"] });
-      qc.invalidateQueries({ queryKey: ["tournament-matches", id] });
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['tournament', id] });
+      qc.invalidateQueries({ queryKey: ['tournaments'] });
+      qc.invalidateQueries({ queryKey: ['tournament-matches', id] });
     },
     onError: (e: Error) => setActionError(e.message),
   });
@@ -85,9 +121,9 @@ export default function TournamentDetailPage() {
     const next = NEXT_STATUS[tournament.status];
     if (!next) return;
 
-    if (next === "in_progress") {
+    if (next === 'in_progress') {
       if (
-        !confirm("Запустить турнир? Это создаст сетку и уведомит участников.")
+        !confirm('Запустить турнир? Это создаст сетку и уведомит участников.')
       )
         return;
       startMutation.mutate();
@@ -134,15 +170,15 @@ export default function TournamentDetailPage() {
               className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
               {statusMutation.isPending || startMutation.isPending
-                ? "Обработка..."
+                ? 'Обработка...'
                 : nextLabel}
             </button>
           )}
-          {tournament.status === "in_progress" && (
+          {tournament.status === 'in_progress' && (
             <button
               onClick={() => {
-                if (confirm("Отменить турнир?"))
-                  statusMutation.mutate("cancelled");
+                if (confirm('Отменить турнир?'))
+                  statusMutation.mutate('cancelled');
               }}
               className="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50"
             >
@@ -160,25 +196,25 @@ export default function TournamentDetailPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b border-gray-200">
-        {(["info", "participants", "matches"] as const).map((tab) => (
+        {(['info', 'participants', 'matches'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               activeTab === tab
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-600 hover:text-gray-900"
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
             }`}
           >
-            {tab === "info" && "Информация"}
-            {tab === "participants" && "Участники"}
-            {tab === "matches" && "Матчи"}
+            {tab === 'info' && 'Информация'}
+            {tab === 'participants' && 'Участники'}
+            {tab === 'matches' && 'Матчи'}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
-      {activeTab === "info" && (
+      {activeTab === 'info' && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
           <InfoRow
             label="Статус"
@@ -193,7 +229,7 @@ export default function TournamentDetailPage() {
           {tournament.startDate && (
             <InfoRow
               label="Дата начала"
-              value={new Date(tournament.startDate).toLocaleString("ru-RU")}
+              value={new Date(tournament.startDate).toLocaleString('ru-RU')}
             />
           )}
           <InfoRow
@@ -211,7 +247,7 @@ export default function TournamentDetailPage() {
                   ))}
                 </div>
               ) : (
-                "—"
+                '—'
               )
             }
           />
@@ -224,55 +260,239 @@ export default function TournamentDetailPage() {
         </div>
       )}
 
-      {activeTab === "participants" && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Сид
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Игрок
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">
-                  Статус
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {participants?.map((p) => (
-                <tr key={p.userId}>
-                  <td className="px-4 py-3 text-gray-500">{p.seed ?? "—"}</td>
-                  <td className="px-4 py-3 font-medium">
-                    {p.name ?? p.username ?? p.userId}
-                    {p.username && (
-                      <span className="text-gray-400 font-normal ml-1">
-                        @{p.username}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs text-gray-500">{p.status}</span>
-                  </td>
+      {activeTab === 'participants' && (
+        <div>
+          <div className="flex justify-end mb-3">
+            <button
+              onClick={() => {
+                setShowModal(true);
+                setModalTab('user');
+                setUserSearch('');
+                setExternalName('');
+                setExternalUsername('');
+                setAddError('');
+              }}
+              className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+            >
+              + Добавить участника
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Сид
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Игрок
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Статус
+                  </th>
+                  <th className="px-4 py-3"></th>
                 </tr>
-              ))}
-              {!participants?.length && (
-                <tr>
-                  <td
-                    colSpan={3}
-                    className="px-4 py-6 text-center text-gray-400"
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {participants?.map((p) => (
+                  <tr key={p.userId}>
+                    <td className="px-4 py-3 text-gray-500">{p.seed ?? '—'}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <span>{p.name ?? p.username ?? p.userId}</span>
+                      {p.username && (
+                        <span className="text-gray-400 font-normal ml-1">
+                          @{p.username}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs text-gray-500">{p.status}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => {
+                          if (confirm('Удалить участника?')) {
+                            removeParticipantMutation.mutate(p.userId);
+                          }
+                        }}
+                        disabled={removeParticipantMutation.isPending}
+                        className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                      >
+                        Удалить
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!participants?.length && (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-4 py-6 text-center text-gray-400"
+                    >
+                      Нет участников
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Add participant modal */}
+          {showModal && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                  <h3 className="font-semibold text-gray-900">
+                    Добавить участника
+                  </h3>
+                  <button
+                    onClick={() => setShowModal(false)}
+                    className="text-gray-400 hover:text-gray-600 text-lg leading-none"
                   >
-                    Нет участников
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    ×
+                  </button>
+                </div>
+
+                {/* Modal tabs */}
+                <div className="flex gap-1 px-5 pt-4 border-b border-gray-200">
+                  {(['user', 'external'] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => {
+                        setModalTab(t);
+                        setAddError('');
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                        modalTab === t
+                          ? 'border-blue-600 text-blue-600'
+                          : 'border-transparent text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      {t === 'user'
+                        ? 'Зарегистрированный участник'
+                        : 'Внешний участник'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="p-5 space-y-3">
+                  {modalTab === 'user' && (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Поиск по имени или @username..."
+                        value={userSearch}
+                        onChange={(e) => setUserSearch(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <div className="max-h-52 overflow-y-auto divide-y divide-gray-100 border border-gray-200 rounded-lg">
+                        {(() => {
+                          const participantIds = new Set(
+                            participants?.map((p) => p.userId) ?? [],
+                          );
+                          const q = userSearch.toLowerCase();
+                          const filtered = (allUsers ?? []).filter(
+                            (u) =>
+                              !participantIds.has(u.id) &&
+                              (!q ||
+                                u.username.toLowerCase().includes(q) ||
+                                (u.name ?? '').toLowerCase().includes(q)),
+                          );
+                          if (filtered.length === 0)
+                            return (
+                              <div className="px-3 py-4 text-center text-gray-400 text-sm">
+                                Участники не найдены
+                              </div>
+                            );
+                          return filtered.map((u) => (
+                            <button
+                              key={u.id}
+                              onClick={() =>
+                                addParticipantMutation.mutate({
+                                  type: 'user',
+                                  userId: u.id,
+                                })
+                              }
+                              disabled={addParticipantMutation.isPending}
+                              className="w-full text-left px-3 py-2.5 hover:bg-blue-50 text-sm disabled:opacity-50"
+                            >
+                              <span className="font-medium">
+                                {u.name ?? u.username}
+                              </span>
+                              <span className="text-gray-400 ml-1.5">
+                                @{u.username}
+                              </span>
+                            </button>
+                          ));
+                        })()}
+                      </div>
+                    </>
+                  )}
+
+                  {modalTab === 'external' && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Имя участника *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Иван Петров"
+                          value={externalName}
+                          onChange={(e) => setExternalName(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Username (необязательно)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="@username"
+                          value={externalUsername}
+                          onChange={(e) =>
+                            setExternalUsername(
+                              e.target.value.replace(/^@/, ''),
+                            )
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (!externalName.trim()) {
+                            setAddError('Введите имя участника');
+                            return;
+                          }
+                          addParticipantMutation.mutate({
+                            type: 'external',
+                            name: externalName.trim(),
+                            username: externalUsername.trim() || undefined,
+                          });
+                        }}
+                        disabled={addParticipantMutation.isPending}
+                        className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {addParticipantMutation.isPending
+                          ? 'Добавление...'
+                          : 'Добавить участника'}
+                      </button>
+                    </>
+                  )}
+
+                  {addError && (
+                    <p className="text-xs text-red-600">{addError}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {activeTab === "matches" && (
+      {activeTab === 'matches' && (
         <>
           {/* Mobile match cards */}
           <div className="md:hidden space-y-3">
@@ -290,7 +510,7 @@ export default function TournamentDetailPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-500 font-medium">
                       R{m.round}
-                      {m.bracketType === "losers" && (
+                      {m.bracketType === 'losers' && (
                         <span className="text-orange-500 ml-1">L</span>
                       )}
                     </span>
@@ -304,15 +524,15 @@ export default function TournamentDetailPage() {
                 </div>
                 <div className="flex items-center justify-center gap-3 my-3">
                   <span className="font-medium text-gray-900 text-sm text-right flex-1">
-                    {m.player1Name ?? m.player1Username ?? "TBD"}
+                    {m.player1Name ?? m.player1Username ?? 'TBD'}
                   </span>
                   <span className="font-mono text-gray-700 text-sm px-2">
                     {m.player1Score !== null && m.player2Score !== null
                       ? `${m.player1Score}:${m.player2Score}`
-                      : "vs"}
+                      : 'vs'}
                   </span>
                   <span className="font-medium text-gray-900 text-sm text-left flex-1">
-                    {m.player2Name ?? m.player2Username ?? "TBD"}
+                    {m.player2Name ?? m.player2Username ?? 'TBD'}
                   </span>
                 </div>
                 <div className="text-right">
@@ -358,23 +578,23 @@ export default function TournamentDetailPage() {
                   <tr key={m.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-gray-500">
                       R{m.round}
-                      {m.bracketType === "losers" && (
+                      {m.bracketType === 'losers' && (
                         <span className="ml-1 text-xs text-orange-500">L</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {m.player1Name ?? m.player1Username ?? "TBD"}
+                      {m.player1Name ?? m.player1Username ?? 'TBD'}
                     </td>
                     <td className="px-4 py-3 font-mono text-center">
                       {m.player1Score !== null && m.player2Score !== null
                         ? `${m.player1Score}:${m.player2Score}`
-                        : "—"}
+                        : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {m.player2Name ?? m.player2Username ?? "TBD"}
+                      {m.player2Name ?? m.player2Username ?? 'TBD'}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
-                      {m.tableName ?? "—"}
+                      {m.tableName ?? '—'}
                     </td>
                     <td className="px-4 py-3">
                       <MatchStatusBadge status={m.status} />
