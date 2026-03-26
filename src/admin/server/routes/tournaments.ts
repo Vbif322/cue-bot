@@ -1,13 +1,13 @@
-import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
-import { eq, and } from "drizzle-orm";
-import { db } from "../../../db/db.js";
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
+import { eq, and } from 'drizzle-orm';
+import { db } from '../../../db/db.js';
 import {
   tournaments,
   tournamentParticipants,
   users,
-} from "../../../db/schema.js";
+} from '../../../db/schema.js';
 import {
   getTournament,
   getTournaments,
@@ -16,49 +16,49 @@ import {
   canDeleteTournament,
   closeRegistrationWithCount,
   canStartTournament,
-} from "../../../services/tournamentService.js";
-import { startTournamentFull } from "../../../services/tournamentStartService.js";
-import { getMatchStats } from "../../../services/matchService.js";
+} from '../../../services/tournamentService.js';
+import { startTournamentFull } from '../../../services/tournamentStartService.js';
+import { getMatchStats } from '../../../services/matchService.js';
 import {
   getTournamentTables,
   setTournamentTables,
-} from "../../../services/tableService.js";
-import { requireAdmin } from "../middleware.js";
-import type { Api } from "grammy";
+} from '../../../services/tableService.js';
+import { requireAdmin } from '../middleware.js';
+import type { Api } from 'grammy';
 
 export function createTournamentsRouter(botApi: Api) {
   const router = new Hono();
 
-  router.use("/*", requireAdmin);
+  router.use('/*', requireAdmin);
 
-  router.get("/", async (c) => {
+  router.get('/', async (c) => {
     const list = await getTournaments({ limit: 100, includesDrafts: true });
     return c.json({ data: list });
   });
 
-  router.get("/:id", async (c) => {
-    const tournament = await getTournament(c.req.param("id"));
-    if (!tournament) return c.json({ error: "Не найден" }, 404);
+  router.get('/:id', async (c) => {
+    const tournament = await getTournament(c.req.param('id'));
+    if (!tournament) return c.json({ error: 'Не найден' }, 404);
     return c.json({ data: tournament });
   });
 
-  router.get("/:id/tables", async (c) => {
-    const list = await getTournamentTables(c.req.param("id"));
+  router.get('/:id/tables', async (c) => {
+    const list = await getTournamentTables(c.req.param('id'));
     return c.json({ data: list });
   });
 
   router.post(
-    "/",
+    '/',
     zValidator(
-      "json",
+      'json',
       z.object({
         name: z.string().min(1),
         description: z.string().optional(),
         rules: z.string().optional(),
         format: z.enum([
-          "single_elimination",
-          "double_elimination",
-          "round_robin",
+          'single_elimination',
+          'double_elimination',
+          'round_robin',
         ]),
         maxParticipants: z.number().int().min(2).max(64).default(16),
         winScore: z.number().int().min(1).default(3),
@@ -67,8 +67,8 @@ export function createTournamentsRouter(botApi: Api) {
       }),
     ),
     async (c) => {
-      const body = c.req.valid("json");
-      const admin = c.get("adminUser");
+      const body = c.req.valid('json');
+      const admin = c.get('adminUser');
 
       const [tournament] = await db
         .insert(tournaments)
@@ -77,7 +77,7 @@ export function createTournamentsRouter(botApi: Api) {
           description: body.description ?? null,
           rules: body.rules ?? null,
           format: body.format,
-          discipline: "snooker",
+          discipline: 'snooker',
           maxParticipants: body.maxParticipants,
           winScore: body.winScore,
           startDate: body.startDate ? new Date(body.startDate) : null,
@@ -85,7 +85,7 @@ export function createTournamentsRouter(botApi: Api) {
         })
         .returning();
 
-      if (!tournament) return c.json({ error: "Ошибка создания турнира" }, 500);
+      if (!tournament) return c.json({ error: 'Ошибка создания турнира' }, 500);
 
       const allTableIds = body.tableIds ?? [];
 
@@ -98,25 +98,25 @@ export function createTournamentsRouter(botApi: Api) {
   );
 
   router.patch(
-    "/:id/status",
+    '/:id/status',
     zValidator(
-      "json",
+      'json',
       z.object({
         status: z.enum([
-          "draft",
-          "registration_open",
-          "registration_closed",
-          "in_progress",
-          "completed",
-          "cancelled",
+          'draft',
+          'registration_open',
+          'registration_closed',
+          'in_progress',
+          'completed',
+          'cancelled',
         ]),
       }),
     ),
     async (c) => {
-      const { status } = c.req.valid("json");
-      const id = c.req.param("id");
+      const { status } = c.req.valid('json');
+      const id = c.req.param('id');
 
-      if (status === "registration_closed") {
+      if (status === 'registration_closed') {
         await closeRegistrationWithCount(id);
       } else {
         await updateTournamentStatus(id, status);
@@ -127,8 +127,8 @@ export function createTournamentsRouter(botApi: Api) {
     },
   );
 
-  router.post("/:id/start", async (c) => {
-    const id = c.req.param("id");
+  router.post('/:id/start', async (c) => {
+    const id = c.req.param('id');
 
     const canStart = await canStartTournament(id);
     if (!canStart.canStart) {
@@ -140,21 +140,21 @@ export function createTournamentsRouter(botApi: Api) {
       return c.json({ data: result });
     } catch (err) {
       return c.json(
-        { error: err instanceof Error ? err.message : "Неизвестная ошибка" },
+        { error: err instanceof Error ? err.message : 'Неизвестная ошибка' },
         500,
       );
     }
   });
 
-  router.delete("/:id", async (c) => {
-    const id = c.req.param("id");
+  router.delete('/:id', async (c) => {
+    const id = c.req.param('id');
     const tournament = await getTournament(id);
 
-    if (!tournament) return c.json({ error: "Не найден" }, 404);
+    if (!tournament) return c.json({ error: 'Не найден' }, 404);
 
     if (!canDeleteTournament(tournament.status)) {
       return c.json(
-        { error: "Можно удалять только черновики и отменённые турниры" },
+        { error: 'Можно удалять только черновики и отменённые турниры' },
         400,
       );
     }
@@ -163,8 +163,8 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ ok: true });
   });
 
-  router.get("/:id/participants", async (c) => {
-    const id = c.req.param("id");
+  router.get('/:id/participants', async (c) => {
+    const id = c.req.param('id');
 
     const dbParticipants = await db
       .select({
@@ -181,31 +181,31 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ data: dbParticipants });
   });
 
-  router.get("/:id/stats", async (c) => {
-    const stats = await getMatchStats(c.req.param("id"));
+  router.get('/:id/stats', async (c) => {
+    const stats = await getMatchStats(c.req.param('id'));
     return c.json({ data: stats });
   });
 
   router.post(
-    "/:id/participants",
+    '/:id/participants',
     zValidator(
-      "json",
-      z.discriminatedUnion("type", [
-        z.object({ type: z.literal("user"), userId: z.string().uuid() }),
+      'json',
+      z.discriminatedUnion('type', [
+        z.object({ type: z.literal('user'), userId: z.string().uuid() }),
         z.object({
-          type: z.literal("external"),
+          type: z.literal('external'),
           name: z.string().min(1).max(255),
           username: z.string().max(255).optional(),
         }),
       ]),
     ),
     async (c) => {
-      const tournamentId = c.req.param("id");
-      const body = c.req.valid("json");
+      const tournamentId = c.req.param('id');
+      const body = c.req.valid('json');
 
       let userId: string;
 
-      if (body.type === "external") {
+      if (body.type === 'external') {
         const [newUser] = await db
           .insert(users)
           .values({
@@ -214,7 +214,8 @@ export function createTournamentsRouter(botApi: Api) {
           })
           .returning({ id: users.id });
 
-        if (!newUser) return c.json({ error: "Ошибка создания участника" }, 500);
+        if (!newUser)
+          return c.json({ error: 'Ошибка создания участника' }, 500);
         userId = newUser.id;
       } else {
         userId = body.userId;
@@ -222,16 +223,16 @@ export function createTournamentsRouter(botApi: Api) {
 
       await db
         .insert(tournamentParticipants)
-        .values({ tournamentId, userId, status: "confirmed" })
+        .values({ tournamentId, userId, status: 'confirmed' })
         .onConflictDoNothing();
 
       return c.json({ ok: true });
     },
   );
 
-  router.delete("/:id/participants/:userId", async (c) => {
-    const tournamentId = c.req.param("id");
-    const userId = c.req.param("userId");
+  router.delete('/:id/participants/:userId', async (c) => {
+    const tournamentId = c.req.param('id');
+    const userId = c.req.param('userId');
 
     await db
       .delete(tournamentParticipants)
