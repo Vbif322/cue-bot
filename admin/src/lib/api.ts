@@ -125,7 +125,7 @@ export const tournamentsApi = {
     tournamentId: string,
     body:
       | { type: "user"; userId: string }
-      | { type: "guest"; guestName: string; telegramUsername?: string },
+      | { type: "external"; name: string; username?: string },
   ) =>
     apiFetch<{ ok: boolean }>(`/api/tournaments/${tournamentId}/participants`, {
       method: "POST",

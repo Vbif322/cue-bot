@@ -40,10 +40,10 @@ export default function TournamentDetailPage() {
   const [actionError, setActionError] = useState("");
 
   const [showModal, setShowModal] = useState(false);
-  const [modalTab, setModalTab] = useState<"user" | "guest">("user");
+  const [modalTab, setModalTab] = useState<"user" | "external">("user");
   const [userSearch, setUserSearch] = useState("");
-  const [guestName, setGuestName] = useState("");
-  const [guestTelegramUsername, setGuestTelegramUsername] = useState("");
+  const [externalName, setExternalName] = useState("");
+  const [externalUsername, setExternalUsername] = useState("");
   const [addError, setAddError] = useState("");
 
   const { data: tournament, isLoading } = useQuery({
@@ -82,9 +82,9 @@ export default function TournamentDetailPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tournament-participants", id] });
       setShowModal(false);
-      setGuestName("");
-      setGuestTelegramUsername("");
       setUserSearch("");
+      setExternalName("");
+      setExternalUsername("");
       setAddError("");
     },
     onError: (e: Error) => setAddError(e.message),
@@ -272,8 +272,8 @@ export default function TournamentDetailPage() {
                 setShowModal(true);
                 setModalTab("user");
                 setUserSearch("");
-                setGuestName("");
-                setGuestTelegramUsername("");
+                setExternalName("");
+                setExternalUsername("");
                 setAddError("");
               }}
               className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
@@ -301,19 +301,12 @@ export default function TournamentDetailPage() {
               <tbody className="divide-y divide-gray-100">
                 {participants?.map((p) => (
                   <tr key={p.userId}>
-                    <td className="px-4 py-3 text-gray-500">
-                      {p.seed ?? "—"}
-                    </td>
+                    <td className="px-4 py-3 text-gray-500">{p.seed ?? "—"}</td>
                     <td className="px-4 py-3 font-medium">
                       <span>{p.name ?? p.username ?? p.userId}</span>
-                      {!p.isGuest && p.username && (
+                      {p.username && (
                         <span className="text-gray-400 font-normal ml-1">
                           @{p.username}
-                        </span>
-                      )}
-                      {p.isGuest && (
-                        <span className="ml-2 px-1.5 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">
-                          Гость
                         </span>
                       )}
                     </td>
@@ -367,7 +360,7 @@ export default function TournamentDetailPage() {
 
                 {/* Modal tabs */}
                 <div className="flex gap-1 px-5 pt-4 border-b border-gray-200">
-                  {(["user", "guest"] as const).map((t) => (
+                  {(["user", "external"] as const).map((t) => (
                     <button
                       key={t}
                       onClick={() => {
@@ -380,7 +373,9 @@ export default function TournamentDetailPage() {
                           : "border-transparent text-gray-500 hover:text-gray-700"
                       }`}
                     >
-                      {t === "user" ? "Пользователь бота" : "Гость"}
+                      {t === "user"
+                        ? "Зарегистрированный участник"
+                        : "Внешний участник"}
                     </button>
                   ))}
                 </div>
@@ -411,7 +406,7 @@ export default function TournamentDetailPage() {
                           if (filtered.length === 0)
                             return (
                               <div className="px-3 py-4 text-center text-gray-400 text-sm">
-                                Пользователи не найдены
+                                Участники не найдены
                               </div>
                             );
                           return filtered.map((u) => (
@@ -439,7 +434,7 @@ export default function TournamentDetailPage() {
                     </>
                   )}
 
-                  {modalTab === "guest" && (
+                  {modalTab === "external" && (
                     <>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -448,21 +443,21 @@ export default function TournamentDetailPage() {
                         <input
                           type="text"
                           placeholder="Иван Петров"
-                          value={guestName}
-                          onChange={(e) => setGuestName(e.target.value)}
+                          value={externalName}
+                          onChange={(e) => setExternalName(e.target.value)}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Telegram username (необязательно)
+                          Username (необязательно)
                         </label>
                         <input
                           type="text"
                           placeholder="@username"
-                          value={guestTelegramUsername}
+                          value={externalUsername}
                           onChange={(e) =>
-                            setGuestTelegramUsername(
+                            setExternalUsername(
                               e.target.value.replace(/^@/, ""),
                             )
                           }
@@ -471,15 +466,14 @@ export default function TournamentDetailPage() {
                       </div>
                       <button
                         onClick={() => {
-                          if (!guestName.trim()) {
+                          if (!externalName.trim()) {
                             setAddError("Введите имя участника");
                             return;
                           }
                           addParticipantMutation.mutate({
-                            type: "guest",
-                            guestName: guestName.trim(),
-                            telegramUsername:
-                              guestTelegramUsername.trim() || undefined,
+                            type: "external",
+                            name: externalName.trim(),
+                            username: externalUsername.trim() || undefined,
                           });
                         }}
                         disabled={addParticipantMutation.isPending}
@@ -487,7 +481,7 @@ export default function TournamentDetailPage() {
                       >
                         {addParticipantMutation.isPending
                           ? "Добавление..."
-                          : "Добавить гостя"}
+                          : "Добавить участника"}
                       </button>
                     </>
                   )}
