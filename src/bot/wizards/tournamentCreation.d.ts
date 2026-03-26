@@ -1,5 +1,3 @@
-import type { IDiscipline, ITournamentFormat } from '@/db/schema.js';
-
 import type { CREATION_STEPS } from './tournamentCreation.const.ts';
 import type { Venue } from '../@types/venue.js';
 import type { Tournament } from '../@types/tournament.js';
@@ -15,6 +13,7 @@ export interface ICreationData {
   tournament?: Partial<
     Pick<
       Tournament,
+      | 'id'
       | 'name'
       | 'startDate'
       | 'discipline'
@@ -24,7 +23,7 @@ export interface ICreationData {
     >
   >;
 
-  tableIds?: Pick<Table, 'id'>[];
+  tableIds?: Pick<Table, 'id' | 'name'>[];
 }
 
 export interface ICreationState {
