@@ -74,9 +74,11 @@ roleCommands.command("set_admin", adminOnly(), async (ctx) => {
     .where(eq(users.id, targetUser.id));
 
   // Обновляем меню команд для нового админа
-  await ctx.api.setMyCommands(adminCommands, {
-    scope: { type: "chat", chat_id: parseInt(targetUser.telegram_id) },
-  });
+  if (targetUser.telegram_id) {
+    await ctx.api.setMyCommands(adminCommands, {
+      scope: { type: "chat", chat_id: parseInt(targetUser.telegram_id) },
+    });
+  }
 
   await ctx.reply(`${targetUser.username} теперь администратор.`);
 });
@@ -127,9 +129,11 @@ roleCommands.command("remove_admin", adminOnly(), async (ctx) => {
     .where(eq(users.id, targetUser.id));
 
   // Обновляем меню команд - убираем админские
-  await ctx.api.setMyCommands(userCommands, {
-    scope: { type: "chat", chat_id: parseInt(targetUser.telegram_id) },
-  });
+  if (targetUser.telegram_id) {
+    await ctx.api.setMyCommands(userCommands, {
+      scope: { type: "chat", chat_id: parseInt(targetUser.telegram_id) },
+    });
+  }
 
   await ctx.reply(`${targetUser.username} больше не администратор.`);
 });
