@@ -126,29 +126,29 @@ cue-bot/
 
 ### Запуск и сборка
 
-| Команда | Назначение |
-| --- | --- |
-| `npm run dev` | запуск Telegram-бота и HTTP API через `nodemon` |
-| `npm run dev:admin` | запуск Vite dev server для admin SPA |
-| `npm run build` | сборка серверной части TypeScript |
-| `npm run build:admin` | сборка admin SPA |
-| `npm run lint` | запуск ESLint |
-| `npm run lint:fix` | автопочинка ESLint-замечаний |
-| `npm run format` | форматирование через Prettier |
-| `npm run db:generate` | генерация артефактов Drizzle |
-| `npm run db:migrate` | выполнение миграций |
-| `npm run db:studio` | запуск Drizzle Studio |
-| `npm run seed:de` | сид для double elimination сценария |
+| Команда               | Назначение                                      |
+| --------------------- | ----------------------------------------------- |
+| `npm run dev`         | запуск Telegram-бота и HTTP API через `nodemon` |
+| `npm run dev:admin`   | запуск Vite dev server для admin SPA            |
+| `npm run build`       | сборка серверной части TypeScript               |
+| `npm run build:admin` | сборка admin SPA                                |
+| `npm run lint`        | запуск ESLint                                   |
+| `npm run lint:fix`    | автопочинка ESLint-замечаний                    |
+| `npm run format`      | форматирование через Prettier                   |
+| `npm run db:generate` | генерация артефактов Drizzle                    |
+| `npm run db:migrate`  | выполнение миграций                             |
+| `npm run db:studio`   | запуск Drizzle Studio                           |
+| `npm run seed:de`     | сид для double elimination сценария             |
 
 ### Переменные окружения
 
-| Переменная | Назначение |
-| --- | --- |
-| `BOT_TOKEN` | токен Telegram-бота |
-| `DATABASE_URL` | строка подключения к PostgreSQL |
-| `JWT_SECRET` | секрет для подписи JWT админки |
-| `ADMIN_PORT` | порт HTTP API / встроенного admin-сервера |
-| `NODE_ENV` | `development` / `production` |
+| Переменная     | Назначение                                |
+| -------------- | ----------------------------------------- |
+| `BOT_TOKEN`    | токен Telegram-бота                       |
+| `DATABASE_URL` | строка подключения к PostgreSQL           |
+| `JWT_SECRET`   | секрет для подписи JWT админки            |
+| `ADMIN_PORT`   | порт HTTP API / встроенного admin-сервера |
+| `NODE_ENV`     | `development` / `production`              |
 
 ### TypeScript-конфигурация
 
@@ -432,26 +432,26 @@ draft
 
 ### Команды для пользователей
 
-| Команда | Назначение |
-| --- | --- |
-| `/start` | регистрация и приветствие |
-| `/tournaments` | список турниров |
-| `/my_tournaments` | турниры пользователя |
-| `/my_match` | текущий активный матч |
-| `/bracket [tournamentId]` | просмотр сетки |
-| `/tournament [id]` | карточка турнира |
+| Команда                   | Назначение                |
+| ------------------------- | ------------------------- |
+| `/start`                  | регистрация и приветствие |
+| `/tournaments`            | список турниров           |
+| `/my_tournaments`         | турниры пользователя      |
+| `/my_match`               | текущий активный матч     |
+| `/bracket [tournamentId]` | просмотр сетки            |
+| `/tournament [id]`        | карточка турнира          |
 
 ### Команды для администраторов
 
-| Команда | Назначение |
-| --- | --- |
-| `/create_tournament` | запуск мастера создания турнира |
+| Команда                   | Назначение                                       |
+| ------------------------- | ------------------------------------------------ |
+| `/create_tournament`      | запуск мастера создания турнира                  |
 | `/delete_tournament [id]` | удаление турнира в статусе `draft` / `cancelled` |
-| `/set_admin` | выдать роль администратора |
-| `/remove_admin` | снять роль администратора |
-| `/assign_referee` | назначить судью турнира |
-| `/remove_referee` | снять судью турнира |
-| `/cancel` | отменить текущий wizard создания |
+| `/set_admin`              | выдать роль администратора                       |
+| `/remove_admin`           | снять роль администратора                        |
+| `/assign_referee`         | назначить судью турнира                          |
+| `/remove_referee`         | снять судью турнира                              |
+| `/cancel`                 | отменить текущий wizard создания                 |
 
 ### Callback Query паттерны
 
