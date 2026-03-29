@@ -23,7 +23,22 @@ export interface ICreationData {
     >
   >;
 
-  tableIds?: Pick<Table, 'id' | 'name'>[];
+  tables?: Pick<Table, 'id' | 'name'>[];
+}
+
+export interface IRequiredCreationData extends Required<ICreationData> {
+  tournament: Required<
+    Pick<
+      Tournament,
+      | 'id'
+      | 'name'
+      | 'startDate'
+      | 'discipline'
+      | 'format'
+      | 'maxParticipants'
+      | 'winScore'
+    >
+  >;
 }
 
 export interface ICreationState {
