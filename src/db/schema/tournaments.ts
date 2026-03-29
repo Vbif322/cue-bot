@@ -1,4 +1,6 @@
 import { integer, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import type { UUID } from 'crypto';
+
 import { createdAt, prodSchema, updatedAt } from '../schemaHelpers.js';
 import { users } from './users.js';
 import { venues } from './venues.js';
@@ -40,8 +42,9 @@ export const winScores = [2, 3, 4, 5] as const;
 export type ITournamentWinScore = (typeof winScores)[number];
 
 export const tournaments = prodSchema.table('tournaments', {
-  id: uuid('id').primaryKey().defaultRandom(),
+  id: uuid('id').$type<UUID>().primaryKey().defaultRandom(),
   venueId: uuid('venue_id')
+    .$type<UUID>()
     .notNull()
     .references(() => venues.id),
 
@@ -62,6 +65,7 @@ export const tournaments = prodSchema.table('tournaments', {
     .default(3),
   rules: text(),
   createdBy: uuid('created_by')
+    .$type<UUID>()
     .notNull()
     .references(() => users.id),
   createdAt,
