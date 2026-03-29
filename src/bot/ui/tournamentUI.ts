@@ -1,14 +1,16 @@
 import { InlineKeyboard } from 'grammy';
 import { sql } from 'drizzle-orm';
-import { db } from '../../db/db.js';
 import { and, eq, inArray } from 'drizzle-orm';
-import { tournamentParticipants } from '../../db/schema.js';
+import type { UUID } from 'crypto';
+
 import {
   DISCIPLINE_LABELS,
   FORMAT_LABELS,
   STATUS_LABELS,
-} from '../../utils/constants.js';
-import { formatDate } from '../../utils/dateHelpers.js';
+} from '@/utils/constants.js';
+import { db } from '@/db/db.js';
+import { tournamentParticipants } from '@/db/schema.js';
+import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 
 export interface TournamentInfo {
   id: string;
@@ -29,7 +31,7 @@ export interface TournamentInfo {
  * Get participants count for a tournament
  */
 export async function getParticipantsCount(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<number> {
   const result = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -47,8 +49,8 @@ export async function getParticipantsCount(
  * Check if user is registered for tournament
  */
 export async function isUserRegistered(
-  tournamentId: string,
-  userId: string,
+  tournamentId: UUID,
+  userId: UUID,
 ): Promise<boolean> {
   const participation = await db.query.tournamentParticipants.findFirst({
     where: and(
@@ -68,7 +70,7 @@ export async function isUserRegistered(
  */
 export async function getTournamentInfo(
   tournament: {
-    id: string;
+    id: UUID;
     name: string;
     discipline: string;
     format: string;
@@ -79,7 +81,7 @@ export async function getTournamentInfo(
     winScore: number;
     description: string | null;
   },
-  userId: string,
+  userId: UUID,
 ): Promise<TournamentInfo> {
   const [participantsCount, isRegistered] = await Promise.all([
     getParticipantsCount(tournament.id),
@@ -107,7 +109,7 @@ export function buildTournamentMessage(
     `Формат: ${FORMAT_LABELS[info.format] || info.format}\n` +
     `Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
     `Участников: ${info.participantsCount}/${info.maxParticipants}\n` +
-    `Дата: ${info.startDate ? formatDate(info.startDate) : 'Не указана'}\n` +
+    `Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +
     `Игра до: ${info.winScore} побед\n` +
     (info.description ? `\nОписание: ${info.description}\n` : '') +
     (info.isUserRegistered ? '\n✅ Вы зарегистрированы' : '') +
@@ -129,7 +131,7 @@ export function buildTournamentListItem(
     `   Формат: ${FORMAT_LABELS[info.format] || info.format}\n` +
     `   Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
     `   Участников: ${info.participantsCount}/${info.maxParticipants}\n` +
-    `   Дата: ${info.startDate ? formatDate(info.startDate) : 'Не указана'}\n` +
+    `   Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +
     (isAdmin ? `   ID: \`${info.id}\`\n` : '') +
     '\n'
   );
