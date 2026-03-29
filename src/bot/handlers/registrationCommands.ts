@@ -1,21 +1,25 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { and, eq, inArray } from 'drizzle-orm';
-import { db } from '../../db/db.js';
-import { tournaments, tournamentParticipants } from '../../db/schema.js';
-import type { BotContext } from '../types.js';
-import { formatDate } from '../../utils/dateHelpers.js';
-import { safeEditMessageText } from '../../utils/messageHelpers.js';
-import { getTournament } from '../../services/tournamentService.js';
+import type { UUID } from 'crypto';
+
+import { safeEditMessageText } from '@/utils/messageHelpers.js';
+import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
+import { db } from '@/db/db.js';
+import { tournaments } from '@/db/schema/tournaments.js';
+import { tournamentParticipants } from '@/db/schema/tournamentParticipants.js';
+import { getTournament } from '@/services/tournamentService.js';
+
 import {
-  getTournamentInfo,
-  buildTournamentMessage,
   buildTournamentKeyboard,
+  buildTournamentMessage,
+  getTournamentInfo,
 } from '../ui/tournamentUI.js';
+import type { BotContext } from '../types.js';
 
 export const registrationCommands = new Composer<BotContext>();
 
 // Получить регистрацию пользователя на турнир
-async function getUserParticipation(tournamentId: string, userId: string) {
+async function getUserParticipation(tournamentId: UUID, userId: UUID) {
   return db.query.tournamentParticipants.findFirst({
     where: and(
       eq(tournamentParticipants.tournamentId, tournamentId),
@@ -26,8 +30,8 @@ async function getUserParticipation(tournamentId: string, userId: string) {
 
 // === РЕГИСТРАЦИЯ НА ТУРНИР ===
 registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]!;
-  const userId = ctx.dbUser.id;
+  const tournamentId = ctx.match![1]! as UUID;
+  const userId = ctx.dbUser.id as UUID;
 
   // 1. Проверить существование турнира
   const tournament = await getTournament(tournamentId);
@@ -108,8 +112,8 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
 
 // === ОТМЕНА РЕГИСТРАЦИИ ===
 registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]!;
-  const userId = ctx.dbUser.id;
+  const tournamentId = ctx.match![1]! as UUID;
+  const userId = ctx.dbUser.id as UUID;
 
   const tournament = await getTournament(tournamentId);
 
@@ -217,7 +221,7 @@ registrationCommands.command('my_tournaments', async (ctx) => {
 
     message +=
       `${statusEmoji} *${tournament.name}*\n` +
-      `   Дата: ${formatDate(tournament.startDate)}\n` +
+      `   Дата: ${DateTimeHelperInstance.formatDate(tournament.startDate)}\n` +
       `   Статус заявки: ${statusText}\n\n`;
 
     keyboard.text(tournament.name, `tournament_info:${tournament.id}`).row();
