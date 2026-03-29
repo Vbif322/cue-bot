@@ -1,7 +1,9 @@
 import type { NextFunction } from 'grammy';
 import { eq } from 'drizzle-orm';
-import { db } from '../../db/db.js';
-import { users } from '../../db/schema.js';
+
+import { db } from '@/db/db.js';
+import { users } from '@/db/schema.js';
+
 import type { BotContext } from '../types.js';
 
 export async function authMiddleware(

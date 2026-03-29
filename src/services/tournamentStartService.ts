@@ -1,4 +1,6 @@
 import type { Api } from 'grammy';
+import type { UUID } from 'crypto';
+
 import {
   assignRandomSeeds,
   getConfirmedParticipants,
@@ -32,7 +34,7 @@ export interface StartTournamentFullResult {
  * 6. Notify remaining first-round participants via Telegram
  */
 export async function startTournamentFull(
-  tournamentId: string,
+  tournamentId: UUID,
   botApi: Api,
 ): Promise<StartTournamentFullResult> {
   const tournament = await getTournament(tournamentId);

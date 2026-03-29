@@ -2,13 +2,20 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
-import { db } from '../../../db/db.js';
+import type { Api } from 'grammy';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
 import {
-  tournaments,
+  maxParticipants,
   tournamentParticipants,
   users,
-} from '../../../db/schema.js';
+  winScores,
+  type ITournamentMaxParticipants,
+  type ITournamentWinScore,
+} from '@/db/schema.js';
 import {
+  createTournamentDraft,
   getTournament,
   getTournaments,
   updateTournamentStatus,
@@ -16,15 +23,12 @@ import {
   canDeleteTournament,
   closeRegistrationWithCount,
   canStartTournament,
-} from '../../../services/tournamentService.js';
-import { startTournamentFull } from '../../../services/tournamentStartService.js';
-import { getMatchStats } from '../../../services/matchService.js';
-import {
-  getTournamentTables,
-  setTournamentTables,
-} from '../../../services/tableService.js';
+} from '@/services/tournamentService.js';
+import { startTournamentFull } from '@/services/tournamentStartService.js';
+import { getMatchStats } from '@/services/matchService.js';
+import { getTournamentTables } from '@/services/tableService.js';
+
 import { requireAdmin } from '../middleware.js';
-import type { Api } from 'grammy';
 
 export function createTournamentsRouter(botApi: Api) {
   const router = new Hono();
@@ -37,13 +41,13 @@ export function createTournamentsRouter(botApi: Api) {
   });
 
   router.get('/:id', async (c) => {
-    const tournament = await getTournament(c.req.param('id'));
+    const tournament = await getTournament(c.req.param('id') as UUID);
     if (!tournament) return c.json({ error: 'Не найден' }, 404);
     return c.json({ data: tournament });
   });
 
   router.get('/:id/tables', async (c) => {
-    const list = await getTournamentTables(c.req.param('id'));
+    const list = await getTournamentTables(c.req.param('id') as UUID);
     return c.json({ data: list });
   });
 
@@ -60,40 +64,54 @@ export function createTournamentsRouter(botApi: Api) {
           'double_elimination',
           'round_robin',
         ]),
-        maxParticipants: z.number().int().min(2).max(64).default(16),
-        winScore: z.number().int().min(1).default(3),
+        maxParticipants: z
+          .number()
+          .int()
+          .min(Math.min(...maxParticipants))
+          .max(Math.max(...maxParticipants))
+          .default(16),
+        winScore: z
+          .number()
+          .int()
+          .min(Math.min(...winScores))
+          .max(Math.max(...winScores))
+          .default(3),
         startDate: z.string().optional(),
-        tableIds: z.array(z.string().uuid()).optional(),
+        venueId: z.uuid(),
+        tableIds: z.array(z.uuid()).optional(),
       }),
     ),
     async (c) => {
       const body = c.req.valid('json');
       const admin = c.get('adminUser');
 
-      const [tournament] = await db
-        .insert(tournaments)
-        .values({
+      try {
+        const tournament = await createTournamentDraft({
           name: body.name,
           description: body.description ?? null,
           rules: body.rules ?? null,
-          format: body.format,
           discipline: 'snooker',
-          maxParticipants: body.maxParticipants,
-          winScore: body.winScore,
+          format: body.format,
+          maxParticipants: body.maxParticipants as ITournamentMaxParticipants,
+          winScore: body.winScore as ITournamentWinScore,
           startDate: body.startDate ? new Date(body.startDate) : null,
+          venueId: body.venueId as UUID,
+          ...(body.tableIds ? { tableIds: body.tableIds as UUID[] } : {}),
           createdBy: admin.id,
-        })
-        .returning();
+        });
 
-      if (!tournament) return c.json({ error: 'Ошибка создания турнира' }, 500);
-
-      const allTableIds = body.tableIds ?? [];
-
-      if (allTableIds.length > 0) {
-        await setTournamentTables(tournament.id, allTableIds);
+        return c.json({ data: tournament }, 201);
+      } catch (error) {
+        return c.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Ошибка создания турнира',
+          },
+          400,
+        );
       }
-
-      return c.json({ data: tournament }, 201);
     },
   );
 
@@ -114,7 +132,7 @@ export function createTournamentsRouter(botApi: Api) {
     ),
     async (c) => {
       const { status } = c.req.valid('json');
-      const id = c.req.param('id');
+      const id = c.req.param('id') as UUID;
 
       if (status === 'registration_closed') {
         await closeRegistrationWithCount(id);
@@ -128,7 +146,7 @@ export function createTournamentsRouter(botApi: Api) {
   );
 
   router.post('/:id/start', async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id') as UUID;
 
     const canStart = await canStartTournament(id);
     if (!canStart.canStart) {
@@ -147,7 +165,7 @@ export function createTournamentsRouter(botApi: Api) {
   });
 
   router.delete('/:id', async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id') as UUID;
     const tournament = await getTournament(id);
 
     if (!tournament) return c.json({ error: 'Не найден' }, 404);
@@ -164,7 +182,7 @@ export function createTournamentsRouter(botApi: Api) {
   });
 
   router.get('/:id/participants', async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id') as UUID;
 
     const dbParticipants = await db
       .select({
@@ -182,16 +200,16 @@ export function createTournamentsRouter(botApi: Api) {
   });
 
   router.get('/:id/stats', async (c) => {
-    const stats = await getMatchStats(c.req.param('id'));
+    const stats = await getMatchStats(c.req.param('id') as UUID);
     return c.json({ data: stats });
   });
 
   router.post(
     '/:id/participants',
-    zValidator('json', z.object({ userId: z.string().uuid() })),
+    zValidator('json', z.object({ userId: z.uuid() })),
     async (c) => {
-      const tournamentId = c.req.param('id');
-      const { userId } = c.req.valid('json');
+      const tournamentId = c.req.param('id') as UUID;
+      const { userId } = c.req.valid('json') as { userId: UUID };
 
       await db
         .insert(tournamentParticipants)
@@ -203,8 +221,8 @@ export function createTournamentsRouter(botApi: Api) {
   );
 
   router.delete('/:id/participants/:userId', async (c) => {
-    const tournamentId = c.req.param('id');
-    const userId = c.req.param('userId');
+    const tournamentId = c.req.param('id') as UUID;
+    const userId = c.req.param('userId') as UUID;
 
     await db
       .delete(tournamentParticipants)

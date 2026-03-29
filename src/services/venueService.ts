@@ -1,8 +1,15 @@
 import { asc, count, eq, getTableColumns } from 'drizzle-orm';
+import type { UUID } from 'crypto';
+
 import { db } from '../db/db.js';
 import { tables, venues } from '../db/schema.js';
-import type { ApiVenue, Venue } from '../admin/server/apiTypes.js';
+import type { ApiVenue, Venue } from '../bot/@types/venue.js';
 
+/**
+ * Получает список площадок с количеством столов
+ *
+ * @returns {Promise<ApiVenue[]>} Массив заведений с дополнительным полем `tablesCount`
+ */
 export async function getVenues(): Promise<ApiVenue[]> {
   const rows = await db
     .select({
@@ -17,7 +24,14 @@ export async function getVenues(): Promise<ApiVenue[]> {
   return rows as unknown as ApiVenue[];
 }
 
-export async function getVenue(id: string): Promise<ApiVenue | null> {
+/**
+ * Получает площадку по ее идентификатору с количеством столов
+ *
+ * @param {UUID} id Идентификатор площадки
+ *
+ * @returns {Promise<ApiVenue | null>} Найденное заведение с полем `tablesCount` или null, если не найдено
+ */
+export async function getVenue(id: UUID): Promise<ApiVenue | null> {
   const rows = await db
     .select({
       ...getTableColumns(venues),
@@ -31,6 +45,16 @@ export async function getVenue(id: string): Promise<ApiVenue | null> {
   return (rows[0] as unknown as ApiVenue) ?? null;
 }
 
+/**
+ * Создает новую площадку с заданными параметрами
+ *
+ * @param {Object} data Данные для создания
+ * @param {string} data.name Название площадки
+ * @param {string} data.address Адрес площадки
+ * @param {string | undefined} data.image URL изображения площадки (необязательное поле)
+ *
+ * @returns {Promise<ApiVenue>} Созданная площадка с дополнительным полем `tablesCount`
+ */
 export async function createVenue(data: {
   name: string;
   address: string;
@@ -40,8 +64,19 @@ export async function createVenue(data: {
   return (await getVenue(venue!.id))!;
 }
 
+/**
+ * Обновляет данные площадки по идентификатору
+ *
+ * @param {UUID} id Идентификатор площадки
+ * @param {Object} data Данные для обновления
+ * @param {string | undefined} data.name Название площадки (необязательное поле)
+ * @param {string | undefined} data.address Адрес площадки (необязательное поле)
+ * @param {string | null | undefined} data.image URL изображения площадки (необязательное поле)
+ *
+ * @returns {Promise<Venue | null>} Обновленная площадка или null, если не найдена
+ */
 export async function updateVenue(
-  id: string,
+  id: UUID,
   data: {
     name?: string | undefined;
     address?: string | undefined;
@@ -56,7 +91,14 @@ export async function updateVenue(
   return venue ?? null;
 }
 
-export async function deleteVenue(id: string): Promise<boolean> {
+/**
+ * Удаляет площадку по ее идентификатору
+ *
+ * @param {UUID} id Идентификатор площадки
+ *
+ * @returns {Promise<boolean>} true, если площадка была удалена, иначе false
+ */
+export async function deleteVenue(id: UUID): Promise<boolean> {
   const [row] = await db
     .delete(venues)
     .where(eq(venues.id, id))

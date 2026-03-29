@@ -2,8 +2,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
-import { db } from '../../../db/db.js';
-import { users, tournamentReferees } from '../../../db/schema.js';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { users, tournamentReferees } from '@/db/schema.js';
 import { requireAdmin } from '../middleware.js';
 
 export function createUsersRouter() {
@@ -22,7 +24,7 @@ export function createUsersRouter() {
   // Get single user
   router.get('/:id', async (c) => {
     const user = await db.query.users.findFirst({
-      where: eq(users.id, c.req.param('id')),
+      where: eq(users.id, c.req.param('id') as UUID),
     });
     if (!user) return c.json({ error: 'Не найден' }, 404);
     return c.json({ data: user });
@@ -34,7 +36,7 @@ export function createUsersRouter() {
     zValidator('json', z.object({ role: z.enum(['user', 'admin']) })),
     async (c) => {
       const admin = c.get('adminUser');
-      const targetId = c.req.param('id');
+      const targetId = c.req.param('id') as UUID;
 
       if (admin.id === targetId) {
         return c.json({ error: 'Нельзя изменить собственную роль' }, 400);
@@ -56,10 +58,10 @@ export function createUsersRouter() {
   // Assign referee to tournament
   router.post(
     '/:id/referee',
-    zValidator('json', z.object({ tournamentId: z.string().uuid() })),
+    zValidator('json', z.object({ tournamentId: z.uuid() })),
     async (c) => {
-      const userId = c.req.param('id');
-      const { tournamentId } = c.req.valid('json');
+      const userId = c.req.param('id') as UUID;
+      const { tournamentId } = c.req.valid('json') as { tournamentId: UUID };
 
       await db
         .insert(tournamentReferees)
@@ -72,8 +74,8 @@ export function createUsersRouter() {
 
   // Remove referee from tournament
   router.delete('/:id/referee/:tournamentId', async (c) => {
-    const userId = c.req.param('id');
-    const tournamentId = c.req.param('tournamentId');
+    const userId = c.req.param('id') as UUID;
+    const tournamentId = c.req.param('tournamentId') as UUID;
 
     await db
       .delete(tournamentReferees)

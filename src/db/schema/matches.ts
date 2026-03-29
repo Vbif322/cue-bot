@@ -6,12 +6,14 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
+import type { UUID } from 'crypto';
+
 import { createdAt, prodSchema, updatedAt } from '../schemaHelpers.js';
 import { tournaments } from './tournaments.js';
 import { users } from './users.js';
 import { tables } from './tables.js';
 
-export const matchStatus = [
+export const matchStatuses = [
   'scheduled',
   'in_progress',
   'pending_confirmation',
@@ -19,33 +21,48 @@ export const matchStatus = [
   'cancelled',
 ] as const;
 
+export type MatchStatus = (typeof matchStatuses)[number];
+
 export const matches = prodSchema.table('matches', {
-  id: uuid('id').primaryKey().defaultRandom(),
+  id: uuid('id').$type<UUID>().primaryKey().defaultRandom(),
   tournamentId: uuid('tournament_id')
+    .$type<UUID>()
     .notNull()
     .references(() => tournaments.id, { onDelete: 'cascade' }),
   round: integer().notNull(),
   position: integer().notNull(),
-  player1Id: uuid('player1_id').references(() => users.id),
-  player2Id: uuid('player2_id').references(() => users.id),
-  winnerId: uuid('winner_id').references(() => users.id),
+  player1Id: uuid('player1_id')
+    .$type<UUID>()
+    .references(() => users.id),
+  player2Id: uuid('player2_id')
+    .$type<UUID>()
+    .references(() => users.id),
+  winnerId: uuid('winner_id')
+    .$type<UUID>()
+    .references(() => users.id),
   player1Score: integer('player1_score'),
   player2Score: integer('player2_score'),
-  status: varchar({ enum: matchStatus }).notNull().default('scheduled'),
+  status: varchar({ enum: matchStatuses }).notNull().default('scheduled'),
   scheduledAt: timestamp('scheduled_at'),
   startedAt: timestamp('started_at'),
   completedAt: timestamp('completed_at'),
-  reportedBy: uuid('reported_by').references(() => users.id),
-  confirmedBy: uuid('confirmed_by').references(() => users.id),
+  reportedBy: uuid('reported_by')
+    .$type<UUID>()
+    .references(() => users.id),
+  confirmedBy: uuid('confirmed_by')
+    .$type<UUID>()
+    .references(() => users.id),
   isTechnicalResult: boolean('is_technical_result').notNull().default(false),
   technicalReason: text('technical_reason'),
-  nextMatchId: uuid('next_match_id'),
+  nextMatchId: uuid('next_match_id').$type<UUID>(),
   nextMatchPosition: varchar('next_match_position', { length: 10 }),
   bracketType: varchar({ length: 20 }).default('winners'),
   losersNextMatchPosition: integer('losers_next_match_position'),
-  tableId: uuid('table_id').references(() => tables.id, {
-    onDelete: 'set null',
-  }),
+  tableId: uuid('table_id')
+    .$type<UUID>()
+    .references(() => tables.id, {
+      onDelete: 'set null',
+    }),
   createdAt,
   updatedAt,
 });

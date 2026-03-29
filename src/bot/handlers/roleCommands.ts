@@ -1,10 +1,13 @@
 import { Composer } from 'grammy';
 import { and, eq } from 'drizzle-orm';
-import { db } from '../../db/db.js';
-import { users, tournaments, tournamentReferees } from '../../db/schema.js';
-import type { BotContext } from '../types.js';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { users, tournaments, tournamentReferees } from '@/db/schema.js';
+
 import { adminOnly } from '../guards.js';
 import { adminCommands, userCommands } from '../commands.js';
+import type { BotContext } from '../types.js';
 
 export const roleCommands = new Composer<BotContext>();
 
@@ -146,7 +149,7 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
     return;
   }
 
-  const [tournamentId, targetArg] = args as [string, string];
+  const [tournamentId, targetArg] = args as [UUID, string];
 
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, tournamentId),
@@ -209,7 +212,7 @@ roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
     return;
   }
 
-  const [tournamentId, targetArg] = args as [string, string];
+  const [tournamentId, targetArg] = args as [UUID, string];
 
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, tournamentId),
