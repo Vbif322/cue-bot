@@ -105,7 +105,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     venues: Array<Pick<Venue, 'id' | 'name'>>,
   ): Promise<void> {
     const resultMessage = `
-    Установлена дата турнира: ${this.formatDate(startDate)}
+    Установлена дата турнира: ${this.dateTimeHelper.formatDate(startDate)}
     `;
 
     await safeEditMessageText(ctx, {
@@ -216,10 +216,13 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     selectedTableIds: string[],
     winScore?: Tournament['winScore'],
   ): Promise<void> {
-    const winScoreBlock =
-      winScore !== undefined
-        ? `Установленное количество побед: ${winScore}\n\n`
-        : '';
+    if (winScore !== undefined) {
+      const resultMessage = `Установленное количество побед: ${winScore}`;
+
+      await safeEditMessageText(ctx, {
+        text: resultMessage,
+      });
+    }
 
     if (tables.length === 0) {
       const message = `
@@ -228,7 +231,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
       `.trim();
 
       await safeEditMessageText(ctx, {
-        text: `${winScoreBlock}` + message,
+        text: message,
         reply_markup: this.keyboards.buildTablesSkipOnlyKeyboard(),
       });
 
@@ -241,7 +244,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     `.trim();
 
     await safeEditMessageText(ctx, {
-      text: `${winScoreBlock}` + message,
+      text: message,
       reply_markup: this.keyboards.buildTablesKeyboard(
         tables,
         selectedTableIds,
@@ -329,7 +332,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     const formattedStartDate =
       tournament.startDate !== null
-        ? this.formatDate(tournament.startDate)
+        ? this.dateTimeHelper.formatDate(tournament.startDate)
         : '—';
 
     const formattedDiscipline = formatDiscipline(tournament.discipline);
@@ -365,14 +368,6 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
         `${getMatchStatusEmoji('cancelled')} Ошибка при создании турнира:\n` +
         `${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
     });
-  }
-
-  private formatDate(date: Date | null): string {
-    if (date === null) {
-      return 'Неизвестно';
-    }
-
-    return this.dateTimeHelper.formatDate(date);
   }
 }
 

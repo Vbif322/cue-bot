@@ -1,5 +1,7 @@
 import type { UUID } from 'crypto';
-import type { tournaments, tournamentParticipants } from '../../db/schema.ts';
+
+import type { tournaments, tournamentParticipants } from '@/db/schema.ts';
+
 import type { Serialize } from './helpers.ts';
 
 export type TournamentStatus = (typeof tournaments.$inferSelect)['status'];
