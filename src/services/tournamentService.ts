@@ -41,7 +41,7 @@ export interface CreateTournamentDraftInput {
   maxParticipants: ITournamentMaxParticipants;
   winScore: ITournamentWinScore;
   rules?: string | null;
-  createdBy: string;
+  createdBy: UUID;
 
   tableIds?: UUID[];
 }
@@ -252,7 +252,9 @@ export async function assignRandomSeeds(tournamentId: UUID): Promise<void> {
 
   for (let i = 0; i < shuffled.length; i++) {
     const participant = shuffled[i];
+
     if (!participant) continue;
+
     await db
       .update(tournamentParticipants)
       .set({ seed: i + 1 })
