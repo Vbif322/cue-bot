@@ -1,6 +1,6 @@
-import { asc, eq } from "drizzle-orm";
-import { db } from "../db/db.js";
-import { tables, tournamentTables } from "../db/schema.js";
+import { asc, eq } from 'drizzle-orm';
+import { db } from '../db/db.js';
+import { tables, tournamentTables } from '../db/schema.js';
 
 export type Table = typeof tables.$inferSelect;
 
@@ -9,14 +9,16 @@ export async function getTables(): Promise<Table[]> {
 }
 
 export async function getTable(id: string): Promise<Table | null> {
-  return (await db.query.tables.findFirst({ where: eq(tables.id, id) })) ?? null;
+  return (
+    (await db.query.tables.findFirst({ where: eq(tables.id, id) })) ?? null
+  );
 }
 
-export async function createTable(name: string, venueId: string): Promise<Table> {
-  const [table] = await db
-    .insert(tables)
-    .values({ name, venueId })
-    .returning();
+export async function createTable(
+  name: string,
+  venueId: string,
+): Promise<Table> {
+  const [table] = await db.insert(tables).values({ name, venueId }).returning();
   return table!;
 }
 
@@ -28,7 +30,9 @@ export async function deleteTable(id: string): Promise<boolean> {
   return !!row;
 }
 
-export async function getTournamentTables(tournamentId: string): Promise<Table[]> {
+export async function getTournamentTables(
+  tournamentId: string,
+): Promise<Table[]> {
   const rows = await db
     .select({ table: tables })
     .from(tournamentTables)
@@ -49,9 +53,15 @@ export async function setTournamentTables(
       .where(eq(tournamentTables.tournamentId, tournamentId));
 
     if (tableIds.length > 0) {
-      await tx.insert(tournamentTables).values(
-        tableIds.map((tableId, i) => ({ tournamentId, tableId, position: i })),
-      );
+      await tx
+        .insert(tournamentTables)
+        .values(
+          tableIds.map((tableId, i) => ({
+            tournamentId,
+            tableId,
+            position: i,
+          })),
+        );
     }
   });
 }

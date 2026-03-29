@@ -1,43 +1,43 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { tournamentsApi } from "../lib/api.ts";
-import { TournamentStatusBadge } from "../components/StatusBadge.tsx";
-import type { TournamentStatus } from "../lib/api.ts";
-import CreateTournamentModal from "../components/CreateTournamentModal.tsx";
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { tournamentsApi } from '../lib/api.ts';
+import { TournamentStatusBadge } from '../components/StatusBadge.tsx';
+import type { TournamentStatus } from '../lib/api.ts';
+import CreateTournamentModal from '../components/CreateTournamentModal.tsx';
 
 const FORMAT_LABELS = {
-  single_elimination: "Single Elim.",
-  double_elimination: "Double Elim.",
-  round_robin: "Round Robin",
+  single_elimination: 'Single Elim.',
+  double_elimination: 'Double Elim.',
+  round_robin: 'Round Robin',
 };
 
 export default function TournamentsPage() {
   const qc = useQueryClient();
-  const [filter, setFilter] = useState<TournamentStatus | "all">("all");
+  const [filter, setFilter] = useState<TournamentStatus | 'all'>('all');
   const [showCreate, setShowCreate] = useState(false);
 
   const { data: tournaments, isLoading } = useQuery({
-    queryKey: ["tournaments"],
+    queryKey: ['tournaments'],
     queryFn: tournamentsApi.list,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => tournamentsApi.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tournaments"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tournaments'] }),
   });
 
   const filtered = tournaments?.filter(
-    (t) => filter === "all" || t.status === filter,
+    (t) => filter === 'all' || t.status === filter,
   );
 
-  const STATUS_FILTERS: { value: TournamentStatus | "all"; label: string }[] = [
-    { value: "all", label: "Все" },
-    { value: "draft", label: "Черновики" },
-    { value: "registration_open", label: "Регистрация" },
-    { value: "registration_closed", label: "Рег. закрыта" },
-    { value: "in_progress", label: "Идут" },
-    { value: "completed", label: "Завершены" },
+  const STATUS_FILTERS: { value: TournamentStatus | 'all'; label: string }[] = [
+    { value: 'all', label: 'Все' },
+    { value: 'draft', label: 'Черновики' },
+    { value: 'registration_open', label: 'Регистрация' },
+    { value: 'registration_closed', label: 'Рег. закрыта' },
+    { value: 'in_progress', label: 'Идут' },
+    { value: 'completed', label: 'Завершены' },
   ];
 
   return (
@@ -60,8 +60,8 @@ export default function TournamentsPage() {
             onClick={() => setFilter(f.value)}
             className={`shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
               filter === f.value
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
             }`}
           >
             {f.label}
@@ -109,8 +109,8 @@ export default function TournamentsPage() {
                     <dt className="text-gray-500">Дата начала</dt>
                     <dd className="text-gray-700">
                       {t.startDate
-                        ? new Date(t.startDate).toLocaleDateString("ru-RU")
-                        : "—"}
+                        ? new Date(t.startDate).toLocaleDateString('ru-RU')
+                        : '—'}
                     </dd>
                   </div>
                 </dl>
@@ -121,7 +121,7 @@ export default function TournamentsPage() {
                   >
                     Детали
                   </Link>
-                  {(t.status === "draft" || t.status === "cancelled") && (
+                  {(t.status === 'draft' || t.status === 'cancelled') && (
                     <button
                       onClick={() => {
                         if (confirm(`Удалить турнир "${t.name}"?`))
@@ -192,8 +192,8 @@ export default function TournamentsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {t.startDate
-                        ? new Date(t.startDate).toLocaleDateString("ru-RU")
-                        : "—"}
+                        ? new Date(t.startDate).toLocaleDateString('ru-RU')
+                        : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Link
@@ -202,7 +202,7 @@ export default function TournamentsPage() {
                       >
                         Детали
                       </Link>
-                      {(t.status === "draft" || t.status === "cancelled") && (
+                      {(t.status === 'draft' || t.status === 'cancelled') && (
                         <button
                           onClick={() => {
                             if (confirm(`Удалить турнир "${t.name}"?`))

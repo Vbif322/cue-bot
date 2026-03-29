@@ -1,12 +1,12 @@
-import type { tournaments, tournamentParticipants } from "../../db/schema.ts";
-import type { Serialize } from "./helpers.ts";
+import type { tournaments, tournamentParticipants } from '../../db/schema.ts';
+import type { Serialize } from './helpers.ts';
 
-export type TournamentStatus = (typeof tournaments.$inferSelect)["status"];
-export type TournamentFormat = (typeof tournaments.$inferSelect)["format"];
+export type TournamentStatus = (typeof tournaments.$inferSelect)['status'];
+export type TournamentFormat = (typeof tournaments.$inferSelect)['format'];
 export type Tournament = typeof tournaments.$inferSelect;
 
 /** Serialized tournament row for JSON responses (timestamps → string), without updatedAt */
-export type ApiTournament = Omit<Serialize<Tournament>, "updatedAt">;
+export type ApiTournament = Omit<Serialize<Tournament>, 'updatedAt'>;
 
 /** Bot-facing participant (no status) */
 export interface TournamentParticipant {
@@ -19,7 +19,7 @@ export interface TournamentParticipant {
 /** Admin API participant joined with user fields */
 export type ApiTournamentParticipant = Pick<
   typeof tournamentParticipants.$inferSelect,
-  "userId" | "seed" | "status"
+  'userId' | 'seed' | 'status'
 > & {
   username: string | null;
   name: string | null;
