@@ -92,6 +92,7 @@ export const tournamentsApi = {
     maxParticipants?: number;
     winScore?: number;
     startDate?: string;
+    venueId: string;
     tableIds?: string[];
   }) =>
     apiFetch<ApiTournament>('/api/tournaments', {
