@@ -43,7 +43,9 @@ export class TournamentCreationStateStore implements ITournamentCreationStateSto
   start(userId: number): ICreationState {
     const state: ICreationState = {
       step: 'name',
-      data: {},
+      data: {
+        tables: [],
+      },
     };
 
     this.storage.set(userId, state);
@@ -189,7 +191,9 @@ export class TournamentCreationStateStore implements ITournamentCreationStateSto
             }
           : {}),
 
-        ...(patch.tableIds !== undefined ? { tableIds: patch.tableIds } : {}),
+        ...(patch.tables !== undefined
+          ? { tables: patch.tables }
+          : { tables: state.data.tables ?? [] }),
       },
     };
 
