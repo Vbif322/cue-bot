@@ -20,6 +20,7 @@ import type {
 import type { BotContext } from '../types.js';
 import type {
   ICreationData,
+  ICreationState,
   ICreationStep,
   IRequiredCreationData,
 } from './tournamentCreation.js';
@@ -29,6 +30,12 @@ import type { ITournamentCreationStateStore } from './tournamentCreation.stateSt
 // #region Types / Interfaces
 
 export interface ITournamentCreationFlow {
+  startCreationWizard(ctx: BotContext): Promise<void>;
+
+  cancelCreation(userId: number): boolean;
+
+  getCreationState(userId: number): ICreationState | undefined;
+
   handleNameInput(ctx: BotContext, name: string): Promise<boolean>;
 
   handleStartDateInput(ctx: BotContext, startDate: string): Promise<boolean>;
@@ -67,6 +74,45 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     private readonly renderer: ITournamentCreationRenderer,
     private readonly dateTimeHelper: IDateTimeHelper,
   ) {}
+
+  /**
+   * Запускает мастер создания турнира для пользователя
+   *
+   * @param {BotContext} ctx Контекст бота
+   *
+   * @returns {Promise<void>}
+   */
+  async startCreationWizard(ctx: BotContext): Promise<void> {
+    const userId = this.getUserId(ctx);
+
+    if (!userId) return;
+
+    this.stateStore.start(userId);
+
+    await this.renderer.showNameStep(ctx);
+  }
+
+  /**
+   * Отмена создания турнира для пользователя
+   *
+   * @param {number} userId Идентификатор пользователя
+   *
+   * @returns {boolean} true, если создание было отменено, в противном случае — false
+   */
+  cancelCreation(userId: number): boolean {
+    return this.stateStore.clear(userId);
+  }
+
+  /**
+   * Получение состояния создания турнира для пользователя
+   *
+   * @param {number} userId ID пользователя
+   *
+   * @returns {ICreationState | undefined} Состояние создания или undefined, если сессия не найдена
+   */
+  getCreationState(userId: number): ICreationState | undefined {
+    return this.stateStore.get(userId);
+  }
 
   /**
    * Обрабатывает ввод имени турнира пользователем
@@ -218,10 +264,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     });
 
     if (state.step !== 'discipline' || state.data.venue?.id !== venue.id) {
-      await ctx.answerCallbackQuery({
-        text: 'Произошла ошибка при сохранении выбранной площадки',
-        show_alert: true,
-      });
+      await this.renderer.showSavedStateError(ctx);
 
       return false;
     }
@@ -274,10 +317,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       state.step !== 'format' ||
       state.data.tournament?.discipline !== discipline
     ) {
-      await ctx.answerCallbackQuery({
-        text: 'Произошла ошибка при сохранении выбранной дисциплины',
-        show_alert: true,
-      });
+      await this.renderer.showSavedStateError(ctx);
 
       return false;
     }
@@ -330,10 +370,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       state.step !== 'maxParticipants' ||
       state.data.tournament?.format !== format
     ) {
-      await ctx.answerCallbackQuery({
-        text: 'Произошла ошибка при сохранении выбранного формата турнира',
-        show_alert: true,
-      });
+      await this.renderer.showSavedStateError(ctx);
 
       return false;
     }
@@ -368,10 +405,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     if (!hasStep) return false;
 
     if (!this.isAllowedParticipantsCount(maxParticipants)) {
-      await ctx.answerCallbackQuery({
-        text: 'Некорректное количество участников',
-        show_alert: true,
-      });
+      await this.renderer.showIncorrectMaxParticipants(ctx);
 
       return true;
     }
@@ -389,10 +423,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       state.step !== 'winScore' ||
       state.data.tournament?.maxParticipants !== maxParticipants
     ) {
-      await ctx.answerCallbackQuery({
-        text: 'Произошла ошибка при сохранении выбранного количества участников',
-        show_alert: true,
-      });
+      await this.renderer.showSavedStateError(ctx);
 
       return false;
     }
@@ -427,10 +458,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     if (!hasStep) return false;
 
     if (!this.isAllowedWinScore(winScore)) {
-      await ctx.answerCallbackQuery({
-        text: 'Некорректное значение для количества побед',
-        show_alert: true,
-      });
+      await this.renderer.showIncorrectWinScore(ctx);
 
       return true;
     }
@@ -450,10 +478,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       state.data.tournament?.winScore !== winScore ||
       state.data.tables?.length !== 0
     ) {
-      await ctx.answerCallbackQuery({
-        text: 'Произошла ошибка при сохранении выбранного количества побед',
-        show_alert: true,
-      });
+      await this.renderer.showSavedStateError(ctx);
 
       return false;
     }
@@ -540,10 +565,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       state.step !== 'tables' ||
       state.data.tables?.length !== selectedTableIds.size
     ) {
-      await ctx.answerCallbackQuery({
-        text: 'Произошла ошибка при сохранении выбранных столов',
-        show_alert: true,
-      });
+      await this.renderer.showSavedStateError(ctx);
 
       return false;
     }
