@@ -1,11 +1,11 @@
-import { DISCIPLINE_LABELS, FORMAT_LABELS } from '@/utils/constants.js';
+import { formatDiscipline, formatFormat } from '@/utils/constants.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
-import { formatDate } from '@/utils/dateHelpers.js';
+import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
 
 import { STEPS_COUNT } from './tournamentCreation.const.js';
 import type { BotContext } from '../types.js';
 import type { ITournamentCreationKeyboards } from './tournamentCreation.keyboards.js';
-import type { ICreationData } from './tournamentCreation.js';
+import type { IRequiredCreationData } from './tournamentCreation.js';
 import type { Tournament } from '../@types/tournament.js';
 import type { Venue } from '../@types/venue.js';
 import type { Table } from '../@types/table.js';
@@ -14,7 +14,7 @@ import type { Table } from '../@types/table.js';
 
 export interface ITournamentCreationRenderer {
   showNameStep(ctx: BotContext): Promise<void>; // Step 1
-  showDateStep(ctx: BotContext, name: Tournament['name']): Promise<void>; // Step 2
+  showStartDateStep(ctx: BotContext, name: Tournament['name']): Promise<void>; // Step 2
   showVenueStep(
     ctx: BotContext,
     startDate: Tournament['startDate'],
@@ -35,8 +35,9 @@ export interface ITournamentCreationRenderer {
   ): Promise<void>; // Step 7
   showTablesStep(
     ctx: BotContext,
-    winScore: Tournament['winScore'],
     tables: Array<Pick<Table, 'id' | 'name'>>,
+    selectedTableIds: string[],
+    winScore?: Tournament['winScore'],
   ): Promise<void>; // Step 8
 
   showSessionExpired(ctx: BotContext): Promise<void>;
@@ -57,28 +58,16 @@ export interface ITournamentCreationRenderer {
   showCreationError(ctx: BotContext, error: unknown): Promise<void>;
 }
 
-interface IRequiredCreationData extends Required<ICreationData> {
-  tournament: Required<
-    Pick<
-      Tournament,
-      | 'id'
-      | 'name'
-      | 'startDate'
-      | 'discipline'
-      | 'format'
-      | 'maxParticipants'
-      | 'winScore'
-    >
-  >;
-}
-
 // #endregion
 
 // #region Class
 
 /** Отображение шагов мастера создания турнира */
 export class TournamentCreationRenderer implements ITournamentCreationRenderer {
-  constructor(private readonly keyboards: ITournamentCreationKeyboards) {}
+  constructor(
+    private readonly keyboards: ITournamentCreationKeyboards,
+    private readonly dateTimeHelper: IDateTimeHelper,
+  ) {}
 
   async showNameStep(ctx: BotContext): Promise<void> {
     const message = `
@@ -89,7 +78,10 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     await ctx.reply(message);
   }
 
-  async showDateStep(ctx: BotContext, name: Tournament['name']): Promise<void> {
+  async showStartDateStep(
+    ctx: BotContext,
+    name: Tournament['name'],
+  ): Promise<void> {
     const resultMessage = `
     Установлено название турнира: ${name}
     `;
@@ -112,7 +104,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     venues: Array<Pick<Venue, 'id' | 'name'>>,
   ): Promise<void> {
     const resultMessage = `
-    Установлена дата турнира: ${formatDate(startDate)}
+    Установлена дата турнира: ${this.formatDate(startDate)}
     `;
 
     await safeEditMessageText(ctx, {
@@ -156,7 +148,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     discipline: Tournament['discipline'],
   ): Promise<void> {
     const resultMessage = `
-    Установлена дисциплина: ${this.formatDiscipline(discipline)}
+    Установлена дисциплина: ${formatDiscipline(discipline)}
     `;
 
     await safeEditMessageText(ctx, {
@@ -178,7 +170,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     format: Tournament['format'],
   ): Promise<void> {
     const resultMessage = `
-    Установленный формат: ${this.formatFormat(format)}
+    Установленный формат: ${formatFormat(format)}
     `;
 
     await safeEditMessageText(ctx, {
@@ -219,26 +211,23 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
   async showTablesStep(
     ctx: BotContext,
-    winScore: Tournament['winScore'],
     tables: Array<Pick<Table, 'id' | 'name'>>,
+    selectedTableIds: string[],
+    winScore?: Tournament['winScore'],
   ): Promise<void> {
-    const resultMessage = `
-    Установленное количество побед: ${winScore}
-    `;
+    const winScoreBlock =
+      winScore !== undefined
+        ? `Установленное количество побед: ${winScore}\n\n`
+        : '';
 
-    await safeEditMessageText(ctx, {
-      text: resultMessage,
-    });
-
-    const tablesCount = (tables ?? []).length;
-
-    if (tablesCount === 0) {
+    if (tables.length === 0) {
       const message = `
       Шаг 8 / ${STEPS_COUNT}
       У выбранной площадки нет столов
       `.trim();
 
-      await ctx.reply(message, {
+      await safeEditMessageText(ctx, {
+        text: `${winScoreBlock}` + message,
         reply_markup: this.keyboards.buildTablesSkipOnlyKeyboard(),
       });
 
@@ -251,65 +240,73 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     `.trim();
 
     await safeEditMessageText(ctx, {
-      text: message,
-      reply_markup: this.keyboards.buildTablesKeyboard(tables, []),
+      text: `${winScoreBlock}` + message,
+      reply_markup: this.keyboards.buildTablesKeyboard(
+        tables,
+        selectedTableIds,
+      ),
     });
   }
 
   async showSessionExpired(ctx: BotContext): Promise<void> {
-    await ctx.answerCallbackQuery('Сессия создания истекла');
+    await ctx.answerCallbackQuery({
+      text: '❌ Сессия создания истекла',
+      show_alert: true,
+    });
   }
 
   async showVenueNotFound(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: 'Площадка не найдена',
+      text: '❌ Площадка не найдена',
       show_alert: true,
     });
   }
 
   async showInvalidDiscipline(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: 'Некорректная дисциплина',
+      text: '❌ Некорректная дисциплина',
       show_alert: true,
     });
   }
 
   async showInvalidFormat(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: 'Некорректный формат турнира',
+      text: '❌ Некорректный формат турнира',
       show_alert: true,
     });
   }
 
   async showVenueMissing(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: 'Площадка не выбрана',
+      text: '❌ Площадка не выбрана',
       show_alert: true,
     });
   }
 
   async showInvalidTableSelection(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: 'Можно выбрать только столы выбранной площадки',
+      text: '❌ Можно выбрать только столы выбранной площадки',
       show_alert: true,
     });
   }
 
   async showInvalidName(ctx: BotContext): Promise<void> {
-    await ctx.reply('Название должно быть минимум 3 символа.');
+    await ctx.reply('❌ Название должно быть минимум 3 символа.');
   }
 
   async showInvalidDate(ctx: BotContext): Promise<void> {
-    await ctx.reply('Не удалось распознать дату, попробуйте еще раз');
+    await ctx.reply('❌ Не удалось распознать дату, попробуйте еще раз');
   }
 
   async showNoVenues(ctx: BotContext): Promise<void> {
-    await ctx.reply('Нельзя создать турнир: в системе нет ни одной площадки.');
+    await ctx.reply(
+      '❌ Невозможно создать турнир: в системе нет ни одной площадки',
+    );
   }
 
   async showCorruptedSession(ctx: BotContext): Promise<void> {
     await safeEditMessageText(ctx, {
-      text: 'Сессия создания повреждена. Начните создание турнира заново.',
+      text: '❌ Сессия создания повреждена. Начните создание турнира заново!',
     });
   }
 
@@ -323,14 +320,16 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     await ctx.reply(completeMessage);
 
-    const { venue, tournament, tableIds } = data;
+    const { venue, tournament, tables } = data;
 
     const formattedStartDate =
-      tournament.startDate !== null ? formatDate(tournament.startDate) : '—';
+      tournament.startDate !== null
+        ? this.formatDate(tournament.startDate)
+        : '—';
 
-    const formattedDiscipline = this.formatDiscipline(tournament.discipline);
+    const formattedDiscipline = formatDiscipline(tournament.discipline);
 
-    const formattedFormat = this.formatFormat(tournament.format);
+    const formattedFormat = formatFormat(tournament.format);
 
     const message = `
     Данные турнира:
@@ -343,7 +342,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     - Формат: ${formattedFormat}
     - Участников: ${tournament.maxParticipants}
     - Количество необходимых побед: ${tournament.winScore}
-    - Количество выбранных столов: ${tableIds.length}
+    - Количество выбранных столов: ${tables.length}
     `.trim();
 
     await safeEditMessageText(ctx, {
@@ -363,12 +362,12 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
-  private formatDiscipline(discipline: string): string {
-    return DISCIPLINE_LABELS[discipline] ?? discipline;
-  }
+  private formatDate(date: Date | null): string {
+    if (date === null) {
+      return 'Неизвестно';
+    }
 
-  private formatFormat(format: string): string {
-    return FORMAT_LABELS[format] ?? format;
+    return this.dateTimeHelper.formatDate(date);
   }
 }
 
