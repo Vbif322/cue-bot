@@ -213,7 +213,9 @@ tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery('Регистрация открыта');
   await safeEditMessageText(ctx, {
-    text: ctx.callbackQuery.message?.text + '\n\n✅ Регистрация открыта!',
+    text:
+      ctx.callbackQuery.message?.text +
+      `\n\n${getMatchStatusEmoji('completed')} Регистрация открыта!`,
   });
 });
 
@@ -299,7 +301,10 @@ tournamentCommands.callbackQuery(
     await ctx.answerCallbackQuery();
 
     const keyboard = new InlineKeyboard()
-      .text('✅ Да, удалить', `tournament_delete:${tournament.id}`)
+      .text(
+        `${getMatchStatusEmoji('completed')} Да, удалить`,
+        `tournament_delete:${tournament.id}`,
+      )
       .text(
         `${getMatchStatusEmoji('cancelled')} Отмена`,
         `tournament_delete_cancel`,
@@ -370,9 +375,15 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
   );
 
   const keyboard = new InlineKeyboard()
-    .text('✅ Да, начать турнир', `tournament_start_confirm:${tournamentId}`)
+    .text(
+      `${getMatchStatusEmoji('completed')} Да, начать турнир`,
+      `tournament_start_confirm:${tournamentId}`,
+    )
     .row()
-    .text('❌ Отмена', `tournament_info:${tournamentId}`);
+    .text(
+      `${getMatchStatusEmoji('cancelled')} Отмена`,
+      `tournament_info:${tournamentId}`,
+    );
 
   await safeEditMessageText(ctx, {
     text:
@@ -436,7 +447,7 @@ tournamentCommands.callbackQuery(
 
       await safeEditMessageText(ctx, {
         text:
-          `✅ *Турнир "${startResult.tournamentName}" запущен!*\n\n` +
+          `${getMatchStatusEmoji('completed')} *Турнир "${startResult.tournamentName}" запущен!*\n\n` +
           `Участников: ${startResult.participantsCount}\n` +
           `Матчей создано: ${startResult.matchesCreated}\n\n` +
           `Сетка сформирована, участники получили уведомления.\n` +
