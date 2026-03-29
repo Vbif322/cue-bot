@@ -7,7 +7,7 @@ export interface IDateTimeHelper {
     datetime: string,
   ): { status: true; datetime: Date } | { status: false; datetime?: never };
 
-  formatDate(date: Date, format?: string): string;
+  formatDate(date?: Date | null, format?: string): string;
 }
 
 // #endregion
@@ -64,7 +64,11 @@ export class DateTimeHelper implements IDateTimeHelper {
    * @param {string} format Формат даты и времени (Luxon поддерживает следующие форматы: ISO, RFC 2822, HTTP, SQL, а также пользовательские форматы)
    * @returns {string} Строка с форматированным значением даты и времени
    */
-  formatDate(date: Date, format: string = 'dd.LL.yyyy HH:mm'): string {
+  formatDate(date?: Date | null, format: string = 'dd.LL.yyyy HH:mm'): string {
+    if (date === null || date === undefined) {
+      return 'Дата не указана';
+    }
+
     return DateTime.fromJSDate(date, { zone: 'utc' }).toFormat(format);
   }
 
@@ -158,5 +162,11 @@ export class DateTimeHelper implements IDateTimeHelper {
     return datetime.toUTC() as DateTime<true>;
   }
 }
+
+// #endregion
+
+// #region Global Instance
+
+export const DateTimeHelperInstance = new DateTimeHelper();
 
 // #endregion
