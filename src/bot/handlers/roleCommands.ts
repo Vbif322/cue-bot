@@ -1,10 +1,10 @@
-import { Composer } from "grammy";
-import { and, eq } from "drizzle-orm";
-import { db } from "../../db/db.js";
-import { users, tournaments, tournamentReferees } from "../../db/schema.js";
-import type { BotContext } from "../types.js";
-import { adminOnly } from "../guards.js";
-import { adminCommands, userCommands } from "../commands.js";
+import { Composer } from 'grammy';
+import { and, eq } from 'drizzle-orm';
+import { db } from '../../db/db.js';
+import { users, tournaments, tournamentReferees } from '../../db/schema.js';
+import type { BotContext } from '../types.js';
+import { adminOnly } from '../guards.js';
+import { adminCommands, userCommands } from '../commands.js';
 
 export const roleCommands = new Composer<BotContext>();
 
@@ -32,14 +32,14 @@ export const roleCommands = new Composer<BotContext>();
 // });
 
 // /set_admin <telegram_id или @username> - назначить админа
-roleCommands.command("set_admin", adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(" ").slice(1);
+roleCommands.command('set_admin', adminOnly(), async (ctx) => {
+  const args = ctx.message?.text?.split(' ').slice(1);
 
   if (!args || args.length === 0) {
     await ctx.reply(
-      "Использование: /set_admin <telegram_id или @username>\n" +
-        "Пример: /set_admin 123456789\n" +
-        "Пример: /set_admin @username",
+      'Использование: /set_admin <telegram_id или @username>\n' +
+        'Пример: /set_admin 123456789\n' +
+        'Пример: /set_admin @username',
     );
     return;
   }
@@ -47,7 +47,7 @@ roleCommands.command("set_admin", adminOnly(), async (ctx) => {
   const target = args[0]!;
   let targetUser;
 
-  if (target.startsWith("@")) {
+  if (target.startsWith('@')) {
     const username = target.slice(1);
     targetUser = await db.query.users.findFirst({
       where: eq(users.username, username),
@@ -59,36 +59,36 @@ roleCommands.command("set_admin", adminOnly(), async (ctx) => {
   }
 
   if (!targetUser) {
-    await ctx.reply("Пользователь не найден. Он должен сначала написать боту.");
+    await ctx.reply('Пользователь не найден. Он должен сначала написать боту.');
     return;
   }
 
-  if (targetUser.role === "admin") {
+  if (targetUser.role === 'admin') {
     await ctx.reply(`${targetUser.username} уже является администратором.`);
     return;
   }
 
   await db
     .update(users)
-    .set({ role: "admin" })
+    .set({ role: 'admin' })
     .where(eq(users.id, targetUser.id));
 
   // Обновляем меню команд для нового админа
   await ctx.api.setMyCommands(adminCommands, {
-    scope: { type: "chat", chat_id: parseInt(targetUser.telegram_id) },
+    scope: { type: 'chat', chat_id: parseInt(targetUser.telegram_id) },
   });
 
   await ctx.reply(`${targetUser.username} теперь администратор.`);
 });
 
 // /remove_admin <telegram_id или @username> - снять админа
-roleCommands.command("remove_admin", adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(" ").slice(1);
+roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
+  const args = ctx.message?.text?.split(' ').slice(1);
 
   if (!args || args.length === 0) {
     await ctx.reply(
-      "Использование: /remove_admin <telegram_id или @username>\n" +
-        "Пример: /remove_admin @username",
+      'Использование: /remove_admin <telegram_id или @username>\n' +
+        'Пример: /remove_admin @username',
     );
     return;
   }
@@ -96,7 +96,7 @@ roleCommands.command("remove_admin", adminOnly(), async (ctx) => {
   const target = args[0]!;
   let targetUser;
 
-  if (target.startsWith("@")) {
+  if (target.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
       where: eq(users.username, target.slice(1)),
     });
@@ -107,41 +107,41 @@ roleCommands.command("remove_admin", adminOnly(), async (ctx) => {
   }
 
   if (!targetUser) {
-    await ctx.reply("Пользователь не найден.");
+    await ctx.reply('Пользователь не найден.');
     return;
   }
 
   if (targetUser.id === ctx.dbUser.id) {
-    await ctx.reply("Вы не можете снять права администратора с себя.");
+    await ctx.reply('Вы не можете снять права администратора с себя.');
     return;
   }
 
-  if (targetUser.role !== "admin") {
+  if (targetUser.role !== 'admin') {
     await ctx.reply(`${targetUser.username} не является администратором.`);
     return;
   }
 
   await db
     .update(users)
-    .set({ role: "user" })
+    .set({ role: 'user' })
     .where(eq(users.id, targetUser.id));
 
   // Обновляем меню команд - убираем админские
   await ctx.api.setMyCommands(userCommands, {
-    scope: { type: "chat", chat_id: parseInt(targetUser.telegram_id) },
+    scope: { type: 'chat', chat_id: parseInt(targetUser.telegram_id) },
   });
 
   await ctx.reply(`${targetUser.username} больше не администратор.`);
 });
 
 // /assign_referee <tournament_id> <telegram_id/@username>
-roleCommands.command("assign_referee", adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(" ").slice(1);
+roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
+  const args = ctx.message?.text?.split(' ').slice(1);
 
   if (!args || args.length < 2) {
     await ctx.reply(
-      "Использование: /assign_referee <tournament_id> <telegram_id или @username>\n" +
-        "Пример: /assign_referee abc-123 @username",
+      'Использование: /assign_referee <tournament_id> <telegram_id или @username>\n' +
+        'Пример: /assign_referee abc-123 @username',
     );
     return;
   }
@@ -153,12 +153,12 @@ roleCommands.command("assign_referee", adminOnly(), async (ctx) => {
   });
 
   if (!tournament) {
-    await ctx.reply("Турнир не найден.");
+    await ctx.reply('Турнир не найден.');
     return;
   }
 
   let targetUser;
-  if (targetArg.startsWith("@")) {
+  if (targetArg.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
       where: eq(users.username, targetArg.slice(1)),
     });
@@ -169,7 +169,7 @@ roleCommands.command("assign_referee", adminOnly(), async (ctx) => {
   }
 
   if (!targetUser) {
-    await ctx.reply("Пользователь не найден.");
+    await ctx.reply('Пользователь не найден.');
     return;
   }
 
@@ -198,13 +198,13 @@ roleCommands.command("assign_referee", adminOnly(), async (ctx) => {
 });
 
 // /remove_referee <tournament_id> <telegram_id/@username>
-roleCommands.command("remove_referee", adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(" ").slice(1);
+roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
+  const args = ctx.message?.text?.split(' ').slice(1);
 
   if (!args || args.length < 2) {
     await ctx.reply(
-      "Использование: /remove_referee <tournament_id> <telegram_id или @username>\n" +
-        "Пример: /remove_referee abc-123 @username",
+      'Использование: /remove_referee <tournament_id> <telegram_id или @username>\n' +
+        'Пример: /remove_referee abc-123 @username',
     );
     return;
   }
@@ -216,12 +216,12 @@ roleCommands.command("remove_referee", adminOnly(), async (ctx) => {
   });
 
   if (!tournament) {
-    await ctx.reply("Турнир не найден.");
+    await ctx.reply('Турнир не найден.');
     return;
   }
 
   let targetUser;
-  if (targetArg.startsWith("@")) {
+  if (targetArg.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
       where: eq(users.username, targetArg.slice(1)),
     });
@@ -232,7 +232,7 @@ roleCommands.command("remove_referee", adminOnly(), async (ctx) => {
   }
 
   if (!targetUser) {
-    await ctx.reply("Пользователь не найден.");
+    await ctx.reply('Пользователь не найден.');
     return;
   }
 

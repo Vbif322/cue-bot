@@ -1,9 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { auth } from "./api.ts";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { auth } from './api.ts';
 
 export function useMe() {
   return useQuery({
-    queryKey: ["auth", "me"],
+    queryKey: ['auth', 'me'],
     queryFn: () => auth.me(),
     retry: false,
   });
@@ -14,7 +14,7 @@ export function useLogout() {
   return useMutation({
     mutationFn: () => auth.logout(),
     onSuccess: () => {
-      qc.setQueryData(["auth", "me"], { user: null });
+      qc.setQueryData(['auth', 'me'], { user: null });
     },
   });
 }

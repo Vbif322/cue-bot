@@ -1,7 +1,7 @@
-import { asc, count, eq, getTableColumns } from "drizzle-orm";
-import { db } from "../db/db.js";
-import { tables, venues } from "../db/schema.js";
-import type { ApiVenue, Venue } from "../admin/server/apiTypes.js";
+import { asc, count, eq, getTableColumns } from 'drizzle-orm';
+import { db } from '../db/db.js';
+import { tables, venues } from '../db/schema.js';
+import type { ApiVenue, Venue } from '../admin/server/apiTypes.js';
 
 export async function getVenues(): Promise<ApiVenue[]> {
   const rows = await db
