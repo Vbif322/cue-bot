@@ -1,5 +1,6 @@
 import { and, eq, lt } from 'drizzle-orm';
 import { Bot } from 'grammy';
+import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import { matches, tournaments } from '@/db/schema.js';
@@ -263,9 +264,9 @@ export function updateTimeoutConfig(config: Partial<TimeoutConfig>): void {
  * Assign technical loss due to timeout (for admin use)
  */
 export async function assignTimeoutTechnicalLoss(
-  matchId: string,
-  loserId: string,
-  adminId: string,
+  matchId: UUID,
+  loserId: UUID,
+  adminId: UUID,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
   if (!match) {
