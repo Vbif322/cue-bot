@@ -3,7 +3,7 @@ import { createdAt, prodSchema, updatedAt } from '../schemaHelpers.js';
 import { users } from './users.js';
 import { venues } from './venues.js';
 
-export const tournamentStatus = [
+export const statuses = [
   'draft',
   'registration_open',
   'registration_closed',
@@ -12,24 +12,32 @@ export const tournamentStatus = [
   'cancelled',
 ] as const;
 
-export type ITournamentStatus = (typeof tournamentStatus)[number];
+export type ITournamentStatus = (typeof statuses)[number];
 
-export const tournamentFormat = [
+export const formats = [
   'single_elimination',
   'double_elimination',
   'round_robin',
 ] as const;
 
-export type ITournamentFormat = (typeof tournamentFormat)[number];
+export type ITournamentFormat = (typeof formats)[number];
 
-export const discipline = [
+export const disciplines = [
   // "pool",
   'snooker',
   // "russian_billiards",
   // "carom",
 ] as const;
 
-export type IDiscipline = (typeof discipline)[number];
+export type ITournamentDiscipline = (typeof disciplines)[number];
+
+export const maxParticipants = [8, 16, 32, 64, 128] as const;
+
+export type ITournamentMaxParticipants = (typeof maxParticipants)[number];
+
+export const winScores = [2, 3, 4, 5] as const;
+
+export type ITournamentWinScore = (typeof winScores)[number];
 
 export const tournaments = prodSchema.table('tournaments', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -39,13 +47,19 @@ export const tournaments = prodSchema.table('tournaments', {
 
   name: varchar({ length: 255 }).notNull(),
   description: text(),
-  discipline: varchar({ enum: discipline }).notNull(),
-  format: varchar({ enum: tournamentFormat }).notNull(),
-  status: varchar({ enum: tournamentStatus }).notNull().default('draft'),
+  discipline: varchar({ enum: disciplines }).notNull(),
+  format: varchar({ enum: formats }).notNull(),
+  status: varchar({ enum: statuses }).notNull().default('draft'),
   startDate: timestamp('start_date'),
   confirmedParticipants: integer('confirmed_participants'),
-  maxParticipants: integer('max_participants').notNull().default(16),
-  winScore: integer('win_score').notNull().default(3),
+  maxParticipants: integer('max_participants')
+    .$type<ITournamentMaxParticipants>()
+    .notNull()
+    .default(16),
+  winScore: integer('win_score')
+    .$type<ITournamentWinScore>()
+    .notNull()
+    .default(3),
   rules: text(),
   createdBy: uuid('created_by')
     .notNull()
