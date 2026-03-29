@@ -1,19 +1,19 @@
-import type { matches } from "../../db/schema.ts";
-import type { Serialize } from "./helpers.ts";
+import type { matches } from '../../db/schema.ts';
+import type { Serialize } from './helpers.ts';
 
 export type Match = typeof matches.$inferSelect;
-export type MatchStatus = (typeof matches.$inferSelect)["status"];
-export type BracketType = "winners" | "losers" | "grand_final";
+export type MatchStatus = (typeof matches.$inferSelect)['status'];
+export type BracketType = 'winners' | 'losers' | 'grand_final';
 
 /** Admin API match: serialized, joined player info, internal fields omitted */
 export type ApiMatch = Omit<
   Serialize<Match>,
-  | "updatedAt"
-  | "reportedBy"
-  | "confirmedBy"
-  | "nextMatchId"
-  | "nextMatchPosition"
-  | "losersNextMatchPosition"
+  | 'updatedAt'
+  | 'reportedBy'
+  | 'confirmedBy'
+  | 'nextMatchId'
+  | 'nextMatchPosition'
+  | 'losersNextMatchPosition'
 > & {
   bracketType: BracketType | null;
   player1Username: string | null;

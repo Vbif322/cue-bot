@@ -3,6 +3,7 @@ import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
 
 import { STEPS_COUNT } from './tournamentCreation.const.js';
+import { getMatchStatusEmoji } from '../ui/matchUI.js';
 import type { BotContext } from '../types.js';
 import type { ITournamentCreationKeyboards } from './tournamentCreation.keyboards.js';
 import type { IRequiredCreationData } from './tournamentCreation.js';
@@ -250,63 +251,67 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
   async showSessionExpired(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: '❌ Сессия создания истекла',
+      text: `${getMatchStatusEmoji('cancelled')} Сессия создания истекла`,
       show_alert: true,
     });
   }
 
   async showVenueNotFound(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: '❌ Площадка не найдена',
+      text: `${getMatchStatusEmoji('cancelled')} Площадка не найдена`,
       show_alert: true,
     });
   }
 
   async showInvalidDiscipline(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: '❌ Некорректная дисциплина',
+      text: `${getMatchStatusEmoji('cancelled')} Некорректная дисциплина`,
       show_alert: true,
     });
   }
 
   async showInvalidFormat(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: '❌ Некорректный формат турнира',
+      text: `${getMatchStatusEmoji('cancelled')} Некорректный формат турнира`,
       show_alert: true,
     });
   }
 
   async showVenueMissing(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: '❌ Площадка не выбрана',
+      text: `${getMatchStatusEmoji('cancelled')} Площадка не выбрана`,
       show_alert: true,
     });
   }
 
   async showInvalidTableSelection(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
-      text: '❌ Можно выбрать только столы выбранной площадки',
+      text: `${getMatchStatusEmoji('cancelled')} Можно выбрать только столы выбранной площадки`,
       show_alert: true,
     });
   }
 
   async showInvalidName(ctx: BotContext): Promise<void> {
-    await ctx.reply('❌ Название должно быть минимум 3 символа.');
+    await ctx.reply(
+      `${getMatchStatusEmoji('cancelled')} Название должно быть минимум 3 символа.`,
+    );
   }
 
   async showInvalidDate(ctx: BotContext): Promise<void> {
-    await ctx.reply('❌ Не удалось распознать дату, попробуйте еще раз');
+    await ctx.reply(
+      `${getMatchStatusEmoji('cancelled')} Не удалось распознать дату, попробуйте еще раз`,
+    );
   }
 
   async showNoVenues(ctx: BotContext): Promise<void> {
     await ctx.reply(
-      '❌ Невозможно создать турнир: в системе нет ни одной площадки',
+      `${getMatchStatusEmoji('cancelled')} Невозможно создать турнир: в системе нет ни одной площадки`,
     );
   }
 
   async showCorruptedSession(ctx: BotContext): Promise<void> {
     await safeEditMessageText(ctx, {
-      text: '❌ Сессия создания повреждена. Начните создание турнира заново!',
+      text: `${getMatchStatusEmoji('cancelled')} Сессия создания повреждена. Начните создание турнира заново!`,
     });
   }
 
@@ -315,7 +320,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     data: IRequiredCreationData,
   ): Promise<void> {
     const completeMessage = `
-    ✅ Турнир создан!
+    ${getMatchStatusEmoji('completed')} Турнир создан!
     `.trim();
 
     await ctx.reply(completeMessage);
@@ -357,7 +362,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
   async showCreationError(ctx: BotContext, error: unknown): Promise<void> {
     await safeEditMessageText(ctx, {
       text:
-        `❌ Ошибка при создании турнира:\n` +
+        `${getMatchStatusEmoji('cancelled')} Ошибка при создании турнира:\n` +
         `${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
     });
   }

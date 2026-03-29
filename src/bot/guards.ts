@@ -1,9 +1,10 @@
-import type { NextFunction } from "grammy";
-import type { BotContext } from "./types.js";
-import { isAdmin } from "./permissions.js";
+import type { NextFunction } from 'grammy';
+
+import { isAdmin } from './permissions.js';
+import type { BotContext } from './types.js';
 
 export function adminOnly(
-  errorMessage = "Эта команда доступна только администраторам."
+  errorMessage = 'Эта команда доступна только администраторам.',
 ) {
   return async (ctx: BotContext, next: NextFunction): Promise<void> => {
     if (!isAdmin(ctx)) {
@@ -15,10 +16,10 @@ export function adminOnly(
 }
 
 export function privateOnly(
-  errorMessage = "Эта команда доступна только в личных сообщениях."
+  errorMessage = 'Эта команда доступна только в личных сообщениях.',
 ) {
   return async (ctx: BotContext, next: NextFunction): Promise<void> => {
-    if (ctx.chat?.type !== "private") {
+    if (ctx.chat?.type !== 'private') {
       await ctx.reply(errorMessage);
       return;
     }

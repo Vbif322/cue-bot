@@ -1,21 +1,24 @@
-import { and, eq, inArray, isNull, or, asc } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
-import type { Api } from "grammy";
-import { db } from "../db/db.js";
-import { matches, tournaments, users, tables } from "../db/schema.js";
-import type { BracketMatch } from "./bracketGenerator.js";
-import type { Match, MatchWithPlayers } from "../bot/@types/match.js";
-import { completeTournament, getTournament } from "./tournamentService.js";
-import { notifyMatchStart } from "./notificationService.js";
+import { and, eq, inArray, isNull, or, asc } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import type { Api } from 'grammy';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { matches, tournaments, users, tables } from '@/db/schema.js';
+import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
+
+import { completeTournament, getTournament } from './tournamentService.js';
+import { notifyMatchStart } from './notificationService.js';
+import type { BracketMatch } from './bracketGenerator.js';
 
 /**
  * Create matches in database from generated bracket
  */
 export async function createMatches(
-  tournamentId: string,
+  tournamentId: UUID,
   bracket: BracketMatch[],
 ): Promise<void> {
-  const createdMatches: { position: number; id: string }[] = [];
+  const createdMatches: { position: number; id: UUID }[] = [];
 
   for (const match of bracket) {
     const [created] = await db
@@ -59,20 +62,20 @@ export async function createMatches(
 
 function determineInitialStatus(
   _match: BracketMatch,
-): (typeof matches.$inferSelect)["status"] {
-  return "scheduled";
+): (typeof matches.$inferSelect)['status'] {
+  return 'scheduled';
 }
 
 /**
  * Get match by ID with player information and table name
  */
 export async function getMatch(
-  matchId: string,
+  matchId: UUID,
 ): Promise<MatchWithPlayers | null> {
-  const p1 = alias(users, "p1");
-  const p2 = alias(users, "p2");
-  const winner = alias(users, "winner");
-  const matchTable = alias(tables, "match_table");
+  const p1 = alias(users, 'p1');
+  const p2 = alias(users, 'p2');
+  const winner = alias(users, 'winner');
+  const matchTable = alias(tables, 'match_table');
 
   const rows = await db
     .select({
@@ -118,8 +121,8 @@ export async function getMatch(
  * Get current active match for a player in a tournament
  */
 export async function getPlayerCurrentMatch(
-  tournamentId: string,
-  userId: string,
+  tournamentId: UUID,
+  userId: UUID,
 ): Promise<MatchWithPlayers | null> {
   const result = await db
     .select()
@@ -129,9 +132,9 @@ export async function getPlayerCurrentMatch(
         eq(matches.tournamentId, tournamentId),
         or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
         inArray(matches.status, [
-          "scheduled",
-          "in_progress",
-          "pending_confirmation",
+          'scheduled',
+          'in_progress',
+          'pending_confirmation',
         ]),
       ),
     )
@@ -148,7 +151,7 @@ export async function getPlayerCurrentMatch(
  * Get all active matches for a player across all tournaments
  */
 export async function getPlayerActiveMatches(
-  userId: string,
+  userId: UUID,
 ): Promise<MatchWithPlayers[]> {
   const result = await db
     .select()
@@ -156,12 +159,12 @@ export async function getPlayerActiveMatches(
     .innerJoin(tournaments, eq(matches.tournamentId, tournaments.id))
     .where(
       and(
-        eq(tournaments.status, "in_progress"),
+        eq(tournaments.status, 'in_progress'),
         or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
         inArray(matches.status, [
-          "scheduled",
-          "in_progress",
-          "pending_confirmation",
+          'scheduled',
+          'in_progress',
+          'pending_confirmation',
         ]),
       ),
     )
@@ -180,12 +183,12 @@ export async function getPlayerActiveMatches(
  * Get all matches for a tournament with table names
  */
 export async function getTournamentMatches(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<MatchWithPlayers[]> {
-  const p1 = alias(users, "p1");
-  const p2 = alias(users, "p2");
-  const winner = alias(users, "winner");
-  const matchTable = alias(tables, "match_table");
+  const p1 = alias(users, 'p1');
+  const p2 = alias(users, 'p2');
+  const winner = alias(users, 'winner');
+  const matchTable = alias(tables, 'match_table');
 
   const rows = await db
     .select({
@@ -220,7 +223,7 @@ export async function getTournamentMatches(
  * Get matches for a specific round
  */
 export async function getRoundMatches(
-  tournamentId: string,
+  tournamentId: UUID,
   round: number,
   bracketType?: string,
 ): Promise<Match[]> {
@@ -243,12 +246,12 @@ export async function getRoundMatches(
  * Get the next scheduled match with both players assigned and no table yet
  */
 export async function getNextReadyMatch(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<Match | null> {
   const result = await db.query.matches.findMany({
     where: and(
       eq(matches.tournamentId, tournamentId),
-      eq(matches.status, "scheduled"),
+      eq(matches.status, 'scheduled'),
       isNull(matches.tableId),
     ),
     orderBy: [asc(matches.round), asc(matches.position)],
@@ -263,22 +266,22 @@ export async function getNextReadyMatch(
  * Returns true if assignment succeeded (false = race condition).
  */
 export async function assignTableAndStart(
-  matchId: string,
-  tableId: string,
+  matchId: UUID,
+  tableId: UUID,
   botApi?: Api,
 ): Promise<boolean> {
   const updated = await db
     .update(matches)
     .set({
       tableId,
-      status: "in_progress",
+      status: 'in_progress',
       startedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(
       and(
         eq(matches.id, matchId),
-        eq(matches.status, "scheduled"),
+        eq(matches.status, 'scheduled'),
         isNull(matches.tableId),
       ),
     )
@@ -293,7 +296,7 @@ export async function assignTableAndStart(
         ? await getTournament(matchWithPlayers.tournamentId)
         : null;
       if (matchWithPlayers && tournament) {
-        await notifyMatchStart(botApi, matchWithPlayers, tournament.name, "");
+        await notifyMatchStart(botApi, matchWithPlayers, tournament.name, '');
       }
     } catch (err) {
       console.error(`Failed to notify match start for ${matchId}:`, err);
@@ -307,8 +310,8 @@ export async function assignTableAndStart(
  * Called when a table is freed — assigns it to the next ready match
  */
 export async function onTableFreed(
-  tournamentId: string,
-  tableId: string,
+  tournamentId: UUID,
+  tableId: UUID,
   botApi: Api,
 ): Promise<void> {
   const next = await getNextReadyMatch(tournamentId);
@@ -320,33 +323,39 @@ export async function onTableFreed(
  * Report match result
  */
 export async function reportResult(
-  matchId: string,
-  reporterId: string,
+  matchId: UUID,
+  reporterId: UUID,
   player1Score: number,
   player2Score: number,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
-  if (!match) return { success: false, error: "Матч не найден" };
-  if (match.status === "completed") return { success: false, error: "Матч уже завершён" };
-  if (match.status === "cancelled") return { success: false, error: "Матч отменён" };
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status === 'completed')
+    return { success: false, error: 'Матч уже завершён' };
+  if (match.status === 'cancelled')
+    return { success: false, error: 'Матч отменён' };
 
   if (match.player1Id !== reporterId && match.player2Id !== reporterId) {
-    return { success: false, error: "Вы не являетесь участником этого матча" };
+    return { success: false, error: 'Вы не являетесь участником этого матча' };
   }
 
   const tournament = await getTournament(match.tournamentId);
-  if (!tournament) return { success: false, error: "Турнир не найден" };
+  if (!tournament) return { success: false, error: 'Турнир не найден' };
 
   const winScore = tournament.winScore;
   if (player1Score !== winScore && player2Score !== winScore) {
-    return { success: false, error: `Один из игроков должен набрать ${winScore} побед` };
+    return {
+      success: false,
+      error: `Один из игроков должен набрать ${winScore} побед`,
+    };
   }
   if (player1Score === winScore && player2Score === winScore) {
-    return { success: false, error: "Оба игрока не могут выиграть" };
+    return { success: false, error: 'Оба игрока не могут выиграть' };
   }
 
-  const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
+  const winnerId =
+    player1Score > player2Score ? match.player1Id : match.player2Id;
 
   await db
     .update(matches)
@@ -355,7 +364,7 @@ export async function reportResult(
       player2Score,
       winnerId,
       reportedBy: reporterId,
-      status: "pending_confirmation",
+      status: 'pending_confirmation',
       updatedAt: new Date(),
     })
     .where(eq(matches.id, matchId));
@@ -367,38 +376,44 @@ export async function reportResult(
  * Confirm match result
  */
 export async function confirmResult(
-  matchId: string,
-  confirmerId: string,
+  matchId: UUID,
+  confirmerId: UUID,
   botApi?: Api,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
-  if (!match) return { success: false, error: "Матч не найден" };
-  if (match.status !== "pending_confirmation") {
-    return { success: false, error: "Матч не ожидает подтверждения" };
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status !== 'pending_confirmation') {
+    return { success: false, error: 'Матч не ожидает подтверждения' };
   }
   if (match.reportedBy === confirmerId) {
-    return { success: false, error: "Вы не можете подтвердить свой собственный результат" };
+    return {
+      success: false,
+      error: 'Вы не можете подтвердить свой собственный результат',
+    };
   }
   if (match.player1Id !== confirmerId && match.player2Id !== confirmerId) {
-    return { success: false, error: "Вы не являетесь участником этого матча" };
+    return { success: false, error: 'Вы не являетесь участником этого матча' };
   }
 
   const updated = await db
     .update(matches)
     .set({
-      status: "completed",
+      status: 'completed',
       confirmedBy: confirmerId,
       completedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(
-      and(eq(matches.id, matchId), eq(matches.status, "pending_confirmation")),
+      and(eq(matches.id, matchId), eq(matches.status, 'pending_confirmation')),
     )
     .returning();
 
   if (!updated.length) {
-    return { success: false, error: "Статус матча изменился. Попробуйте обновить страницу." };
+    return {
+      success: false,
+      error: 'Статус матча изменился. Попробуйте обновить страницу.',
+    };
   }
 
   await advanceWinner(matchId, botApi);
@@ -410,23 +425,23 @@ export async function confirmResult(
  * Dispute match result
  */
 export async function disputeResult(
-  matchId: string,
-  userId: string,
+  matchId: UUID,
+  userId: UUID,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
-  if (!match) return { success: false, error: "Матч не найден" };
-  if (match.status !== "pending_confirmation") {
-    return { success: false, error: "Матч не ожидает подтверждения" };
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status !== 'pending_confirmation') {
+    return { success: false, error: 'Матч не ожидает подтверждения' };
   }
   if (match.player1Id !== userId && match.player2Id !== userId) {
-    return { success: false, error: "Вы не являетесь участником этого матча" };
+    return { success: false, error: 'Вы не являетесь участником этого матча' };
   }
 
   const updated = await db
     .update(matches)
     .set({
-      status: "in_progress",
+      status: 'in_progress',
       player1Score: null,
       player2Score: null,
       winnerId: null,
@@ -434,12 +449,15 @@ export async function disputeResult(
       updatedAt: new Date(),
     })
     .where(
-      and(eq(matches.id, matchId), eq(matches.status, "pending_confirmation")),
+      and(eq(matches.id, matchId), eq(matches.status, 'pending_confirmation')),
     )
     .returning();
 
   if (!updated.length) {
-    return { success: false, error: "Статус матча изменился. Попробуйте обновить страницу." };
+    return {
+      success: false,
+      error: 'Статус матча изменился. Попробуйте обновить страницу.',
+    };
   }
 
   return { success: true };
@@ -449,24 +467,24 @@ export async function disputeResult(
  * Set technical result for a match
  */
 export async function setTechnicalResult(
-  matchId: string,
-  winnerId: string,
+  matchId: UUID,
+  winnerId: UUID,
   reason: string,
-  setById: string,
+  setById: UUID,
   botApi?: Api,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
-  if (!match) return { success: false, error: "Матч не найден" };
-  if (match.status === "completed" || match.status === "cancelled") {
-    return { success: false, error: "Матч уже завершён или отменён" };
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status === 'completed' || match.status === 'cancelled') {
+    return { success: false, error: 'Матч уже завершён или отменён' };
   }
   if (match.player1Id !== winnerId && match.player2Id !== winnerId) {
-    return { success: false, error: "Победитель должен быть участником матча" };
+    return { success: false, error: 'Победитель должен быть участником матча' };
   }
 
   const tournament = await getTournament(match.tournamentId);
-  if (!tournament) return { success: false, error: "Турнир не найден" };
+  if (!tournament) return { success: false, error: 'Турнир не найден' };
 
   const winScore = tournament.winScore;
   const player1Score = match.player1Id === winnerId ? winScore : 0;
@@ -478,7 +496,7 @@ export async function setTechnicalResult(
       player1Score,
       player2Score,
       winnerId,
-      status: "completed",
+      status: 'completed',
       isTechnicalResult: true,
       technicalReason: reason,
       confirmedBy: setById,
@@ -495,7 +513,10 @@ export async function setTechnicalResult(
 /**
  * Advance winner to next match and free the table
  */
-export async function advanceWinner(matchId: string, botApi?: Api): Promise<void> {
+export async function advanceWinner(
+  matchId: UUID,
+  botApi?: Api,
+): Promise<void> {
   const match = await db.query.matches.findFirst({
     where: eq(matches.id, matchId),
   });
@@ -509,7 +530,7 @@ export async function advanceWinner(matchId: string, botApi?: Api): Promise<void
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
   if (!match.nextMatchId) {
-    await completeTournament(match.tournamentId, match.winnerId);
+    await completeTournament(match.tournamentId);
     // Free the table even at tournament end (no-op since no next match)
     if (match.tableId && botApi) {
       await onTableFreed(match.tournamentId, match.tableId, botApi);
@@ -525,9 +546,9 @@ export async function advanceWinner(matchId: string, botApi?: Api): Promise<void
 
   const slot =
     match.nextMatchPosition ??
-    (match.position % 2 === 1 ? "player1" : "player2");
+    (match.position % 2 === 1 ? 'player1' : 'player2');
 
-  if (slot === "player1") {
+  if (slot === 'player1') {
     await db
       .update(matches)
       .set({ player1Id: match.winnerId, updatedAt: new Date() })
@@ -540,8 +561,8 @@ export async function advanceWinner(matchId: string, botApi?: Api): Promise<void
   }
 
   if (
-    tournament.format === "double_elimination" &&
-    match.bracketType === "winners" &&
+    tournament.format === 'double_elimination' &&
+    match.bracketType === 'winners' &&
     loserId
   ) {
     await advanceLoserToLosersBracket(match, loserId);
@@ -555,19 +576,19 @@ export async function advanceWinner(matchId: string, botApi?: Api): Promise<void
 
 async function advanceLoserToLosersBracket(
   match: Match,
-  loserId: string,
+  loserId: UUID,
 ): Promise<void> {
-  if (match.round > 2 || match.bracketType !== "winners") return;
+  if (match.round > 2 || match.bracketType !== 'winners') return;
 
   let targetPosition: number;
-  let targetSlot: "player1Id" | "player2Id";
+  let targetSlot: 'player1Id' | 'player2Id';
 
   if (match.round === 1) {
     targetPosition = 9 + Math.floor((match.position - 1) / 2);
-    targetSlot = match.position % 2 === 1 ? "player1Id" : "player2Id";
+    targetSlot = match.position % 2 === 1 ? 'player1Id' : 'player2Id';
   } else {
     targetPosition = 17 + (match.position - 13);
-    targetSlot = "player2Id";
+    targetSlot = 'player2Id';
   }
 
   const losersMatch = await db.query.matches.findFirst({
@@ -594,27 +615,27 @@ async function advanceLoserToLosersBracket(
  * Check if tournament is complete
  */
 export async function checkTournamentCompletion(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<boolean> {
   const tournament = await getTournament(tournamentId);
   if (!tournament) return false;
 
   const allMatches = await getTournamentMatches(tournamentId);
-  const completedMatches = allMatches.filter((m) => m.status === "completed");
+  const completedMatches = allMatches.filter((m) => m.status === 'completed');
 
-  if (tournament.format === "single_elimination") {
+  if (tournament.format === 'single_elimination') {
     const finalMatch = allMatches.find(
-      (m) => !m.nextMatchId && m.bracketType === "winners",
+      (m) => !m.nextMatchId && m.bracketType === 'winners',
     );
-    return finalMatch?.status === "completed";
+    return finalMatch?.status === 'completed';
   }
 
-  if (tournament.format === "double_elimination") {
-    const grandFinal = allMatches.find((m) => m.bracketType === "grand_final");
-    return grandFinal?.status === "completed";
+  if (tournament.format === 'double_elimination') {
+    const grandFinal = allMatches.find((m) => m.bracketType === 'grand_final');
+    return grandFinal?.status === 'completed';
   }
 
-  if (tournament.format === "round_robin") {
+  if (tournament.format === 'round_robin') {
     return completedMatches.length === allMatches.length;
   }
 
@@ -624,7 +645,7 @@ export async function checkTournamentCompletion(
 /**
  * Get match statistics for a tournament
  */
-export async function getMatchStats(tournamentId: string): Promise<{
+export async function getMatchStats(tournamentId: UUID): Promise<{
   total: number;
   completed: number;
   inProgress: number;
@@ -634,11 +655,11 @@ export async function getMatchStats(tournamentId: string): Promise<{
 
   return {
     total: allMatches.length,
-    completed: allMatches.filter((m) => m.status === "completed").length,
+    completed: allMatches.filter((m) => m.status === 'completed').length,
     inProgress: allMatches.filter(
-      (m) => m.status === "in_progress" || m.status === "pending_confirmation",
+      (m) => m.status === 'in_progress' || m.status === 'pending_confirmation',
     ).length,
-    scheduled: allMatches.filter((m) => m.status === "scheduled").length,
+    scheduled: allMatches.filter((m) => m.status === 'scheduled').length,
   };
 }
 
@@ -646,13 +667,13 @@ export async function getMatchStats(tournamentId: string): Promise<{
  * Start a match manually (change status from scheduled to in_progress)
  */
 export async function startMatch(
-  matchId: string,
+  matchId: UUID,
 ): Promise<{ success: boolean; error?: string; match?: Match }> {
   try {
     const updatedMatch = await db
       .update(matches)
       .set({
-        status: "in_progress",
+        status: 'in_progress',
         startedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -660,7 +681,7 @@ export async function startMatch(
       .returning();
 
     if (!updatedMatch[0]) {
-      return { success: false, error: "Не удалось обновить матч" };
+      return { success: false, error: 'Не удалось обновить матч' };
     }
 
     return { success: true, match: updatedMatch[0] };

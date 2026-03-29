@@ -1,4 +1,6 @@
 import { asc, count, eq, getTableColumns } from 'drizzle-orm';
+import type { UUID } from 'crypto';
+
 import { db } from '../db/db.js';
 import { tables, venues } from '../db/schema.js';
 import type { ApiVenue, Venue } from '../bot/@types/venue.js';
@@ -25,11 +27,11 @@ export async function getVenues(): Promise<ApiVenue[]> {
 /**
  * Получает площадку по ее идентификатору с количеством столов
  *
- * @param {string} id Идентификатор площадки
+ * @param {UUID} id Идентификатор площадки
  *
  * @returns {Promise<ApiVenue | null>} Найденное заведение с полем `tablesCount` или null, если не найдено
  */
-export async function getVenue(id: string): Promise<ApiVenue | null> {
+export async function getVenue(id: UUID): Promise<ApiVenue | null> {
   const rows = await db
     .select({
       ...getTableColumns(venues),
@@ -65,7 +67,7 @@ export async function createVenue(data: {
 /**
  * Обновляет данные площадки по идентификатору
  *
- * @param {string} id Идентификатор площадки
+ * @param {UUID} id Идентификатор площадки
  * @param {Object} data Данные для обновления
  * @param {string | undefined} data.name Название площадки (необязательное поле)
  * @param {string | undefined} data.address Адрес площадки (необязательное поле)
@@ -74,7 +76,7 @@ export async function createVenue(data: {
  * @returns {Promise<Venue | null>} Обновленная площадка или null, если не найдена
  */
 export async function updateVenue(
-  id: string,
+  id: UUID,
   data: {
     name?: string | undefined;
     address?: string | undefined;
@@ -92,11 +94,11 @@ export async function updateVenue(
 /**
  * Удаляет площадку по ее идентификатору
  *
- * @param {string} id Идентификатор площадки
+ * @param {UUID} id Идентификатор площадки
  *
  * @returns {Promise<boolean>} true, если площадка была удалена, иначе false
  */
-export async function deleteVenue(id: string): Promise<boolean> {
+export async function deleteVenue(id: UUID): Promise<boolean> {
   const [row] = await db
     .delete(venues)
     .where(eq(venues.id, id))

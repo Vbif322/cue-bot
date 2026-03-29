@@ -1,60 +1,60 @@
-import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { tournamentsApi, matchesApi } from "../lib/api.ts";
-import type { ApiTable } from "../lib/api.ts";
+import { useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { tournamentsApi, matchesApi } from '../lib/api.ts';
+import type { ApiTable } from '../lib/api.ts';
 import {
   TournamentStatusBadge,
   MatchStatusBadge,
-} from "../components/StatusBadge.tsx";
-import type { TournamentStatus } from "../lib/api.ts";
+} from '../components/StatusBadge.tsx';
+import type { TournamentStatus } from '../lib/api.ts';
 
 const FORMAT_LABELS = {
-  single_elimination: "Single Elimination",
-  double_elimination: "Double Elimination",
-  round_robin: "Round Robin",
+  single_elimination: 'Single Elimination',
+  double_elimination: 'Double Elimination',
+  round_robin: 'Round Robin',
 };
 
 const NEXT_STATUS: Partial<Record<TournamentStatus, TournamentStatus>> = {
-  draft: "registration_open",
-  registration_open: "registration_closed",
-  registration_closed: "in_progress",
+  draft: 'registration_open',
+  registration_open: 'registration_closed',
+  registration_closed: 'in_progress',
 };
 
 const STATUS_ACTION_LABELS: Partial<Record<TournamentStatus, string>> = {
-  draft: "Открыть регистрацию",
-  registration_open: "Закрыть регистрацию",
-  registration_closed: "Запустить турнир",
+  draft: 'Открыть регистрацию',
+  registration_open: 'Закрыть регистрацию',
+  registration_closed: 'Запустить турнир',
 };
 
 export default function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<
-    "info" | "participants" | "matches"
-  >("info");
-  const [actionError, setActionError] = useState("");
+    'info' | 'participants' | 'matches'
+  >('info');
+  const [actionError, setActionError] = useState('');
 
   const { data: tournament, isLoading } = useQuery({
-    queryKey: ["tournament", id],
+    queryKey: ['tournament', id],
     queryFn: () => tournamentsApi.get(id!),
     enabled: !!id,
   });
 
   const { data: participants } = useQuery({
-    queryKey: ["tournament-participants", id],
+    queryKey: ['tournament-participants', id],
     queryFn: () => tournamentsApi.participants(id!),
-    enabled: !!id && activeTab === "participants",
+    enabled: !!id && activeTab === 'participants',
   });
 
   const { data: matches } = useQuery({
-    queryKey: ["tournament-matches", id],
+    queryKey: ['tournament-matches', id],
     queryFn: () => matchesApi.byTournament(id!),
-    enabled: !!id && activeTab === "matches",
+    enabled: !!id && activeTab === 'matches',
   });
 
   const { data: tournamentTables } = useQuery<ApiTable[]>({
-    queryKey: ["tournament-tables", id],
+    queryKey: ['tournament-tables', id],
     queryFn: () => tournamentsApi.tables(id!),
     enabled: !!id,
   });
@@ -62,9 +62,9 @@ export default function TournamentDetailPage() {
     mutationFn: (status: TournamentStatus) =>
       tournamentsApi.setStatus(id!, status),
     onSuccess: () => {
-      setActionError("");
-      qc.invalidateQueries({ queryKey: ["tournament", id] });
-      qc.invalidateQueries({ queryKey: ["tournaments"] });
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['tournament', id] });
+      qc.invalidateQueries({ queryKey: ['tournaments'] });
     },
     onError: (e: Error) => setActionError(e.message),
   });
@@ -72,10 +72,10 @@ export default function TournamentDetailPage() {
   const startMutation = useMutation({
     mutationFn: () => tournamentsApi.start(id!),
     onSuccess: () => {
-      setActionError("");
-      qc.invalidateQueries({ queryKey: ["tournament", id] });
-      qc.invalidateQueries({ queryKey: ["tournaments"] });
-      qc.invalidateQueries({ queryKey: ["tournament-matches", id] });
+      setActionError('');
+      qc.invalidateQueries({ queryKey: ['tournament', id] });
+      qc.invalidateQueries({ queryKey: ['tournaments'] });
+      qc.invalidateQueries({ queryKey: ['tournament-matches', id] });
     },
     onError: (e: Error) => setActionError(e.message),
   });
@@ -85,9 +85,9 @@ export default function TournamentDetailPage() {
     const next = NEXT_STATUS[tournament.status];
     if (!next) return;
 
-    if (next === "in_progress") {
+    if (next === 'in_progress') {
       if (
-        !confirm("Запустить турнир? Это создаст сетку и уведомит участников.")
+        !confirm('Запустить турнир? Это создаст сетку и уведомит участников.')
       )
         return;
       startMutation.mutate();
@@ -134,15 +134,15 @@ export default function TournamentDetailPage() {
               className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
               {statusMutation.isPending || startMutation.isPending
-                ? "Обработка..."
+                ? 'Обработка...'
                 : nextLabel}
             </button>
           )}
-          {tournament.status === "in_progress" && (
+          {tournament.status === 'in_progress' && (
             <button
               onClick={() => {
-                if (confirm("Отменить турнир?"))
-                  statusMutation.mutate("cancelled");
+                if (confirm('Отменить турнир?'))
+                  statusMutation.mutate('cancelled');
               }}
               className="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50"
             >
@@ -160,25 +160,25 @@ export default function TournamentDetailPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b border-gray-200">
-        {(["info", "participants", "matches"] as const).map((tab) => (
+        {(['info', 'participants', 'matches'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               activeTab === tab
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-600 hover:text-gray-900"
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
             }`}
           >
-            {tab === "info" && "Информация"}
-            {tab === "participants" && "Участники"}
-            {tab === "matches" && "Матчи"}
+            {tab === 'info' && 'Информация'}
+            {tab === 'participants' && 'Участники'}
+            {tab === 'matches' && 'Матчи'}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
-      {activeTab === "info" && (
+      {activeTab === 'info' && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
           <InfoRow
             label="Статус"
@@ -193,7 +193,7 @@ export default function TournamentDetailPage() {
           {tournament.startDate && (
             <InfoRow
               label="Дата начала"
-              value={new Date(tournament.startDate).toLocaleString("ru-RU")}
+              value={new Date(tournament.startDate).toLocaleString('ru-RU')}
             />
           )}
           <InfoRow
@@ -211,7 +211,7 @@ export default function TournamentDetailPage() {
                   ))}
                 </div>
               ) : (
-                "—"
+                '—'
               )
             }
           />
@@ -224,7 +224,7 @@ export default function TournamentDetailPage() {
         </div>
       )}
 
-      {activeTab === "participants" && (
+      {activeTab === 'participants' && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -243,7 +243,7 @@ export default function TournamentDetailPage() {
             <tbody className="divide-y divide-gray-100">
               {participants?.map((p) => (
                 <tr key={p.userId}>
-                  <td className="px-4 py-3 text-gray-500">{p.seed ?? "—"}</td>
+                  <td className="px-4 py-3 text-gray-500">{p.seed ?? '—'}</td>
                   <td className="px-4 py-3 font-medium">
                     {p.name ?? p.username ?? p.userId}
                     {p.username && (
@@ -272,7 +272,7 @@ export default function TournamentDetailPage() {
         </div>
       )}
 
-      {activeTab === "matches" && (
+      {activeTab === 'matches' && (
         <>
           {/* Mobile match cards */}
           <div className="md:hidden space-y-3">
@@ -290,7 +290,7 @@ export default function TournamentDetailPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-500 font-medium">
                       R{m.round}
-                      {m.bracketType === "losers" && (
+                      {m.bracketType === 'losers' && (
                         <span className="text-orange-500 ml-1">L</span>
                       )}
                     </span>
@@ -304,15 +304,15 @@ export default function TournamentDetailPage() {
                 </div>
                 <div className="flex items-center justify-center gap-3 my-3">
                   <span className="font-medium text-gray-900 text-sm text-right flex-1">
-                    {m.player1Name ?? m.player1Username ?? "TBD"}
+                    {m.player1Name ?? m.player1Username ?? 'TBD'}
                   </span>
                   <span className="font-mono text-gray-700 text-sm px-2">
                     {m.player1Score !== null && m.player2Score !== null
                       ? `${m.player1Score}:${m.player2Score}`
-                      : "vs"}
+                      : 'vs'}
                   </span>
                   <span className="font-medium text-gray-900 text-sm text-left flex-1">
-                    {m.player2Name ?? m.player2Username ?? "TBD"}
+                    {m.player2Name ?? m.player2Username ?? 'TBD'}
                   </span>
                 </div>
                 <div className="text-right">
@@ -358,23 +358,23 @@ export default function TournamentDetailPage() {
                   <tr key={m.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-gray-500">
                       R{m.round}
-                      {m.bracketType === "losers" && (
+                      {m.bracketType === 'losers' && (
                         <span className="ml-1 text-xs text-orange-500">L</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {m.player1Name ?? m.player1Username ?? "TBD"}
+                      {m.player1Name ?? m.player1Username ?? 'TBD'}
                     </td>
                     <td className="px-4 py-3 font-mono text-center">
                       {m.player1Score !== null && m.player2Score !== null
                         ? `${m.player1Score}:${m.player2Score}`
-                        : "—"}
+                        : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {m.player2Name ?? m.player2Username ?? "TBD"}
+                      {m.player2Name ?? m.player2Username ?? 'TBD'}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
-                      {m.tableName ?? "—"}
+                      {m.tableName ?? '—'}
                     </td>
                     <td className="px-4 py-3">
                       <MatchStatusBadge status={m.status} />
