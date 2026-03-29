@@ -1,44 +1,95 @@
-import type { Tournament } from '../@types/tournament.js';
+import type { UUID } from 'crypto';
+
+import {
+  disciplines,
+  maxParticipants,
+  formats,
+  winScores,
+} from '@/db/schema.js';
+import { getVenue, getVenues } from '@/services/venueService.js';
+import { getTablesByVenue } from '@/services/tableService.js';
+import { createTournamentDraft } from '@/services/tournamentService.js';
+import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
+import type {
+  ITournamentDiscipline,
+  ITournamentMaxParticipants,
+  ITournamentFormat,
+  ITournamentWinScore,
+} from '@/db/schema.js';
+
 import type { BotContext } from '../types.js';
-import type { ICreationState } from './tournamentCreation.js';
+import type {
+  ICreationData,
+  ICreationStep,
+  IRequiredCreationData,
+} from './tournamentCreation.js';
 import type { ITournamentCreationRenderer } from './tournamentCreation.renderer.js';
 import type { ITournamentCreationStateStore } from './tournamentCreation.stateStore.js';
 
 // #region Types / Interfaces
 
+export interface ITournamentCreationFlow {
+  handleNameInput(ctx: BotContext, name: string): Promise<boolean>;
+
+  handleStartDateInput(ctx: BotContext, startDate: string): Promise<boolean>;
+
+  handleVenueSelection(ctx: BotContext, venueId: UUID): Promise<boolean>;
+
+  handleDisciplineSelection(
+    ctx: BotContext,
+    discipline: string,
+  ): Promise<boolean>;
+
+  handleFormatSelection(ctx: BotContext, format: string): Promise<boolean>;
+
+  handleMaxParticipantsSelection(
+    ctx: BotContext,
+    maxParticipants: number,
+  ): Promise<boolean>;
+
+  handleWinScoreSelection(ctx: BotContext, winScore: number): Promise<boolean>;
+
+  handleTableSelectionToggle(ctx: BotContext, tableId: UUID): Promise<boolean>;
+
+  handleTableSelectionFinalize(
+    ctx: BotContext,
+    isSkip: boolean,
+  ): Promise<boolean>;
+}
+
 // #endregion
 
 // #region Class
 
-export class TournamentCreationFlow {
+export class TournamentCreationFlow implements ITournamentCreationFlow {
   constructor(
     private readonly stateStore: ITournamentCreationStateStore,
     private readonly renderer: ITournamentCreationRenderer,
+    private readonly dateTimeHelper: IDateTimeHelper,
   ) {}
 
-  start(userId: number): void {
-    this.stateStore.start(userId);
-  }
+  /**
+   * Обрабатывает ввод имени турнира пользователем
+   *
+   * Проверяет, находится ли пользователь на этапе ввода имени,
+   * и при успехе переводит процесс создания турнира на следующий шаг (ввод даты начала турнира).
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {string} name Введённое пользователем имя турнира
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleNameInput(ctx: BotContext, name: string): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'name',
+      false,
+    );
 
-  cancel(userId: number): boolean {
-    return this.stateStore.clear(userId);
-  }
-
-  getState(userId: number): ICreationState | undefined {
-    return this.stateStore.get(userId);
-  }
-
-  async handleNameInput(
-    ctx: BotContext,
-    name: Tournament['name'],
-  ): Promise<boolean> {
-    const userId = this.getUserId(ctx);
-
-    if (!userId) return false;
-
-    if (!this.stateStore.hasStep(userId, 'name')) {
-      return false;
-    }
+    if (!hasStep) return false;
 
     const clearedName = name.trim();
 
@@ -48,7 +99,7 @@ export class TournamentCreationFlow {
       return true;
     }
 
-    this.stateStore.update(userId, {
+    const state = this.stateStore.update(userId, {
       step: 'date',
       data: {
         tournament: {
@@ -57,362 +108,562 @@ export class TournamentCreationFlow {
       },
     });
 
-    await this.renderer.showDateStep(ctx, name);
+    if (state.step !== 'date' || state.data.tournament?.name !== clearedName) {
+      return false;
+    }
+
+    await this.renderer.showStartDateStep(ctx, clearedName);
 
     return true;
   }
 
-  async handleDateInput(ctx: BotContext, text: string): Promise<boolean> {
-    const userId = this.getUserId(ctx);
-    if (!userId) return false;
+  /**
+   * Обрабатывает ввод даты создания турнира пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {string} startDate Введенная пользователем дата в формате строки
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleStartDateInput(
+    ctx: BotContext,
+    startDate: string,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'date',
+      false,
+    );
 
-    if (!this.stateStore.hasStep(userId, 'date')) {
-      return false;
+    if (!hasStep) return false;
+
+    const parsedDate = this.dateTimeHelper.toDate(startDate.trim());
+
+    if (!parsedDate.status) {
+      await this.renderer.showInvalidDate(ctx);
+
+      return true;
     }
 
-    const parsedDate = parseDate(text.trim());
+    const state = this.stateStore.update(userId, {
+      step: 'venue',
+      data: {
+        tournament: {
+          startDate: parsedDate.datetime,
+        },
+      },
+    });
 
-    if (!parsedDate) {
-      await ctx.reply('Не удалось распознать дату, попробуйте еще раз');
-      return true;
+    if (
+      state.step !== 'venue' ||
+      state.data.tournament?.startDate?.toISOString() !==
+        parsedDate.datetime.toISOString()
+    ) {
+      return false;
     }
 
     const venues = await getVenues();
 
     if (venues.length === 0) {
       this.stateStore.clear(userId);
-      await ctx.reply(
-        'Нельзя создать турнир: в системе нет ни одной площадки.',
-      );
-      return true;
+
+      await this.renderer.showNoVenues(ctx);
+
+      return false;
     }
 
-    this.stateStore.update(userId, {
-      step: 'venue',
-      data: { startDate: parsedDate },
-    });
-
-    await this.renderer.showVenueStep(ctx, parsedDate, venues);
+    await this.renderer.showVenueStep(ctx, parsedDate.datetime, venues);
 
     return true;
   }
 
-  async handleVenueSelection(ctx: BotContext, venueId: string): Promise<void> {
-    const session = await this.requireStep(ctx, 'venue');
-    if (!session) return;
+  /**
+   * Обрабатывает выбор площадки создания турнира пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {UUID} venueId ID выбранной площадки
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleVenueSelection(ctx: BotContext, venueId: UUID): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'venue',
+    );
+
+    if (!hasStep) return false;
 
     const venue = await getVenue(venueId);
 
-    if (!venue) {
-      await ctx.answerCallbackQuery({
-        text: 'Площадка не найдена',
-        show_alert: true,
-      });
-      return;
+    if (venue === null) {
+      await this.renderer.showVenueNotFound(ctx);
+
+      return true;
     }
 
-    this.stateStore.update(session.userId, {
+    const state = this.stateStore.update(userId, {
       step: 'discipline',
       data: {
-        venueId: venue.id,
-        venueName: venue.name,
+        venue: {
+          id: venue.id,
+          name: venue.name,
+        },
       },
     });
 
+    if (state.step !== 'discipline' || state.data.venue?.id !== venue.id) {
+      await ctx.answerCallbackQuery({
+        text: 'Произошла ошибка при сохранении выбранной площадки',
+        show_alert: true,
+      });
+
+      return false;
+    }
+
     await ctx.answerCallbackQuery();
+
     await this.renderer.showDisciplineStep(ctx, venue.name);
+
+    return true;
   }
 
+  /**
+   * Обрабатывает выбор дисциплины создания турнира пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {string} discipline Выбранная пользователем дисциплина
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
   async handleDisciplineSelection(
     ctx: BotContext,
-    selectedDiscipline: string,
-  ): Promise<void> {
-    const session = await this.requireStep(ctx, 'discipline');
-    if (!session) return;
+    discipline: string,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'discipline',
+    );
 
-    if (!this.isDiscipline(selectedDiscipline)) {
-      await ctx.answerCallbackQuery({
-        text: 'Некорректная дисциплина',
-        show_alert: true,
-      });
-      return;
+    if (!hasStep) return false;
+
+    if (!this.isDiscipline(discipline)) {
+      await this.renderer.showInvalidDiscipline(ctx);
+
+      return true;
     }
 
-    this.stateStore.update(session.userId, {
+    const state = this.stateStore.update(userId, {
       step: 'format',
       data: {
-        discipline: selectedDiscipline,
+        tournament: {
+          discipline,
+        },
       },
     });
 
-    await ctx.answerCallbackQuery();
-    await this.renderer.showFormatStep(ctx, selectedDiscipline);
-  }
-
-  async handleFormatSelection(
-    ctx: BotContext,
-    selectedFormat: string,
-  ): Promise<void> {
-    const session = await this.requireStep(ctx, 'format');
-    if (!session) return;
-
-    if (!this.isTournamentFormat(selectedFormat)) {
+    if (
+      state.step !== 'format' ||
+      state.data.tournament?.discipline !== discipline
+    ) {
       await ctx.answerCallbackQuery({
-        text: 'Некорректный формат турнира',
+        text: 'Произошла ошибка при сохранении выбранной дисциплины',
         show_alert: true,
       });
-      return;
+
+      return false;
     }
 
-    this.stateStore.update(session.userId, {
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showFormatStep(ctx, discipline);
+
+    return true;
+  }
+
+  /**
+   * Обрабатывает выбор формата турнира пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {string} format Выбранный формат турнира
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleFormatSelection(
+    ctx: BotContext,
+    format: string,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'format',
+    );
+
+    if (!hasStep) return false;
+
+    if (!this.isTournamentFormat(format)) {
+      await this.renderer.showInvalidFormat(ctx);
+
+      return true;
+    }
+
+    const state = this.stateStore.update(userId, {
       step: 'maxParticipants',
       data: {
-        format: selectedFormat,
+        tournament: {
+          format,
+        },
       },
     });
 
+    if (
+      state.step !== 'maxParticipants' ||
+      state.data.tournament?.format !== format
+    ) {
+      await ctx.answerCallbackQuery({
+        text: 'Произошла ошибка при сохранении выбранного формата турнира',
+        show_alert: true,
+      });
+
+      return false;
+    }
+
     await ctx.answerCallbackQuery();
-    await this.renderer.showMaxParticipantsStep(ctx, selectedFormat);
+
+    await this.renderer.showMaxParticipantsStep(ctx, format);
+
+    return true;
   }
 
+  /**
+   * Обрабатывает выбор максимального количества участников турнира пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {number} maxParticipants Выбранное количество участников
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
   async handleMaxParticipantsSelection(
     ctx: BotContext,
-    participants: number,
-  ): Promise<void> {
-    const session = await this.requireStep(ctx, 'maxParticipants');
-    if (!session) return;
+    maxParticipants: number,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'maxParticipants',
+    );
 
-    if (!this.isAllowedParticipantsCount(participants)) {
+    if (!hasStep) return false;
+
+    if (!this.isAllowedParticipantsCount(maxParticipants)) {
       await ctx.answerCallbackQuery({
         text: 'Некорректное количество участников',
         show_alert: true,
       });
-      return;
+
+      return true;
     }
 
-    this.stateStore.update(session.userId, {
+    const state = this.stateStore.update(userId, {
       step: 'winScore',
       data: {
-        maxParticipants: participants,
+        tournament: {
+          maxParticipants,
+        },
       },
     });
 
+    if (
+      state.step !== 'winScore' ||
+      state.data.tournament?.maxParticipants !== maxParticipants
+    ) {
+      await ctx.answerCallbackQuery({
+        text: 'Произошла ошибка при сохранении выбранного количества участников',
+        show_alert: true,
+      });
+
+      return false;
+    }
+
     await ctx.answerCallbackQuery();
-    await this.renderer.showWinScoreStep(ctx, participants);
+
+    await this.renderer.showWinScoreStep(ctx, maxParticipants);
+
+    return true;
   }
 
+  /**
+   * Обрабатывает выбор количества побед для турнира пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {number} winScore Выбранное количество побед
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
   async handleWinScoreSelection(
     ctx: BotContext,
     winScore: number,
-  ): Promise<void> {
-    const session = await this.requireStep(ctx, 'winScore');
-    if (!session) return;
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'winScore',
+    );
+
+    if (!hasStep) return false;
 
     if (!this.isAllowedWinScore(winScore)) {
       await ctx.answerCallbackQuery({
-        text: 'Некорректное количество побед',
+        text: 'Некорректное значение для количества побед',
         show_alert: true,
       });
-      return;
+
+      return true;
     }
 
-    if (!session.state.data.venueId) {
-      this.stateStore.clear(session.userId);
-      await ctx.answerCallbackQuery({
-        text: 'Площадка не выбрана',
-        show_alert: true,
-      });
-      return;
-    }
-
-    const nextState = this.stateStore.update(session.userId, {
+    const state = this.stateStore.update(userId, {
       step: 'tables',
       data: {
-        winScore,
-        selectedTableIds: [],
+        tournament: {
+          winScore,
+        },
+        tables: [],
       },
     });
 
+    if (
+      state.step !== 'tables' ||
+      state.data.tournament?.winScore !== winScore ||
+      state.data.tables?.length !== 0
+    ) {
+      await ctx.answerCallbackQuery({
+        text: 'Произошла ошибка при сохранении выбранного количества побед',
+        show_alert: true,
+      });
+
+      return false;
+    }
+
+    if (state.data.venue?.id === undefined) {
+      this.stateStore.clear(userId);
+
+      await this.renderer.showVenueMissing(ctx);
+
+      return false;
+    }
+
+    const venueTables = await getTablesByVenue(state.data.venue.id);
+
     await ctx.answerCallbackQuery();
-    await this.renderTablesStep(ctx, nextState);
+
+    await this.renderer.showTablesStep(ctx, venueTables, [], winScore);
+
+    return true;
   }
 
+  /**
+   * Обработка события выбора стола для создаваемого турнира
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {UUID} tableId Идентификатор стола
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
   async handleTableSelectionToggle(
     ctx: BotContext,
-    tableId: string,
-  ): Promise<void> {
-    const session = await this.requireStep(ctx, 'tables');
-    if (!session) return;
+    tableId: UUID,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'tables',
+    );
 
-    const venueId = session.state.data.venueId;
-    if (!venueId) {
-      this.stateStore.clear(session.userId);
-      await ctx.answerCallbackQuery({
-        text: 'Площадка не выбрана',
-        show_alert: true,
-      });
-      return;
+    if (!hasStep) return false;
+
+    let state = this.stateStore.getOrThrow(userId);
+
+    if (state.data.venue?.id === undefined) {
+      this.stateStore.clear(userId);
+
+      await this.renderer.showVenueMissing(ctx);
+
+      return false;
     }
 
-    const tables = await getTablesByVenue(venueId);
+    const venueTables = await getTablesByVenue(state.data.venue.id);
 
-    if (!tables.some((table) => table.id === tableId)) {
-      await ctx.answerCallbackQuery({
-        text: 'Можно выбрать только столы выбранной площадки',
-        show_alert: true,
-      });
-      return;
+    const venueTablesDictionary = new Map(
+      venueTables.map((table) => [table.id, table]),
+    );
+
+    if (!venueTablesDictionary.has(tableId)) {
+      await this.renderer.showInvalidTableSelection(ctx);
+
+      return true;
     }
 
-    const selected = new Set(session.state.data.selectedTableIds ?? []);
+    const selectedTableIds = new Set(
+      state.data.tables?.map((table) => table.id) ?? [],
+    );
 
-    if (selected.has(tableId)) {
-      selected.delete(tableId);
+    if (selectedTableIds.has(tableId)) {
+      selectedTableIds.delete(tableId);
     } else {
-      selected.add(tableId);
+      selectedTableIds.add(tableId);
     }
 
-    const nextState = this.stateStore.update(session.userId, {
+    state = this.stateStore.update(userId, {
+      step: 'venue',
       data: {
-        selectedTableIds: Array.from(selected),
+        tables: venueTables.filter((table) => selectedTableIds.has(table.id)),
       },
     });
 
+    if (
+      state.step !== 'tables' ||
+      state.data.tables?.length !== selectedTableIds.size
+    ) {
+      await ctx.answerCallbackQuery({
+        text: 'Произошла ошибка при сохранении выбранных столов',
+        show_alert: true,
+      });
+
+      return false;
+    }
+
     await ctx.answerCallbackQuery();
-    await this.renderTablesStep(ctx, nextState, tables);
+
+    await this.renderer.showTablesStep(ctx, venueTables, [...selectedTableIds]);
+
+    return true;
   }
 
-  async handleTableSelectionDone(ctx: BotContext): Promise<void> {
-    const session = await this.requireStep(ctx, 'tables');
-    if (!session) return;
-
-    await ctx.answerCallbackQuery();
-    await this.finalizeTournamentCreation(
+  async handleTableSelectionFinalize(
+    ctx: BotContext,
+    isSkip: boolean,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
       ctx,
-      session.state,
-      session.state.data.selectedTableIds ?? [],
+      'tables',
     );
-  }
 
-  async handleTableSelectionSkip(ctx: BotContext): Promise<void> {
-    const session = await this.requireStep(ctx, 'tables');
-    if (!session) return;
+    if (!hasStep) return false;
 
     await ctx.answerCallbackQuery();
-    await this.finalizeTournamentCreation(ctx, session.state, []);
+
+    const state = this.stateStore.getOrThrow(userId);
+
+    if (!this.hasRequiredCreationData(state.data)) {
+      this.stateStore.clear(userId);
+
+      await this.renderer.showCorruptedSession(ctx);
+
+      return false;
+    }
+
+    try {
+      await createTournamentDraft({
+        venueId: state.data.venue.id,
+
+        name: state.data.tournament.name,
+        discipline: state.data.tournament.discipline,
+        format: state.data.tournament.format,
+        maxParticipants: state.data.tournament.maxParticipants,
+        winScore: state.data.tournament.winScore,
+        startDate: state.data.tournament.startDate ?? null,
+
+        tableIds: isSkip ? [] : state.data.tables.map((table) => table.id),
+
+        createdBy: ctx.dbUser.id,
+      });
+
+      this.stateStore.clear(userId);
+
+      await this.renderer.showCreationSuccess(ctx, state.data);
+    } catch (error) {
+      await this.renderer.showCreationError(ctx, error);
+    }
+
+    return true;
   }
 
   private getUserId(ctx: BotContext): number | null {
     return ctx.from?.id ?? null;
   }
 
-  private async renderTablesStep(
+  private async getUserIfOnCreationStep(
     ctx: BotContext,
-    state: CreationState,
-    tables?: Awaited<ReturnType<typeof getTablesByVenue>>,
-  ): Promise<void> {
-    const venueId = state.data.venueId;
-
-    const availableTables =
-      tables ?? (venueId ? await getTablesByVenue(venueId) : []);
-
-    await this.renderer.showTablesStep(ctx, state, availableTables);
-  }
-
-  private async finalizeTournamentCreation(
-    ctx: BotContext,
-    state: CreationState,
-    tableIds: string[],
-  ): Promise<void> {
+    step: ICreationStep,
+    isReturnAnswer = true,
+  ): Promise<
+    { status: false; userId?: never } | { status: true; userId: number }
+  > {
     const userId = this.getUserId(ctx);
-    if (!userId) return;
 
-    if (!this.hasRequiredCreationData(state.data)) {
-      this.stateStore.clear(userId);
-      await this.renderer.showCorruptedSession(ctx);
-      return;
+    if (!userId) return { status: false };
+
+    if (!this.stateStore.hasStep(userId, step)) {
+      if (isReturnAnswer) {
+        await this.renderer.showSessionExpired(ctx);
+      }
+
+      return { status: false };
     }
 
-    try {
-      const tournament = await createTournamentDraft({
-        name: state.data.name,
-        discipline: state.data.discipline,
-        format: state.data.format,
-        maxParticipants: state.data.maxParticipants,
-        winScore: state.data.winScore,
-        startDate: state.data.startDate ?? null,
-        venueId: state.data.venueId,
-        tableIds,
-        createdBy: ctx.dbUser.id,
-      });
-
-      this.stateStore.clear(userId);
-
-      await this.renderer.showCreationSuccess(
-        ctx,
-        tournament,
-        state.data.venueName,
-        tableIds.length,
-      );
-    } catch (error) {
-      console.error('Error creating tournament:', error);
-
-      await this.renderer.showCreationError(
-        ctx,
-        error instanceof Error ? error.message : 'Неизвестная ошибка',
-      );
-    }
+    return { status: true, userId };
   }
 
-  private async requireStep(
-    ctx: BotContext,
-    step: CreationStep,
-  ): Promise<{ userId: number; state: CreationState } | null> {
-    const userId = this.getUserId(ctx);
-    if (!userId) return null;
-
-    const state = this.stateStore.get(userId);
-
-    if (!state || state.step !== step) {
-      await ctx.answerCallbackQuery('Сессия создания истекла');
-      return null;
-    }
-
-    return { userId, state };
+  private isDiscipline(value: string): value is ITournamentDiscipline {
+    return Object.values<string>(disciplines).includes(value);
   }
 
-  private isDiscipline(value: string): value is Discipline {
-    return discipline.includes(value as Discipline);
+  private isTournamentFormat(value: string): value is ITournamentFormat {
+    return Object.values<string>(formats).includes(value);
   }
 
-  private isTournamentFormat(value: string): value is TournamentFormat {
-    return tournamentFormat.includes(value as TournamentFormat);
+  private isAllowedParticipantsCount(
+    value: number,
+  ): value is ITournamentMaxParticipants {
+    return Object.values<number>(maxParticipants).includes(value);
   }
 
-  private isAllowedParticipantsCount(value: number): boolean {
-    return [8, 16, 32, 64, 128].includes(value);
+  private isAllowedWinScore(value: number): value is ITournamentWinScore {
+    return Object.values<number>(winScores).includes(value);
   }
 
-  private isAllowedWinScore(value: number): boolean {
-    return [2, 3, 4, 5].includes(value);
-  }
+  private hasRequiredCreationData(
+    data: ICreationData,
+  ): data is IRequiredCreationData {
+    const isValidVenue =
+      data.venue?.id !== undefined && data.venue?.name !== undefined;
 
-  private hasRequiredCreationData(data: CreationData): data is CreationData & {
-    name: string;
-    discipline: Discipline;
-    format: TournamentFormat;
-    maxParticipants: number;
-    winScore: number;
-    venueId: string;
-  } {
-    return Boolean(
-      data.name &&
-      data.discipline &&
-      data.format &&
-      data.maxParticipants &&
-      data.winScore &&
-      data.venueId,
-    );
+    const isValidTournament =
+      data.tournament?.name !== undefined &&
+      data.tournament?.discipline !== undefined &&
+      data.tournament?.format !== undefined &&
+      data.tournament?.maxParticipants !== undefined &&
+      data.tournament?.winScore !== undefined;
+
+    const isValidTables = Array.isArray(data.tables);
+
+    return isValidVenue && isValidTournament && isValidTables;
   }
 }
 
