@@ -1,12 +1,21 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { discipline, tournamentFormat } from '../../db/schema.js';
-import { parseDate, formatDate } from '../../utils/dateHelpers.js';
-import { DISCIPLINE_LABELS, FORMAT_LABELS } from '../../utils/constants.js';
-import { safeEditMessageText } from '../../utils/messageHelpers.js';
-import { createTournamentDraft } from '../../services/tournamentService.js';
-import { getVenue, getVenues } from '../../services/venueService.js';
-import { getTablesByVenue } from '../../services/tableService.js';
+import type { UUID } from 'crypto';
 
+import { DISCIPLINE_LABELS, FORMAT_LABELS } from '@/utils/constants.js';
+import { safeEditMessageText } from '@/utils/messageHelpers.js';
+import { createTournamentDraft } from '@/services/tournamentService.js';
+import { getVenue, getVenues } from '@/services/venueService.js';
+import { getTablesByVenue } from '@/services/tableService.js';
+import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
+import { disciplines, formats } from '@/db/schema.js';
+import type {
+  ITournamentDiscipline,
+  ITournamentFormat,
+  ITournamentMaxParticipants,
+  ITournamentWinScore,
+} from '@/db/schema.js';
+
+import { getMatchStatusEmoji } from '../ui/matchUI.js';
 import type { BotContext } from '../types.js';
 
 const STEPS_COUNT = 8;
@@ -28,9 +37,9 @@ interface CreationData {
   maxParticipants?: number;
   winScore?: number;
   startDate?: Date;
-  venueId?: string;
+  venueId?: UUID;
   venueName?: string;
-  selectedTableIds?: string[];
+  selectedTableIds?: UUID[];
 }
 
 interface CreationState {
@@ -97,8 +106,8 @@ export async function handleDateInput(
     return false;
   }
 
-  const parsedDate = parseDate(text);
-  if (!parsedDate) {
+  const parsedDate = DateTimeHelperInstance.toDate(text);
+  if (!parsedDate.status) {
     await ctx.reply('Не удалось распознать дату, попробуйте еще раз');
     return true;
   }
@@ -110,11 +119,11 @@ export async function handleDateInput(
     return true;
   }
 
-  state.data.startDate = parsedDate;
+  state.data.startDate = parsedDate.datetime;
   state.step = 'venue';
 
   await ctx.reply(
-    `Дата: ${formatDate(parsedDate)}\n\nШаг 3/${STEPS_COUNT}: Выберите площадку:`,
+    `Дата: ${DateTimeHelperInstance.formatDate(parsedDate.datetime)}\n\nШаг 3/${STEPS_COUNT}: Выберите площадку:`,
     {
       reply_markup: buildVenuesKeyboard(venues),
     },
@@ -124,7 +133,7 @@ export async function handleDateInput(
 
 export async function handleVenueSelection(
   ctx: BotContext,
-  venueId: string,
+  venueId: UUID,
 ): Promise<void> {
   if (!ctx.from) {
     return;
@@ -150,7 +159,7 @@ export async function handleVenueSelection(
   state.step = 'discipline';
 
   const keyboard = new InlineKeyboard();
-  for (const disc of discipline) {
+  for (const disc of disciplines) {
     keyboard.text(DISCIPLINE_LABELS[disc] || disc, `discipline:${disc}`).row();
   }
 
@@ -181,7 +190,7 @@ export async function handleDisciplineSelection(
   state.step = 'format';
 
   const keyboard = new InlineKeyboard();
-  for (const fmt of tournamentFormat) {
+  for (const fmt of formats) {
     keyboard.text(FORMAT_LABELS[fmt] || fmt, `format:${fmt}`).row();
   }
 
@@ -294,7 +303,7 @@ export async function handleWinScoreSelection(
 
 export async function handleTableSelectionToggle(
   ctx: BotContext,
-  tableId: string,
+  tableId: UUID,
 ): Promise<void> {
   if (!ctx.from) {
     return;
@@ -427,7 +436,7 @@ async function renderTablesStep(
 async function finalizeTournamentCreation(
   ctx: BotContext,
   state: CreationState,
-  tableIds: string[],
+  tableIds: UUID[],
 ): Promise<void> {
   if (!ctx.from) {
     return;
@@ -451,10 +460,10 @@ async function finalizeTournamentCreation(
   try {
     const tournament = await createTournamentDraft({
       name: state.data.name,
-      discipline: state.data.discipline as (typeof discipline)[number],
-      format: state.data.format as (typeof tournamentFormat)[number],
-      maxParticipants: state.data.maxParticipants,
-      winScore: state.data.winScore,
+      discipline: state.data.discipline as ITournamentDiscipline,
+      format: state.data.format as ITournamentFormat,
+      maxParticipants: state.data.maxParticipants as ITournamentMaxParticipants,
+      winScore: state.data.winScore as ITournamentWinScore,
       startDate: state.data.startDate ?? null,
       venueId: state.data.venueId,
       tableIds,
@@ -471,7 +480,7 @@ async function finalizeTournamentCreation(
       text:
         `✅ Турнир создан!\n\n` +
         `Название: ${tournament.name}\n` +
-        `Дата начала: ${formatDate(tournament.startDate)}\n` +
+        `Дата начала: ${DateTimeHelperInstance.formatDate(tournament.startDate)}\n` +
         `Площадка: ${tournament.venueName ?? state.data.venueName}\n` +
         `Дисциплина: ${DISCIPLINE_LABELS[tournament.discipline]}\n` +
         `Формат: ${FORMAT_LABELS[tournament.format]}\n` +
@@ -486,7 +495,7 @@ async function finalizeTournamentCreation(
   } catch (error) {
     console.error('Error creating tournament:', error);
     await safeEditMessageText(ctx, {
-      text: `❌ Ошибка при создании турнира:\n${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
+      text: `${getMatchStatusEmoji('cancelled')} Ошибка при создании турнира:\n${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
     });
   }
 }

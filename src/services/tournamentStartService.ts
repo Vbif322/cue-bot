@@ -1,20 +1,22 @@
-import type { Api } from "grammy";
+import type { Api } from 'grammy';
+import type { UUID } from 'crypto';
+
 import {
   assignRandomSeeds,
   getConfirmedParticipants,
   startTournament,
   getTournament,
-} from "./tournamentService.js";
-import { generateBracket } from "./bracketGenerator.js";
+} from './tournamentService.js';
+import { generateBracket } from './bracketGenerator.js';
 import {
   createMatches,
   getRoundMatches,
   getMatch,
   assignTableAndStart,
   getNextReadyMatch,
-} from "./matchService.js";
-import { notifyMatchAssigned } from "./notificationService.js";
-import { getTournamentTables } from "./tableService.js";
+} from './matchService.js';
+import { notifyMatchAssigned } from './notificationService.js';
+import { getTournamentTables } from './tableService.js';
 
 export interface StartTournamentFullResult {
   participantsCount: number;
@@ -32,11 +34,11 @@ export interface StartTournamentFullResult {
  * 6. Notify remaining first-round participants via Telegram
  */
 export async function startTournamentFull(
-  tournamentId: string,
+  tournamentId: UUID,
   botApi: Api,
 ): Promise<StartTournamentFullResult> {
   const tournament = await getTournament(tournamentId);
-  if (!tournament) throw new Error("Турнир не найден");
+  if (!tournament) throw new Error('Турнир не найден');
 
   // 1. Assign random seeds
   await assignRandomSeeds(tournamentId);

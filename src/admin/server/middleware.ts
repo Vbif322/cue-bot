@@ -1,38 +1,40 @@
-import { createMiddleware } from "hono/factory";
-import jwt from "jsonwebtoken";
-import { db } from "../../db/db.js";
-import { users } from "../../db/schema.js";
-import { eq } from "drizzle-orm";
+import { createMiddleware } from 'hono/factory';
+import { eq } from 'drizzle-orm';
+import jwt from 'jsonwebtoken';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { users } from '@/db/schema.js';
 
 export interface AdminUser {
-  id: string;
+  id: UUID;
   username: string;
   role: string;
 }
 
-declare module "hono" {
+declare module 'hono' {
   interface ContextVariableMap {
     adminUser: AdminUser;
   }
 }
 
 const rawJwtSecret = process.env.JWT_SECRET;
-if (!rawJwtSecret && process.env.NODE_ENV === "production") {
-  throw new Error("JWT_SECRET environment variable is required in production");
+if (!rawJwtSecret && process.env.NODE_ENV === 'production') {
+  throw new Error('JWT_SECRET environment variable is required in production');
 }
-export const JWT_SECRET = rawJwtSecret ?? "dev-secret-change-in-production";
+export const JWT_SECRET = rawJwtSecret ?? 'dev-secret-change-in-production';
 
 export function signToken(payload: AdminUser): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 }
 
 export const requireAdmin = createMiddleware(async (c, next) => {
-  const cookie = c.req.header("Cookie") ?? "";
+  const cookie = c.req.header('Cookie') ?? '';
   const tokenMatch = cookie.match(/admin_token=([^;]+)/);
   const token = tokenMatch?.[1];
 
   if (!token) {
-    return c.json({ error: "Unauthorized" }, 401);
+    return c.json({ error: 'Unauthorized' }, 401);
   }
 
   try {
@@ -43,11 +45,11 @@ export const requireAdmin = createMiddleware(async (c, next) => {
       where: eq(users.id, payload.id),
     });
 
-    if (!user || user.role !== "admin") {
-      return c.json({ error: "Forbidden" }, 403);
+    if (!user || user.role !== 'admin') {
+      return c.json({ error: 'Forbidden' }, 403);
     }
 
-    c.set("adminUser", {
+    c.set('adminUser', {
       id: user.id,
       username: user.username,
       role: user.role,
@@ -55,6 +57,6 @@ export const requireAdmin = createMiddleware(async (c, next) => {
 
     await next();
   } catch {
-    return c.json({ error: "Invalid token" }, 401);
+    return c.json({ error: 'Invalid token' }, 401);
   }
 });

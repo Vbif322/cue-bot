@@ -50,9 +50,14 @@ export const tournaments = prodSchema.table('tournaments', {
 
   name: varchar({ length: 255 }).notNull(),
   description: text(),
-  discipline: varchar({ enum: disciplines }).notNull(),
-  format: varchar({ enum: formats }).notNull(),
-  status: varchar({ enum: statuses }).notNull().default('draft'),
+  discipline: varchar({ enum: disciplines })
+    .$type<ITournamentDiscipline>()
+    .notNull(),
+  format: varchar({ enum: formats }).$type<ITournamentFormat>().notNull(),
+  status: varchar({ enum: statuses })
+    .$type<ITournamentStatus>()
+    .notNull()
+    .default('draft'),
   startDate: timestamp('start_date'),
   confirmedParticipants: integer('confirmed_participants'),
   maxParticipants: integer('max_participants')

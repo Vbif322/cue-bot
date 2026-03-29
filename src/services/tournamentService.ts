@@ -1,20 +1,28 @@
 import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
-import { db } from '../db/db.js';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
 import {
   tournamentTables,
   tournaments,
   tournamentParticipants,
   users,
   venues,
-} from '../db/schema.js';
-import type { IDiscipline, ITournamentFormat } from '../db/schema.js';
-import { shuffleArray } from './bracketGenerator.js';
-import { validateTableIdsForVenue } from './tableService.js';
+} from '@/db/schema.js';
+import type {
+  ITournamentDiscipline,
+  ITournamentFormat,
+  ITournamentMaxParticipants,
+  ITournamentWinScore,
+} from '@/db/schema.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
   TournamentReadModel,
-} from '../bot/@types/tournament.js';
+} from '@/bot/@types/tournament.js';
+
+import { shuffleArray } from './bracketGenerator.js';
+import { validateTableIdsForVenue } from './tableService.js';
 
 export interface StartTournamentResult {
   canStart: boolean;
@@ -23,19 +31,19 @@ export interface StartTournamentResult {
 }
 
 export interface CreateTournamentDraftInput {
-  venueId: string;
+  venueId: UUID;
 
   name: string;
   description?: string | null;
-  discipline: IDiscipline;
+  discipline: ITournamentDiscipline;
   format: ITournamentFormat;
   startDate?: Date | null;
-  maxParticipants: number;
-  winScore: number;
+  maxParticipants: ITournamentMaxParticipants;
+  winScore: ITournamentWinScore;
   rules?: string | null;
   createdBy: string;
 
-  tableIds?: string[];
+  tableIds?: UUID[];
 }
 
 const tournamentReadColumns = {
@@ -47,7 +55,7 @@ const tournamentReadColumns = {
  * Check if tournament can be started
  */
 export async function canStartTournament(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<StartTournamentResult> {
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, tournamentId),
@@ -83,7 +91,7 @@ export async function canStartTournament(
  * Get confirmed participants for a tournament with user info
  */
 export async function getConfirmedParticipants(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<TournamentParticipant[]> {
   const participants = await db
     .select({
@@ -114,7 +122,7 @@ export async function getConfirmedParticipants(
 /**
  * Start tournament - change status to in_progress
  */
-export async function startTournament(tournamentId: string): Promise<void> {
+export async function startTournament(tournamentId: UUID): Promise<void> {
   // Get tournament to check format
   const tournament = await getTournament(tournamentId);
   if (!tournament) {
@@ -210,10 +218,7 @@ export async function createTournamentDraft(
 /**
  * Complete tournament with winner
  */
-export async function completeTournament(
-  tournamentId: string,
-  winnerId: string,
-): Promise<void> {
+export async function completeTournament(tournamentId: UUID): Promise<void> {
   await db
     .update(tournaments)
     .set({
@@ -227,7 +232,7 @@ export async function completeTournament(
  * Get tournament by ID
  */
 export async function getTournament(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<TournamentReadModel | null> {
   const [rows] = await db
     .select(tournamentReadColumns)
@@ -241,7 +246,7 @@ export async function getTournament(
 /**
  * Assign random seeds to participants
  */
-export async function assignRandomSeeds(tournamentId: string): Promise<void> {
+export async function assignRandomSeeds(tournamentId: UUID): Promise<void> {
   const participants = await getConfirmedParticipants(tournamentId);
   const shuffled = shuffleArray(participants);
 
@@ -282,7 +287,7 @@ export async function getTournaments(options?: {
  * Update tournament status
  */
 export async function updateTournamentStatus(
-  tournamentId: string,
+  tournamentId: UUID,
   status: TournamentStatus,
 ): Promise<void> {
   await db
@@ -298,7 +303,7 @@ export async function updateTournamentStatus(
  * Close tournament registration and save confirmed participants count
  */
 export async function closeRegistrationWithCount(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<number> {
   // Get participants count from tournamentParticipants table
   const result = await db
@@ -329,7 +334,7 @@ export async function closeRegistrationWithCount(
 /**
  * Delete tournament by ID
  */
-export async function deleteTournament(tournamentId: string): Promise<void> {
+export async function deleteTournament(tournamentId: UUID): Promise<void> {
   await db.delete(tournaments).where(eq(tournaments.id, tournamentId));
 }
 

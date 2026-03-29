@@ -1,6 +1,8 @@
 import { asc, eq, inArray } from 'drizzle-orm';
-import { db } from '../db/db.js';
-import { tables, tournamentTables } from '../db/schema.js';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { tables, tournamentTables } from '@/db/schema.js';
 
 export type Table = typeof tables.$inferSelect;
 
@@ -16,10 +18,10 @@ export async function getTables(): Promise<Table[]> {
 /**
  * Извлекает все столы, принадлежащие данной площадке
  *
- * @param {string} venueId Идентификатор площадки, к которой принадлежат столы
+ * @param {UUID} venueId Идентификатор площадки, к которой принадлежат столы
  * @returns {Promise<Table[]>} Массив столов
  */
-export async function getTablesByVenue(venueId: string): Promise<Table[]> {
+export async function getTablesByVenue(venueId: UUID): Promise<Table[]> {
   return db.query.tables.findMany({
     where: eq(tables.venueId, venueId),
     orderBy: [asc(tables.name)],
@@ -29,10 +31,10 @@ export async function getTablesByVenue(venueId: string): Promise<Table[]> {
 /**
  * Извлекает стол по его идентификатору
  *
- * @param {string} id Идентификатор извлекаемого стола
+ * @param {UUID} id Идентификатор извлекаемого стола
  * @returns {Promise<Table | null>} Стол или null
  */
-export async function getTable(id: string): Promise<Table | null> {
+export async function getTable(id: UUID): Promise<Table | null> {
   return (
     (await db.query.tables.findFirst({ where: eq(tables.id, id) })) ?? null
   );
@@ -42,13 +44,10 @@ export async function getTable(id: string): Promise<Table | null> {
  * Создает новый стол с заданным названием и идентификатором площадки
  *
  * @param {string} name Название стола, который нужно создать
- * @param {string} venueId Идентификатор площадки, к которой принадлежит стол
+ * @param {UUID} venueId Идентификатор площадки, к которой принадлежит стол
  * @returns {Promise<Table>} Созданный стол
  */
-export async function createTable(
-  name: string,
-  venueId: string,
-): Promise<Table> {
+export async function createTable(name: string, venueId: UUID): Promise<Table> {
   const [table] = await db.insert(tables).values({ name, venueId }).returning();
 
   return table!;
@@ -57,10 +56,10 @@ export async function createTable(
 /**
  * Удаляет стол по его идентификатору
  *
- * @param {string} id Идентификатор удаляемого стола
+ * @param {UUID} id Идентификатор удаляемого стола
  * @returns {Promise<boolean>} true, если стол был удален, иначе false
  */
-export async function deleteTable(id: string): Promise<boolean> {
+export async function deleteTable(id: UUID): Promise<boolean> {
   const [row] = await db
     .delete(tables)
     .where(eq(tables.id, id))
@@ -72,12 +71,12 @@ export async function deleteTable(id: string): Promise<boolean> {
 /**
  * Возвращает столы, принадлежащие данному турниру
  *
- * @param {string} tournamentId Идентификатор турнира
+ * @param {UUID} tournamentId Идентификатор турнира
  * @returns {Promise<Table[]>} Массив столов
  */
 
 export async function getTournamentTables(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<Table[]> {
   const rows = await db
     .select({ table: tables })
@@ -92,15 +91,15 @@ export async function getTournamentTables(
 /**
  * Переназначает столы для данного турнира
  *
- * @param {string} tournamentId Идентификатор турнира
- * @param {string[]} tableIds Массив идентификаторов столов
+ * @param {UUID} tournamentId Идентификатор турнира
+ * @param {UUID[]} tableIds Массив идентификаторов столов
  * @returns {Promise<void>}
  */
 export async function setTournamentTables(
-  tournamentId: string,
-  tableIds: string[],
+  tournamentId: UUID,
+  tableIds: UUID[],
 ): Promise<void> {
-  const uniqueTableIds = Array.from(new Set(tableIds));
+  const uniqueTableIds = Array.from(new Set(tableIds)) as UUID[];
 
   await db.transaction(async (tx) => {
     await tx
@@ -125,14 +124,14 @@ export async function setTournamentTables(
  * @throws {Error} Если один или несколько столов не найдены
  * @throws {Error} Если не все столы принадлежат данной площадке
  *
- * @param {string[]} tableIds Массив идентификаторов столов
- * @param {string} venueId Идентификатор площадки
+ * @param {UUID[]} tableIds Массив идентификаторов столов
+ * @param {UUID} venueId Идентификатор площадки
  *
  * @returns {Promise<void>}
  */
 export async function validateTableIdsForVenue(
-  tableIds: string[],
-  venueId: string,
+  tableIds: UUID[],
+  venueId: UUID,
 ): Promise<void> {
   if (tableIds.length === 0) {
     return;

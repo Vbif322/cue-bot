@@ -1,23 +1,25 @@
-import { eq, and } from "drizzle-orm";
-import type { Api } from "grammy";
-import { db } from "../db/db.js";
-import { notifications, users, tournaments, matches } from "../db/schema.js";
-import type { BotContext } from "../bot/types.js";
-import type { MatchWithPlayers } from "../bot/@types/match.js";
+import { eq, and } from 'drizzle-orm';
+import type { Api } from 'grammy';
+import type { UUID } from 'crypto';
 
-type NotificationType = (typeof notifications.$inferInsert)["type"];
+import { db } from '@/db/db.js';
+import { notifications, users, tournaments, matches } from '@/db/schema.js';
+import type { INotification } from '@/db/schema.js';
+import type { MatchWithPlayers } from '@/bot/@types/match.js';
+
+type NotificationType = (typeof notifications.$inferInsert)['type'];
 
 /**
  * Create a notification record in the database
  */
 export async function createNotification(data: {
-  userId: string;
+  userId: UUID;
   type: NotificationType;
   title: string;
   message: string;
-  tournamentId?: string;
-  matchId?: string;
-}): Promise<string> {
+  tournamentId?: UUID;
+  matchId?: UUID;
+}): Promise<UUID> {
   const [notification] = await db
     .insert(notifications)
     .values({
@@ -30,7 +32,11 @@ export async function createNotification(data: {
     })
     .returning({ id: notifications.id });
 
-  return notification?.id ?? "";
+  if (!notification) {
+    throw new Error('Failed to create notification');
+  }
+
+  return notification.id;
 }
 
 /**
@@ -38,7 +44,7 @@ export async function createNotification(data: {
  */
 export async function sendNotification(
   api: Api,
-  notificationId: string,
+  notificationId: UUID,
 ): Promise<boolean> {
   const notification = await db.query.notifications.findFirst({
     where: eq(notifications.id, notificationId),
@@ -56,7 +62,7 @@ export async function sendNotification(
     await api.sendMessage(
       user.telegram_id,
       `*${notification.title}*\n\n${notification.message}`,
-      { parse_mode: "Markdown" },
+      { parse_mode: 'Markdown' },
     );
 
     await db
@@ -77,15 +83,16 @@ export async function sendNotification(
 export async function createAndSendNotification(
   api: Api,
   data: {
-    userId: string;
+    userId: UUID;
     type: NotificationType;
     title: string;
     message: string;
-    tournamentId?: string;
-    matchId?: string;
+    tournamentId?: UUID;
+    matchId?: UUID;
   },
 ): Promise<boolean> {
   const notificationId = await createNotification(data);
+
   return sendNotification(api, notificationId);
 }
 
@@ -99,17 +106,17 @@ export async function notifyMatchAssigned(
 ): Promise<void> {
   const player1Name = match.player1Username
     ? `@${match.player1Username}`
-    : match.player1Name || "Участник";
+    : match.player1Name || 'Участник';
   const player2Name = match.player2Username
     ? `@${match.player2Username}`
-    : match.player2Name || "Участник";
+    : match.player2Name || 'Участник';
 
   // Notify player 1
   if (match.player1Id) {
     await createAndSendNotification(api, {
       userId: match.player1Id,
-      type: "bracket_formed",
-      title: "Назначен матч",
+      type: 'bracket_formed',
+      title: 'Назначен матч',
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player2Name}\n\n` +
@@ -123,8 +130,8 @@ export async function notifyMatchAssigned(
   if (match.player2Id) {
     await createAndSendNotification(api, {
       userId: match.player2Id,
-      type: "bracket_formed",
-      title: "Назначен матч",
+      type: 'bracket_formed',
+      title: 'Назначен матч',
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player1Name}\n\n` +
@@ -146,10 +153,10 @@ export async function notifyMatchStart(
 ): Promise<void> {
   const player1Name = match.player1Username
     ? `@${match.player1Username}`
-    : match.player1Name || "Участник";
+    : match.player1Name || 'Участник';
   const player2Name = match.player2Username
     ? `@${match.player2Username}`
-    : match.player2Name || "Участник";
+    : match.player2Name || 'Участник';
 
   for (const playerId of [match.player1Id, match.player2Id]) {
     if (!playerId || playerId === startedBy) continue;
@@ -159,8 +166,8 @@ export async function notifyMatchStart(
 
     await createAndSendNotification(api, {
       userId: playerId,
-      type: "match_reminder",
-      title: "Матч!",
+      type: 'match_reminder',
+      title: 'Матч!',
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${opponentName}\n\n` +
@@ -177,7 +184,7 @@ export async function notifyMatchStart(
 export async function notifyResultPending(
   api: Api,
   match: MatchWithPlayers,
-  reportedByUserId: string,
+  reportedByUserId: UUID,
 ): Promise<void> {
   // Find opponent
   const opponentId =
@@ -189,14 +196,14 @@ export async function notifyResultPending(
     match.player1Id === reportedByUserId
       ? match.player1Username
         ? `@${match.player1Username}`
-        : match.player1Name || "Соперник"
+        : match.player1Name || 'Соперник'
       : match.player2Username
         ? `@${match.player2Username}`
-        : match.player2Name || "Соперник";
+        : match.player2Name || 'Соперник';
   await createAndSendNotification(api, {
     userId: opponentId,
-    type: "result_confirmation_request",
-    title: "Подтвердите результат матча",
+    type: 'result_confirmation_request',
+    title: 'Подтвердите результат матча',
     message:
       `${reporterName} внёс результат: ${match.player1Score}:${match.player2Score}\n\n` +
       `Подтвердите или оспорьте результат.\n` +
@@ -212,11 +219,10 @@ export async function notifyResultPending(
 export async function notifyResultConfirmed(
   api: Api,
   match: MatchWithPlayers,
-  tournamentName: string,
 ): Promise<void> {
   const winnerName = match.winnerUsername
     ? `@${match.winnerUsername}`
-    : match.winnerName || "Победитель";
+    : match.winnerName || 'Победитель';
 
   const message =
     `Результат матча подтверждён!\n\n` +
@@ -229,8 +235,8 @@ export async function notifyResultConfirmed(
 
     await createAndSendNotification(api, {
       userId: playerId,
-      type: "result_confirmed",
-      title: "Результат подтверждён",
+      type: 'result_confirmed',
+      title: 'Результат подтверждён',
       message,
       tournamentId: match.tournamentId,
       matchId: match.id,
@@ -244,16 +250,16 @@ export async function notifyResultConfirmed(
 export async function notifyResultDisputed(
   api: Api,
   match: MatchWithPlayers,
-  disputedByUserId: string,
+  disputedByUserId: UUID,
 ): Promise<void> {
   const disputerName =
     match.player1Id === disputedByUserId
       ? match.player1Username
         ? `@${match.player1Username}`
-        : match.player1Name || "Игрок"
+        : match.player1Name || 'Игрок'
       : match.player2Username
         ? `@${match.player2Username}`
-        : match.player2Name || "Игрок";
+        : match.player2Name || 'Игрок';
 
   const message =
     `${disputerName} оспорил результат матча.\n\n` +
@@ -266,8 +272,8 @@ export async function notifyResultDisputed(
 
     await createAndSendNotification(api, {
       userId: playerId,
-      type: "result_dispute",
-      title: "Результат оспорен",
+      type: 'result_dispute',
+      title: 'Результат оспорен',
       message,
       tournamentId: match.tournamentId,
       matchId: match.id,
@@ -280,8 +286,8 @@ export async function notifyResultDisputed(
  */
 export async function notifyTournamentCompleted(
   api: Api,
-  tournamentId: string,
-  winnerId: string,
+  tournamentId: UUID,
+  winnerId: UUID,
   winnerName: string,
 ): Promise<void> {
   const tournament = await db.query.tournaments.findFirst({
@@ -295,7 +301,7 @@ export async function notifyTournamentCompleted(
     where: eq(matches.tournamentId, tournamentId),
   });
 
-  const participantIds = new Set<string>();
+  const participantIds = new Set<UUID>();
   for (const match of tournamentMatches) {
     if (match.player1Id) participantIds.add(match.player1Id);
     if (match.player2Id) participantIds.add(match.player2Id);
@@ -307,8 +313,8 @@ export async function notifyTournamentCompleted(
 
     await createAndSendNotification(api, {
       userId: oderId,
-      type: "tournament_results",
-      title: isWinner ? "Поздравляем с победой!" : "Турнир завершён",
+      type: 'tournament_results',
+      title: isWinner ? 'Поздравляем с победой!' : 'Турнир завершён',
       message: isWinner
         ? `Вы победили в турнире "${tournament.name}"!`
         : `Турнир "${tournament.name}" завершён.\nПобедитель: ${winnerName}`,
@@ -322,8 +328,8 @@ export async function notifyTournamentCompleted(
  */
 export async function notifyDisqualification(
   api: Api,
-  userId: string,
-  tournamentId: string,
+  userId: UUID,
+  tournamentId: UUID,
   reason: string,
 ): Promise<void> {
   const tournament = await db.query.tournaments.findFirst({
@@ -332,10 +338,10 @@ export async function notifyDisqualification(
 
   await createAndSendNotification(api, {
     userId,
-    type: "disqualification",
-    title: "Дисквалификация",
+    type: 'disqualification',
+    title: 'Дисквалификация',
     message:
-      `Вы были дисквалифицированы из турнира "${tournament?.name || "Неизвестный"}".\n\n` +
+      `Вы были дисквалифицированы из турнира "${tournament?.name || 'Неизвестный'}".\n\n` +
       `Причина: ${reason}`,
     tournamentId,
   });
@@ -351,10 +357,10 @@ export async function sendMatchReminder(
 ): Promise<void> {
   const player1Name = match.player1Username
     ? `@${match.player1Username}`
-    : match.player1Name || "Участник";
+    : match.player1Name || 'Участник';
   const player2Name = match.player2Username
     ? `@${match.player2Username}`
-    : match.player2Name || "Участник";
+    : match.player2Name || 'Участник';
 
   for (const playerId of [match.player1Id, match.player2Id]) {
     if (!playerId) continue;
@@ -364,8 +370,8 @@ export async function sendMatchReminder(
 
     await createAndSendNotification(api, {
       userId: playerId,
-      type: "match_reminder",
-      title: "Напоминание о матче",
+      type: 'match_reminder',
+      title: 'Напоминание о матче',
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${opponentName}\n\n` +
@@ -379,7 +385,7 @@ export async function sendMatchReminder(
 /**
  * Mark notification as read
  */
-export async function markAsRead(notificationId: string): Promise<void> {
+export async function markAsRead(notificationId: UUID): Promise<void> {
   await db
     .update(notifications)
     .set({ isRead: true })
@@ -389,7 +395,9 @@ export async function markAsRead(notificationId: string): Promise<void> {
 /**
  * Get unread notifications for user
  */
-export async function getUnreadNotifications(userId: string) {
+export async function getUnreadNotifications(
+  userId: UUID,
+): Promise<Array<INotification>> {
   return db.query.notifications.findMany({
     where: and(
       eq(notifications.userId, userId),

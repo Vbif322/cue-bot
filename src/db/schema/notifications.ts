@@ -46,3 +46,5 @@ export const notifications = prodSchema.table('notifications', {
   sentAt: timestamp('sent_at'),
   createdAt,
 });
+
+export type INotification = typeof notifications.$inferSelect;
