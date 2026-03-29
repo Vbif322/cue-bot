@@ -2,10 +2,12 @@ import { DateTime } from 'luxon';
 
 // #region Types / Interfaces
 
-interface IDateTimeHelper {
+export interface IDateTimeHelper {
   toDate(
     datetime: string,
   ): { status: true; datetime: Date } | { status: false; datetime?: never };
+
+  formatDate(date: Date, format?: string): string;
 }
 
 // #endregion
@@ -53,6 +55,17 @@ export class DateTimeHelper implements IDateTimeHelper {
     if (!status) return { status: false };
 
     return { status: true, datetime: parsedDatetime.toJSDate() };
+  }
+
+  /**
+   * Форматирует строку с датой и временем в соответствии с переданным форматом
+   *
+   * @param {Date} date Объект Date
+   * @param {string} format Формат даты и времени (Luxon поддерживает следующие форматы: ISO, RFC 2822, HTTP, SQL, а также пользовательские форматы)
+   * @returns {string} Строка с форматированным значением даты и времени
+   */
+  formatDate(date: Date, format: string = 'dd.LL.yyyy HH:mm'): string {
+    return DateTime.fromJSDate(date, { zone: 'utc' }).toFormat(format);
   }
 
   /**
@@ -147,16 +160,3 @@ export class DateTimeHelper implements IDateTimeHelper {
 }
 
 // #endregion
-
-export function formatDate(date: Date | null): string {
-  if (date === null) {
-    return 'Неизвестно';
-  }
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const year = date.getUTCFullYear();
-  const hours = String(date.getUTCHours()).padStart(2, '0');
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-
-  return `${day}.${month}.${year} ${hours}:${minutes}`;
-}
