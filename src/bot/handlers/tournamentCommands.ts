@@ -28,22 +28,8 @@ import {
   buildTournamentListKeyboard,
   buildTournamentSelectionKeyboard,
 } from '../ui/tournamentUI.js';
-import {
-  startCreationWizard,
-  cancelCreation,
-  getCreationState,
-  handleNameInput,
-  handleDateInput,
-  handleVenueSelection,
-  handleDisciplineSelection,
-  handleFormatSelection,
-  handleMaxParticipantsSelection,
-  handleWinScoreSelection,
-  handleTableSelectionToggle,
-  handleTableSelectionDone,
-  handleTableSelectionSkip,
-} from '../wizards/tournamentCreationWizard.js';
 import { getMatchStatusEmoji } from '../ui/matchUI.js';
+import { tournamentCreationFlow } from '../wizards/tournamentCreation.module.js';
 import type { BotContext } from '../types.js';
 
 export const tournamentCommands = new Composer<BotContext>();
@@ -56,13 +42,7 @@ export const tournamentCommands = new Composer<BotContext>();
  * /create_tournament - Start tournament creation wizard
  */
 tournamentCommands.command('create_tournament', adminOnly(), async (ctx) => {
-  const userId = ctx.from!.id;
-
-  const msg = await ctx.reply(
-    'Создание нового турнира\n\n' + `Шаг 1/6: Введите название турнира:`,
-  );
-
-  startCreationWizard(userId, msg.message_id);
+  await tournamentCreationFlow.startCreationWizard(ctx);
 });
 
 /**
@@ -71,7 +51,9 @@ tournamentCommands.command('create_tournament', adminOnly(), async (ctx) => {
 tournamentCommands.command('cancel', async (ctx) => {
   const userId = ctx.from!.id;
 
-  if (cancelCreation(userId)) {
+  const cancelStatus = tournamentCreationFlow.cancelCreation(userId);
+
+  if (cancelStatus) {
     await ctx.reply('Создание турнира отменено.');
   } else {
     await ctx.reply('Нет активного процесса создания турнира.');
@@ -476,37 +458,46 @@ tournamentCommands.callbackQuery(
 // ============================================================================
 
 tournamentCommands.callbackQuery(/^discipline:(.+)$/, async (ctx) => {
-  await handleDisciplineSelection(ctx, ctx.match![1]!);
+  await tournamentCreationFlow.handleDisciplineSelection(ctx, ctx.match![1]!);
 });
 
 tournamentCommands.callbackQuery(/^venue:(.+)$/, async (ctx) => {
-  await handleVenueSelection(ctx, ctx.match![1]! as UUID);
+  await tournamentCreationFlow.handleVenueSelection(
+    ctx,
+    ctx.match![1]! as UUID,
+  );
 });
 
 tournamentCommands.callbackQuery(/^format:(.+)$/, async (ctx) => {
-  await handleFormatSelection(ctx, ctx.match![1]!);
+  await tournamentCreationFlow.handleFormatSelection(ctx, ctx.match![1]!);
 });
 
 tournamentCommands.callbackQuery(/^participants:(\d+)$/, async (ctx) => {
   const participants = parseInt(ctx.match![1]!, 10);
-  await handleMaxParticipantsSelection(ctx, participants);
+  await tournamentCreationFlow.handleMaxParticipantsSelection(
+    ctx,
+    participants,
+  );
 });
 
 tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
   const winScore = parseInt(ctx.match![1]!, 10);
-  await handleWinScoreSelection(ctx, winScore);
+  await tournamentCreationFlow.handleWinScoreSelection(ctx, winScore);
 });
 
 tournamentCommands.callbackQuery(/^tables_toggle:(.+)$/, async (ctx) => {
-  await handleTableSelectionToggle(ctx, ctx.match![1]! as UUID);
+  await tournamentCreationFlow.handleTableSelectionToggle(
+    ctx,
+    ctx.match![1]! as UUID,
+  );
 });
 
 tournamentCommands.callbackQuery('tables_done', async (ctx) => {
-  await handleTableSelectionDone(ctx);
+  await tournamentCreationFlow.handleTableSelectionFinalize(ctx, false);
 });
 
 tournamentCommands.callbackQuery('tables_skip', async (ctx) => {
-  await handleTableSelectionSkip(ctx);
+  await tournamentCreationFlow.handleTableSelectionFinalize(ctx, true);
 });
 
 // ============================================================================
@@ -515,20 +506,20 @@ tournamentCommands.callbackQuery('tables_skip', async (ctx) => {
 
 tournamentCommands.on('message:text', async (ctx, next) => {
   const userId = ctx.from.id;
-  const state = getCreationState(userId);
+  const state = tournamentCreationFlow.getCreationState(userId);
 
-  if (!state || !state.lastMessageId) {
+  if (!state) {
     return next();
   }
 
   const text = ctx.message.text;
 
   if (state.step === 'name') {
-    if (await handleNameInput(ctx, text)) return;
+    if (await tournamentCreationFlow.handleNameInput(ctx, text)) return;
   }
 
   if (state.step === 'date') {
-    if (await handleDateInput(ctx, text)) return;
+    if (await tournamentCreationFlow.handleStartDateInput(ctx, text)) return;
   }
 
   return next();

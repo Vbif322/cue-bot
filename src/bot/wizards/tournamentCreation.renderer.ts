@@ -51,6 +51,9 @@ export interface ITournamentCreationRenderer {
   showInvalidDate(ctx: BotContext): Promise<void>;
   showNoVenues(ctx: BotContext): Promise<void>;
   showCorruptedSession(ctx: BotContext): Promise<void>;
+  showIncorrectMaxParticipants(ctx: BotContext): Promise<void>;
+  showIncorrectWinScore(ctx: BotContext): Promise<void>;
+  showSavedStateError(ctx: BotContext): Promise<void>;
 
   showCreationSuccess(
     ctx: BotContext,
@@ -315,6 +318,27 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
   async showCorruptedSession(ctx: BotContext): Promise<void> {
     await safeEditMessageText(ctx, {
       text: `${getMatchStatusEmoji('cancelled')} Сессия создания повреждена. Начните создание турнира заново!`,
+    });
+  }
+
+  async showIncorrectMaxParticipants(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректное количество участников',
+      show_alert: true,
+    });
+  }
+
+  async showIncorrectWinScore(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректное значение для количества побед',
+      show_alert: true,
+    });
+  }
+
+  async showSavedStateError(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: `${getMatchStatusEmoji('cancelled')} Произошла ошибка при сохранении состояния`,
+      show_alert: true,
     });
   }
 
