@@ -1,5 +1,5 @@
-import type { Tournament } from "../bot/@types/tournament.js";
-import type { TournamentParticipant } from "../bot/@types/tournament.js";
+import type { Tournament } from '../bot/@types/tournament.js';
+import type { TournamentParticipant } from '../bot/@types/tournament.js';
 
 export interface BracketMatch {
   round: number;
@@ -7,8 +7,8 @@ export interface BracketMatch {
   player1Id: string | null;
   player2Id: string | null;
   nextMatchId?: number; // Position of next match (will be converted to UUID after creation)
-  nextMatchPosition?: "player1" | "player2"; // Which slot in next match
-  bracketType: "winners" | "losers" | "grand_final";
+  nextMatchPosition?: 'player1' | 'player2'; // Which slot in next match
+  bracketType: 'winners' | 'losers' | 'grand_final';
   losersNextMatchPosition?: number; // For double elimination - where loser goes
 }
 
@@ -112,12 +112,12 @@ export function generateSingleEliminationBracket(
       position: matchPosition,
       player1Id: player1?.userId ?? null,
       player2Id: player2?.userId ?? null,
-      bracketType: "winners",
+      bracketType: 'winners',
     };
 
     if (!isFinal) {
       matchData.nextMatchId = nextMatchPos;
-      matchData.nextMatchPosition = isTopHalf ? "player1" : "player2";
+      matchData.nextMatchPosition = isTopHalf ? 'player1' : 'player2';
     }
 
     matches.push(matchData);
@@ -142,12 +142,12 @@ export function generateSingleEliminationBracket(
         position: matchPosition,
         player1Id: null,
         player2Id: null,
-        bracketType: "winners",
+        bracketType: 'winners',
       };
 
       if (!isFinal && nextMatchPos !== undefined) {
         matchData.nextMatchId = nextMatchPos;
-        matchData.nextMatchPosition = isTopHalf ? "player1" : "player2";
+        matchData.nextMatchPosition = isTopHalf ? 'player1' : 'player2';
       }
 
       matches.push(matchData);
@@ -189,7 +189,7 @@ function advanceToNextMatch(
   );
   if (!nextMatch) return;
 
-  if (currentMatch.nextMatchPosition === "player1") {
+  if (currentMatch.nextMatchPosition === 'player1') {
     nextMatch.player1Id = playerId;
   } else {
     nextMatch.player2Id = playerId;
@@ -215,7 +215,7 @@ export function generateDoubleEliminationBracket(
 ): BracketMatch[] {
   if (participants.length !== 16) {
     throw new Error(
-      "Double elimination поддерживает только 16 участников. " +
+      'Double elimination поддерживает только 16 участников. ' +
         `Текущее количество: ${participants.length}`,
     );
   }
@@ -230,7 +230,7 @@ export function generateDoubleEliminationBracket(
       position: i + 1,
       player1Id: shuffled[i * 2]?.userId ?? null,
       player2Id: shuffled[i * 2 + 1]?.userId ?? null,
-      bracketType: "winners",
+      bracketType: 'winners',
     });
   }
 
@@ -241,7 +241,7 @@ export function generateDoubleEliminationBracket(
       position: 9 + i,
       player1Id: null,
       player2Id: null,
-      bracketType: "losers",
+      bracketType: 'losers',
     });
   }
 
@@ -252,7 +252,7 @@ export function generateDoubleEliminationBracket(
       position: 13 + i,
       player1Id: null,
       player2Id: null,
-      bracketType: "winners",
+      bracketType: 'winners',
     });
   }
 
@@ -263,7 +263,7 @@ export function generateDoubleEliminationBracket(
       position: 17 + i,
       player1Id: null,
       player2Id: null,
-      bracketType: "losers",
+      bracketType: 'losers',
     });
   }
 
@@ -274,7 +274,7 @@ export function generateDoubleEliminationBracket(
       position: 21 + i,
       player1Id: null,
       player2Id: null,
-      bracketType: "winners",
+      bracketType: 'winners',
     });
   }
 
@@ -285,7 +285,7 @@ export function generateDoubleEliminationBracket(
       position: 25 + i,
       player1Id: null,
       player2Id: null,
-      bracketType: "winners",
+      bracketType: 'winners',
     });
   }
 
@@ -295,7 +295,7 @@ export function generateDoubleEliminationBracket(
     position: 27,
     player1Id: null,
     player2Id: null,
-    bracketType: "winners",
+    bracketType: 'winners',
   });
 
   // === WINNER PATHS (nextMatchId + nextMatchPosition) ===
@@ -303,37 +303,37 @@ export function generateDoubleEliminationBracket(
   // R1 upper → R2 upper: pairs feed into one match
   for (let i = 0; i < 8; i++) {
     allMatches[i]!.nextMatchId = 13 + Math.floor(i / 2);
-    allMatches[i]!.nextMatchPosition = i % 2 === 0 ? "player1" : "player2";
+    allMatches[i]!.nextMatchPosition = i % 2 === 0 ? 'player1' : 'player2';
   }
 
   // R1 lower → R2 lower: each winner goes to own match as player1
   for (let i = 0; i < 4; i++) {
     allMatches[8 + i]!.nextMatchId = 17 + i;
-    allMatches[8 + i]!.nextMatchPosition = "player1";
+    allMatches[8 + i]!.nextMatchPosition = 'player1';
   }
 
   // R2 upper → R3 merge: as player1
   for (let i = 0; i < 4; i++) {
     allMatches[12 + i]!.nextMatchId = 21 + i;
-    allMatches[12 + i]!.nextMatchPosition = "player1";
+    allMatches[12 + i]!.nextMatchPosition = 'player1';
   }
 
   // R2 lower → R3 merge: as player2
   for (let i = 0; i < 4; i++) {
     allMatches[16 + i]!.nextMatchId = 21 + i;
-    allMatches[16 + i]!.nextMatchPosition = "player2";
+    allMatches[16 + i]!.nextMatchPosition = 'player2';
   }
 
   // R3 → R4
   for (let i = 0; i < 4; i++) {
     allMatches[20 + i]!.nextMatchId = 25 + Math.floor(i / 2);
-    allMatches[20 + i]!.nextMatchPosition = i % 2 === 0 ? "player1" : "player2";
+    allMatches[20 + i]!.nextMatchPosition = i % 2 === 0 ? 'player1' : 'player2';
   }
 
   // R4 → R5
   for (let i = 0; i < 2; i++) {
     allMatches[24 + i]!.nextMatchId = 27;
-    allMatches[24 + i]!.nextMatchPosition = i === 0 ? "player1" : "player2";
+    allMatches[24 + i]!.nextMatchPosition = i === 0 ? 'player1' : 'player2';
   }
 
   // === LOSER PATHS (losersNextMatchPosition) ===
@@ -358,19 +358,19 @@ export function generateDoubleEliminationBracket(
  * Main bracket generation function
  */
 export function generateBracket(
-  format: Tournament["format"],
+  format: Tournament['format'],
   participants: TournamentParticipant[],
 ): BracketMatch[] {
   if (participants.length < 2) {
-    throw new Error("Минимум 2 участника для создания сетки");
+    throw new Error('Минимум 2 участника для создания сетки');
   }
 
   switch (format) {
-    case "single_elimination":
+    case 'single_elimination':
       return generateSingleEliminationBracket(participants);
-    case "double_elimination":
+    case 'double_elimination':
       return generateDoubleEliminationBracket(participants);
-    case "round_robin":
+    case 'round_robin':
       return generateRoundRobinMatches(participants);
     default:
       throw new Error(`Неподдерживаемый формат: ${format}`);
@@ -392,7 +392,7 @@ export function generateRoundRobinMatches(
   const hasBye = n % 2 === 1;
   if (hasBye) {
     players.push({
-      userId: "BYE",
+      userId: 'BYE',
       username: null,
       name: null,
       seed: null,
@@ -411,7 +411,7 @@ export function generateRoundRobinMatches(
       const away = players[totalPlayers - 1 - i];
 
       // Skip BYE matches or undefined
-      if (!home || !away || home.userId === "BYE" || away.userId === "BYE") {
+      if (!home || !away || home.userId === 'BYE' || away.userId === 'BYE') {
         continue;
       }
 
@@ -420,7 +420,7 @@ export function generateRoundRobinMatches(
         position: matchPosition++,
         player1Id: home.userId,
         player2Id: away.userId,
-        bracketType: "winners",
+        bracketType: 'winners',
       });
     }
 
@@ -436,23 +436,23 @@ export function generateRoundRobinMatches(
  * Get bracket statistics
  */
 export function getBracketStats(
-  format: "single_elimination" | "double_elimination" | "round_robin",
+  format: 'single_elimination' | 'double_elimination' | 'round_robin',
   participantsCount: number,
 ): { totalMatches: number; totalRounds: number } {
   const bracketSize = getNextPowerOfTwo(participantsCount);
 
   switch (format) {
-    case "single_elimination":
+    case 'single_elimination':
       return {
         totalMatches: bracketSize - 1,
         totalRounds: calculateRounds(bracketSize),
       };
-    case "double_elimination":
+    case 'double_elimination':
       return {
         totalMatches: 27,
         totalRounds: 5,
       };
-    case "round_robin":
+    case 'round_robin':
       const n = participantsCount;
       return {
         totalMatches: (n * (n - 1)) / 2,
@@ -470,47 +470,47 @@ export function getRoundName(
   round: number,
   totalRounds: number,
   format: string,
-  bracketType: string = "winners",
+  bracketType: string = 'winners',
 ): string {
-  if (format === "round_robin") {
+  if (format === 'round_robin') {
     return `Тур ${round}`;
   }
 
-  if (format === "double_elimination") {
-    if (bracketType === "losers") {
-      if (round === 1) return "Нижняя сетка, раунд 1";
-      if (round === 2) return "Нижняя сетка, раунд 2";
+  if (format === 'double_elimination') {
+    if (bracketType === 'losers') {
+      if (round === 1) return 'Нижняя сетка, раунд 1';
+      if (round === 2) return 'Нижняя сетка, раунд 2';
       return `Нижняя сетка, раунд ${round}`;
     }
-    if (round === 1) return "1/8 финала";
-    if (round === 2) return "1/4 финала";
-    if (round === 3) return "Объединение";
-    if (round === 4) return "Полуфинал";
-    if (round === 5) return "Финал";
+    if (round === 1) return '1/8 финала';
+    if (round === 2) return '1/4 финала';
+    if (round === 3) return 'Объединение';
+    if (round === 4) return 'Полуфинал';
+    if (round === 5) return 'Финал';
     return `Раунд ${round}`;
   }
 
-  if (bracketType === "losers") {
+  if (bracketType === 'losers') {
     return `Нижняя сетка, раунд ${round}`;
   }
 
-  if (bracketType === "grand_final") {
-    return "Гранд-финал";
+  if (bracketType === 'grand_final') {
+    return 'Гранд-финал';
   }
 
   const roundsFromEnd = totalRounds - round;
 
   switch (roundsFromEnd) {
     case 0:
-      return "Финал";
+      return 'Финал';
     case 1:
-      return "Полуфинал";
+      return 'Полуфинал';
     case 2:
-      return "Четвертьфинал";
+      return 'Четвертьфинал';
     case 3:
-      return "1/8 финала";
+      return '1/8 финала';
     case 4:
-      return "1/16 финала";
+      return '1/16 финала';
     default:
       return `Раунд ${round}`;
   }

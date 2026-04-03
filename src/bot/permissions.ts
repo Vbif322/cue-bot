@@ -1,20 +1,20 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "../db/db.js";
-import { tournamentReferees } from "../db/schema.js";
-import type { BotContext } from "./types.js";
+import { and, eq } from 'drizzle-orm';
+import { db } from '../db/db.js';
+import { tournamentReferees } from '../db/schema.js';
+import type { BotContext } from './types.js';
 
 export function isAdmin(ctx: BotContext): boolean {
-  return ctx.dbUser.role === "admin";
+  return ctx.dbUser.role === 'admin';
 }
 
 export async function isTournamentReferee(
   ctx: BotContext,
-  tournamentId: string
+  tournamentId: string,
 ): Promise<boolean> {
   const referee = await db.query.tournamentReferees.findFirst({
     where: and(
       eq(tournamentReferees.tournamentId, tournamentId),
-      eq(tournamentReferees.userId, ctx.dbUser.id)
+      eq(tournamentReferees.userId, ctx.dbUser.id),
     ),
   });
 
@@ -23,7 +23,7 @@ export async function isTournamentReferee(
 
 export async function canManageTournament(
   ctx: BotContext,
-  tournamentId: string
+  tournamentId: string,
 ): Promise<boolean> {
   if (isAdmin(ctx)) {
     return true;
@@ -32,7 +32,7 @@ export async function canManageTournament(
 }
 
 export async function getUserRefereeTournaments(
-  userId: string
+  userId: string,
 ): Promise<string[]> {
   const refs = await db.query.tournamentReferees.findMany({
     where: eq(tournamentReferees.userId, userId),

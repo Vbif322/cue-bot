@@ -1,13 +1,13 @@
-import { Routes, Route, Navigate } from "react-router-dom";
-import { useMe } from "./lib/useAuth.ts";
-import Layout from "./components/Layout.tsx";
-import LoginPage from "./pages/LoginPage.tsx";
-import DashboardPage from "./pages/DashboardPage.tsx";
-import TournamentsPage from "./pages/TournamentsPage.tsx";
-import TournamentDetailPage from "./pages/TournamentDetailPage.tsx";
-import MatchDetailPage from "./pages/MatchDetailPage.tsx";
-import UsersPage from "./pages/UsersPage.tsx";
-import VenuesPage from "./pages/VenuesPage.tsx";
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useMe } from './lib/useAuth.ts';
+import Layout from './components/Layout.tsx';
+import LoginPage from './pages/LoginPage.tsx';
+import DashboardPage from './pages/DashboardPage.tsx';
+import TournamentsPage from './pages/TournamentsPage.tsx';
+import TournamentDetailPage from './pages/TournamentDetailPage.tsx';
+import MatchDetailPage from './pages/MatchDetailPage.tsx';
+import UsersPage from './pages/UsersPage.tsx';
+import VenuesPage from './pages/VenuesPage.tsx';
 
 export default function App() {
   const { data, isLoading } = useMe();

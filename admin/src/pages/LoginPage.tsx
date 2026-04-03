@@ -1,21 +1,21 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { auth } from "../lib/api.ts";
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { auth } from '../lib/api.ts';
 
-type Step = "username" | "code";
+type Step = 'username' | 'code';
 
 export default function LoginPage() {
   const qc = useQueryClient();
-  const [step, setStep] = useState<Step>("username");
-  const [username, setUsername] = useState("");
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
+  const [step, setStep] = useState<Step>('username');
+  const [username, setUsername] = useState('');
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
 
   const requestCode = useMutation({
     mutationFn: () => auth.requestCode(username),
     onSuccess: () => {
-      setError("");
-      setStep("code");
+      setError('');
+      setStep('code');
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -23,7 +23,7 @@ export default function LoginPage() {
   const verifyCode = useMutation({
     mutationFn: () => auth.verifyCode(username, code),
     onSuccess: (data) => {
-      qc.setQueryData(["auth", "me"], { user: data.user });
+      qc.setQueryData(['auth', 'me'], { user: data.user });
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -35,8 +35,8 @@ export default function LoginPage() {
           Панель управления
         </h2>
         <p className="text-sm text-gray-500 mb-6">
-          {step === "username"
-            ? "Введите ваш Telegram username"
+          {step === 'username'
+            ? 'Введите ваш Telegram username'
             : `Код отправлен @${username} в Telegram`}
         </p>
 
@@ -46,7 +46,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        {step === "username" ? (
+        {step === 'username' ? (
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -72,7 +72,7 @@ export default function LoginPage() {
               disabled={requestCode.isPending || !username.trim()}
               className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {requestCode.isPending ? "Отправка..." : "Получить код"}
+              {requestCode.isPending ? 'Отправка...' : 'Получить код'}
             </button>
             <p className="mt-3 text-xs text-gray-400 text-center">
               Вы должны предварительно написать /start боту в Telegram
@@ -92,7 +92,7 @@ export default function LoginPage() {
               <input
                 type="text"
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                 placeholder="000000"
                 maxLength={6}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-xl tracking-widest"
@@ -105,14 +105,14 @@ export default function LoginPage() {
               disabled={verifyCode.isPending || code.length !== 6}
               className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {verifyCode.isPending ? "Проверка..." : "Войти"}
+              {verifyCode.isPending ? 'Проверка...' : 'Войти'}
             </button>
             <button
               type="button"
               onClick={() => {
-                setStep("username");
-                setCode("");
-                setError("");
+                setStep('username');
+                setCode('');
+                setError('');
               }}
               className="w-full mt-2 text-sm text-gray-500 hover:text-gray-700 py-1"
             >
