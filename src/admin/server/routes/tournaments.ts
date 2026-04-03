@@ -1,13 +1,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '../../../db/db.js';
-import {
-  tournaments,
-  tournamentParticipants,
-  users,
-} from '../../../db/schema.js';
+import { tournaments, tournamentParticipants, users } from '../../../db/schema.js';
 import {
   getTournament,
   getTournaments,
@@ -16,7 +12,14 @@ import {
   canDeleteTournament,
   closeRegistrationWithCount,
   canStartTournament,
+  confirmParticipant,
+  rejectParticipant,
+  deleteParticipant,
 } from '../../../services/tournamentService.js';
+import {
+  notifyRegistrationConfirmed,
+  notifyRegistrationRejected,
+} from '../../../services/notificationService.js';
 import { startTournamentFull } from '../../../services/tournamentStartService.js';
 import { getMatchStats } from '../../../services/matchService.js';
 import {
@@ -202,18 +205,50 @@ export function createTournamentsRouter(botApi: Api) {
     },
   );
 
+  router.patch(
+    '/:id/participants/:userId',
+    zValidator('json', z.object({ action: z.enum(['confirm', 'reject']) })),
+    async (c) => {
+      const tournamentId = c.req.param('id');
+      const userId = c.req.param('userId');
+      const { action } = c.req.valid('json');
+
+      const tournament = await getTournament(tournamentId);
+      if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
+
+      if (
+        tournament.status !== 'registration_open' &&
+        tournament.status !== 'registration_closed'
+      ) {
+        return c.json(
+          {
+            error: 'Подтверждение участников доступно только во время регистрации',
+          },
+          400,
+        );
+      }
+
+      if (action === 'confirm') {
+        const updated = await confirmParticipant(tournamentId, userId);
+        if (updated) {
+          await notifyRegistrationConfirmed(botApi, userId, tournamentId, tournament.name);
+        }
+      } else {
+        const updated = await rejectParticipant(tournamentId, userId);
+        if (updated) {
+          await notifyRegistrationRejected(botApi, userId, tournamentId, tournament.name);
+        }
+      }
+
+      return c.json({ ok: true });
+    },
+  );
+
   router.delete('/:id/participants/:userId', async (c) => {
     const tournamentId = c.req.param('id');
     const userId = c.req.param('userId');
 
-    await db
-      .delete(tournamentParticipants)
-      .where(
-        and(
-          eq(tournamentParticipants.tournamentId, tournamentId),
-          eq(tournamentParticipants.userId, userId),
-        ),
-      );
+    await deleteParticipant(tournamentId, userId);
 
     return c.json({ ok: true });
   });

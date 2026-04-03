@@ -6,6 +6,7 @@ import { matches } from './matches.js';
 
 export const notificationType = [
   'registration_confirmed',
+  'registration_rejected',
   'bracket_formed',
   'match_reminder',
   'result_confirmation_request',

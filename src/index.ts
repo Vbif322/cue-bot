@@ -4,7 +4,7 @@ import {
   roleCommands,
   tournamentCommands,
   registrationCommands,
-  matchCommands,
+  adminParticipantCommands,
 } from './bot/handlers/index.js';
 import { setupCommands, setAdminCommands } from './bot/commands.js';
 import { createAdminServer } from './admin/server/index.js';
@@ -20,6 +20,7 @@ bot.use(roleCommands);
 bot.use(tournamentCommands);
 bot.use(registrationCommands);
 bot.use(matchCommands);
+bot.use(adminParticipantCommands);
 
 bot.command('start', async (ctx) => {
   if (ctx.dbUser.role === 'admin') {
