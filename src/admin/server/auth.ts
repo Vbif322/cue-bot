@@ -57,6 +57,10 @@ export function createAuthRouter(botApi: Api) {
           set: { code, expiresAt, attempts: 0 },
         });
 
+      if (!user.telegram_id) {
+        return c.json({ error: "У пользователя нет Telegram аккаунта" }, 400);
+      }
+
       try {
         await botApi.sendMessage(
           user.telegram_id,
