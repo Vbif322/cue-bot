@@ -1,12 +1,12 @@
-import { InlineKeyboard } from "grammy";
-import type { tournaments } from "../../db/schema.js";
+import { InlineKeyboard } from 'grammy';
+import type { tournaments } from '../../db/schema.js';
 import {
   getRoundName,
   calculateRounds,
   getNextPowerOfTwo,
-} from "../../services/bracketGenerator.js";
-import type { Tournament } from "../@types/tournament.js";
-import type { MatchWithPlayers } from "../@types/match.js";
+} from '../../services/bracketGenerator.js';
+import type { Tournament } from '../@types/tournament.js';
+import type { MatchWithPlayers } from '../@types/match.js';
 
 /**
  * Format player name for display
@@ -17,7 +17,7 @@ export function formatPlayerName(
 ): string {
   if (username) return `@${username}`;
   if (name) return name;
-  return "Участник";
+  return 'Участник';
 }
 
 /**
@@ -25,18 +25,18 @@ export function formatPlayerName(
  */
 export function getMatchStatusEmoji(status: string): string {
   switch (status) {
-    case "scheduled":
-      return "⏳";
-    case "in_progress":
-      return "🎱";
-    case "pending_confirmation":
-      return "⏸️";
-    case "completed":
-      return "✅";
-    case "cancelled":
-      return "❌";
+    case 'scheduled':
+      return '⏳';
+    case 'in_progress':
+      return '🎱';
+    case 'pending_confirmation':
+      return '⏸️';
+    case 'completed':
+      return '✅';
+    case 'cancelled':
+      return '❌';
     default:
-      return "❓";
+      return '❓';
   }
 }
 
@@ -65,7 +65,7 @@ export function formatMatchCard(
     match.round,
     rounds,
     tournament.format,
-    match.bracketType || "winners",
+    match.bracketType || 'winners',
   );
 
   let text = `🎱 *Матч #${match.position}*\n`;
@@ -74,11 +74,11 @@ export function formatMatchCard(
   text += `vs\n`;
   text += `${player2}\n\n`;
 
-  if (match.status === "completed" || match.status === "pending_confirmation") {
+  if (match.status === 'completed' || match.status === 'pending_confirmation') {
     text += `Счёт: ${match.player1Score ?? 0} : ${match.player2Score ?? 0}\n`;
   }
 
-  if (match.winnerId && match.status === "completed") {
+  if (match.winnerId && match.status === 'completed') {
     const winnerName = formatPlayerName(
       match.winnerUsername ?? null,
       match.winnerName ?? null,
@@ -88,25 +88,25 @@ export function formatMatchCard(
 
   text += `\nСтатус: ${getMatchStatusEmoji(match.status)} `;
   switch (match.status) {
-    case "scheduled":
-      text += "Ожидает начала";
+    case 'scheduled':
+      text += 'Ожидает начала';
       break;
-    case "in_progress":
-      text += "В процессе";
+    case 'in_progress':
+      text += 'В процессе';
       break;
-    case "pending_confirmation":
-      text += "Ожидает подтверждения";
+    case 'pending_confirmation':
+      text += 'Ожидает подтверждения';
       break;
-    case "completed":
-      text += "Завершён";
+    case 'completed':
+      text += 'Завершён';
       break;
-    case "cancelled":
-      text += "Отменён";
+    case 'cancelled':
+      text += 'Отменён';
       break;
   }
 
   if (match.isTechnicalResult) {
-    text += `\n⚠️ Технический результат: ${match.technicalReason || "не указана причина"}`;
+    text += `\n⚠️ Технический результат: ${match.technicalReason || 'не указана причина'}`;
   }
 
   return text;
@@ -127,31 +127,31 @@ export function getMatchKeyboard(
   const isParticipant = isPlayer1 || isPlayer2;
 
   // Match in progress - allow reporting result
-  if (match.status === "in_progress" && isParticipant) {
-    keyboard.text("📝 Внести результат", `match:report:${match.id}`).row();
+  if (match.status === 'in_progress' && isParticipant) {
+    keyboard.text('📝 Внести результат', `match:report:${match.id}`).row();
   }
 
   // Scheduled match - allow starting (if both players are set)
   if (
-    match.status === "scheduled" &&
+    match.status === 'scheduled' &&
     match.player1Id &&
     match.player2Id &&
     isParticipant
   ) {
-    keyboard.text("▶️ Начать матч", `match:start:${match.id}`).row();
+    keyboard.text('▶️ Начать матч', `match:start:${match.id}`).row();
   }
 
   // Pending confirmation - show confirm/dispute for opponent
-  if (match.status === "pending_confirmation" && isParticipant) {
+  if (match.status === 'pending_confirmation' && isParticipant) {
     if (match.reportedBy !== userId) {
       // This is the opponent who needs to confirm
       keyboard
-        .text("✅ Подтвердить", `match:confirm:${match.id}`)
-        .text("❌ Оспорить", `match:dispute:${match.id}`)
+        .text('✅ Подтвердить', `match:confirm:${match.id}`)
+        .text('❌ Оспорить', `match:dispute:${match.id}`)
         .row();
     } else {
       keyboard
-        .text("⏳ Ожидание подтверждения...", `match:waiting:${match.id}`)
+        .text('⏳ Ожидание подтверждения...', `match:waiting:${match.id}`)
         .row();
     }
   }
@@ -159,14 +159,14 @@ export function getMatchKeyboard(
   // Admin/referee can set technical result
   if (
     isAdminUser &&
-    match.status !== "completed" &&
-    match.status !== "cancelled"
+    match.status !== 'completed' &&
+    match.status !== 'cancelled'
   ) {
-    keyboard.text("⚙️ Тех. результат", `match:tech:${match.id}`).row();
+    keyboard.text('⚙️ Тех. результат', `match:tech:${match.id}`).row();
   }
 
   // Back to bracket
-  keyboard.text("📊 К сетке", `bracket:view:${match.tournamentId}`).row();
+  keyboard.text('📊 К сетке', `bracket:view:${match.tournamentId}`).row();
 
   return keyboard;
 }

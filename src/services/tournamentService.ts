@@ -1,11 +1,11 @@
-import { and, eq, inArray, asc, sql } from "drizzle-orm";
-import { db } from "../db/db.js";
-import { tournaments, tournamentParticipants, users } from "../db/schema.js";
-import { shuffleArray } from "./bracketGenerator.js";
+import { and, eq, asc, sql } from 'drizzle-orm';
+import { db } from '../db/db.js';
+import { tournaments, tournamentParticipants, users } from '../db/schema.js';
+import { shuffleArray } from './bracketGenerator.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
-} from "../bot/@types/tournament.js";
+} from '../bot/@types/tournament.js';
 
 export interface StartTournamentResult {
   canStart: boolean;
@@ -24,10 +24,10 @@ export async function canStartTournament(
   });
 
   if (!tournament) {
-    return { canStart: false, error: "Турнир не найден", participantsCount: 0 };
+    return { canStart: false, error: 'Турнир не найден', participantsCount: 0 };
   }
 
-  if (tournament.status !== "registration_closed") {
+  if (tournament.status !== 'registration_closed') {
     return {
       canStart: false,
       error: "Турнир должен иметь статус 'Регистрация закрыта' для запуска",
@@ -68,7 +68,7 @@ export async function getConfirmedParticipants(
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+        eq(tournamentParticipants.status, 'confirmed'),
       ),
     )
     .orderBy(asc(tournamentParticipants.createdAt));
@@ -88,15 +88,15 @@ export async function startTournament(tournamentId: string): Promise<void> {
   // Get tournament to check format
   const tournament = await getTournament(tournamentId);
   if (!tournament) {
-    throw new Error("Tournament not found");
+    throw new Error('Tournament not found');
   }
 
   // Validate double elimination requires exactly 16 participants
-  if (tournament.format === "double_elimination") {
+  if (tournament.format === 'double_elimination') {
     const participants = await getConfirmedParticipants(tournamentId);
     if (participants.length < 8) {
       throw new Error(
-        "Double elimination поддерживает не менее 8 участников. " +
+        'Double elimination поддерживает не менее 8 участников. ' +
           `Текущее количество: ${participants.length}`,
       );
     }
@@ -105,7 +105,7 @@ export async function startTournament(tournamentId: string): Promise<void> {
   await db
     .update(tournaments)
     .set({
-      status: "in_progress",
+      status: 'in_progress',
       updatedAt: new Date(),
     })
     .where(eq(tournaments.id, tournamentId));
@@ -121,7 +121,7 @@ export async function completeTournament(
   await db
     .update(tournaments)
     .set({
-      status: "completed",
+      status: 'completed',
       updatedAt: new Date(),
     })
     .where(eq(tournaments.id, tournamentId));
@@ -170,7 +170,7 @@ export async function getTournaments(options?: {
   return db.query.tournaments.findMany({
     orderBy: (t, { desc }) => [desc(t.createdAt)],
     limit,
-    where: includesDrafts ? undefined : (t, { ne }) => ne(t.status, "draft"),
+    where: includesDrafts ? undefined : (t, { ne }) => ne(t.status, 'draft'),
   });
 }
 
@@ -203,7 +203,7 @@ export async function closeRegistrationWithCount(
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+        eq(tournamentParticipants.status, 'confirmed'),
       ),
     );
 
@@ -213,7 +213,7 @@ export async function closeRegistrationWithCount(
   await db
     .update(tournaments)
     .set({
-      status: "registration_closed",
+      status: 'registration_closed',
       confirmedParticipants: count,
       updatedAt: new Date(),
     })
@@ -233,5 +233,66 @@ export async function deleteTournament(tournamentId: string): Promise<void> {
  * Check if tournament can be deleted
  */
 export function canDeleteTournament(status: string): boolean {
-  return status === "draft" || status === "cancelled";
+  return status === 'draft' || status === 'cancelled';
+}
+
+/**
+ * Confirm a participant (pending → confirmed).
+ * Returns true if the row was updated (i.e. participant was in pending state).
+ */
+export async function confirmParticipant(
+  tournamentId: string,
+  userId: string,
+): Promise<boolean> {
+  const result = await db
+    .update(tournamentParticipants)
+    .set({ status: "confirmed" })
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+        eq(tournamentParticipants.status, "pending"),
+      ),
+    )
+    .returning({ userId: tournamentParticipants.userId });
+  return result.length > 0;
+}
+
+/**
+ * Delete a participant record entirely (confirmed → removed from tournament)
+ */
+export async function deleteParticipant(
+  tournamentId: string,
+  userId: string,
+): Promise<void> {
+  await db
+    .delete(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    );
+}
+
+/**
+ * Reject a participant (pending → cancelled).
+ * Returns true if the row was updated (i.e. participant was in pending state).
+ */
+export async function rejectParticipant(
+  tournamentId: string,
+  userId: string,
+): Promise<boolean> {
+  const result = await db
+    .update(tournamentParticipants)
+    .set({ status: "cancelled" })
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+        eq(tournamentParticipants.status, "pending"),
+      ),
+    )
+    .returning({ userId: tournamentParticipants.userId });
+  return result.length > 0;
 }

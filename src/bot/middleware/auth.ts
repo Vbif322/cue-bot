@@ -1,12 +1,12 @@
-import type { NextFunction } from "grammy";
-import { eq } from "drizzle-orm";
-import { db } from "../../db/db.js";
-import { users } from "../../db/schema.js";
-import type { BotContext } from "../types.js";
+import type { NextFunction } from 'grammy';
+import { eq } from 'drizzle-orm';
+import { db } from '../../db/db.js';
+import { users } from '../../db/schema.js';
+import type { BotContext } from '../types.js';
 
 export async function authMiddleware(
   ctx: BotContext,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> {
   const telegramUser = ctx.from;
 
@@ -35,7 +35,7 @@ export async function authMiddleware(
   }
 
   if (!dbUser) {
-    throw new Error("Failed to get or create user");
+    throw new Error('Failed to get or create user');
   }
 
   ctx.dbUser = dbUser;

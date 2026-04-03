@@ -1,14 +1,14 @@
-import { InlineKeyboard } from "grammy";
-import { sql } from "drizzle-orm";
-import { db } from "../../db/db.js";
-import { and, eq, inArray } from "drizzle-orm";
-import { tournamentParticipants } from "../../db/schema.js";
+import { InlineKeyboard } from 'grammy';
+import { sql } from 'drizzle-orm';
+import { db } from '../../db/db.js';
+import { and, eq, inArray } from 'drizzle-orm';
+import { tournamentParticipants } from '../../db/schema.js';
 import {
   DISCIPLINE_LABELS,
   FORMAT_LABELS,
   STATUS_LABELS,
-} from "../../utils/constants.js";
-import { formatDate } from "../../utils/dateHelpers.js";
+} from '../../utils/constants.js';
+import { formatDate } from '../../utils/dateHelpers.js';
 
 export interface TournamentInfo {
   id: string;
@@ -21,7 +21,7 @@ export interface TournamentInfo {
   winScore: number;
   description: string | null;
   participantsCount: number;
-  isUserRegistered: boolean;
+  userParticipationStatus: "pending" | "confirmed" | null;
 }
 
 /**
@@ -36,19 +36,19 @@ export async function getParticipantsCount(
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ["pending", "confirmed"]),
+        inArray(tournamentParticipants.status, ['pending', 'confirmed']),
       ),
     );
   return result[0]?.count ?? 0;
 }
 
 /**
- * Check if user is registered for tournament
+ * Get user's participation status for a tournament ("pending" | "confirmed" | null)
  */
-export async function isUserRegistered(
+export async function getUserParticipationStatus(
   tournamentId: string,
   userId: string,
-): Promise<boolean> {
+): Promise<"pending" | "confirmed" | null> {
   const participation = await db.query.tournamentParticipants.findFirst({
     where: and(
       eq(tournamentParticipants.tournamentId, tournamentId),
@@ -56,10 +56,13 @@ export async function isUserRegistered(
     ),
   });
 
-  return (
-    !!participation &&
-    (participation.status === "confirmed" || participation.status === "pending")
-  );
+  if (
+    participation?.status === 'confirmed' ||
+    participation?.status === 'pending'
+  ) {
+    return participation.status;
+  }
+  return null;
 }
 
 /**
@@ -79,15 +82,15 @@ export async function getTournamentInfo(
   },
   userId: string,
 ): Promise<TournamentInfo> {
-  const [participantsCount, isRegistered] = await Promise.all([
+  const [participantsCount, userParticipationStatus] = await Promise.all([
     getParticipantsCount(tournament.id),
-    isUserRegistered(tournament.id, userId),
+    getUserParticipationStatus(tournament.id, userId),
   ]);
 
   return {
     ...tournament,
     participantsCount,
-    isUserRegistered: isRegistered,
+    userParticipationStatus,
   };
 }
 
@@ -104,11 +107,15 @@ export function buildTournamentMessage(
     `Формат: ${FORMAT_LABELS[info.format] || info.format}\n` +
     `Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
     `Участников: ${info.participantsCount}/${info.maxParticipants}\n` +
-    `Дата: ${info.startDate ? formatDate(info.startDate) : "Не указана"}\n` +
+    `Дата: ${info.startDate ? formatDate(info.startDate) : 'Не указана'}\n` +
     `Игра до: ${info.winScore} побед\n` +
-    (info.description ? `\nОписание: ${info.description}\n` : "") +
-    (info.isUserRegistered ? "\n✅ Вы зарегистрированы" : "") +
-    (isAdmin ? `\n\nID: \`${info.id}\`` : "")
+    (info.description ? `\nОписание: ${info.description}\n` : '') +
+    (info.userParticipationStatus === 'confirmed'
+      ? '\n✅ Вы зарегистрированы'
+      : info.userParticipationStatus === 'pending'
+        ? '\n⏳ Ожидает подтверждения'
+        : '') +
+    (isAdmin ? `\n\nID: \`${info.id}\`` : '')
   );
 }
 
@@ -125,9 +132,9 @@ export function buildTournamentListItem(
     `   Формат: ${FORMAT_LABELS[info.format] || info.format}\n` +
     `   Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
     `   Участников: ${info.participantsCount}/${info.maxParticipants}\n` +
-    `   Дата: ${info.startDate ? formatDate(info.startDate) : "Не указана"}\n` +
-    (isAdmin ? `   ID: \`${info.id}\`\n` : "") +
-    "\n"
+    `   Дата: ${info.startDate ? formatDate(info.startDate) : 'Не указана'}\n` +
+    (isAdmin ? `   ID: \`${info.id}\`\n` : '') +
+    '\n'
   );
 }
 
@@ -141,36 +148,42 @@ export function buildTournamentKeyboard(
   const keyboard = new InlineKeyboard();
 
   // User registration buttons
-  if (info.status === "registration_open") {
-    if (!info.isUserRegistered) {
+  if (info.status === 'registration_open') {
+    if (!info.userParticipationStatus) {
       if (info.participantsCount < info.maxParticipants) {
-        keyboard.text("Участвовать", `reg:join:${info.id}`).row();
+        keyboard.text('Участвовать', `reg:join:${info.id}`).row();
       } else {
-        keyboard.text("Мест нет", `reg:full:${info.id}`).row();
+        keyboard.text('Мест нет', `reg:full:${info.id}`).row();
       }
     } else {
-      keyboard.text("Отменить регистрацию", `reg:cancel:${info.id}`).row();
+      keyboard.text('Отменить регистрацию', `reg:cancel:${info.id}`).row();
     }
   }
 
   // Admin buttons
   if (isAdmin) {
-    if (info.status === "draft") {
+    if (info.status === 'draft') {
       keyboard
-        .text("Открыть регистрацию", `tournament_open_reg:${info.id}`)
+        .text('Открыть регистрацию', `tournament_open_reg:${info.id}`)
         .row();
-      keyboard.text("Удалить", `tournament_delete:${info.id}`).row();
+      keyboard.text('Удалить', `tournament_delete:${info.id}`).row();
     }
-    if (info.status === "registration_open") {
+    if (info.status === 'registration_open') {
       keyboard
-        .text("Закрыть регистрацию", `tournament_close_reg:${info.id}`)
+        .text('Закрыть регистрацию', `tournament_close_reg:${info.id}`)
+        .row();
+      keyboard
+        .text("👥 Управление участниками", `adm:pending_list:${info.id}`)
         .row();
     }
-    if (info.status === "registration_closed") {
-      keyboard.text("🚀 Начать турнир", `tournament_start:${info.id}`).row();
+    if (info.status === 'registration_closed') {
+      keyboard.text('🚀 Начать турнир', `tournament_start:${info.id}`).row();
+      keyboard
+        .text('👥 Управление участниками', `adm:pending_list:${info.id}`)
+        .row();
     }
-    if (info.status === "in_progress") {
-      keyboard.text("📊 Сетка турнира", `bracket:view:${info.id}`).row();
+    if (info.status === 'in_progress') {
+      keyboard.text('📊 Сетка турнира', `bracket:view:${info.id}`).row();
     }
   }
 
@@ -186,10 +199,10 @@ export function buildTournamentListKeyboard(
   const keyboard = new InlineKeyboard();
 
   for (const t of tournaments) {
-    if (t.status === "registration_open") {
+    if (t.status === 'registration_open') {
       keyboard
         .text(`📋 ${t.name}`, `tournament_info:${t.id}`)
-        .text("Участвовать", `reg:join:${t.id}`)
+        .text('Участвовать', `reg:join:${t.id}`)
         .row();
     }
   }
@@ -202,7 +215,7 @@ export function buildTournamentListKeyboard(
  */
 export function buildTournamentSelectionKeyboard(
   tournaments: { id: string; name: string }[],
-  callbackPrefix: string = "tournament_info",
+  callbackPrefix: string = 'tournament_info',
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const t of tournaments) {

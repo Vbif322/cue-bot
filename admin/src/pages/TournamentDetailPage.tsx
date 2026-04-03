@@ -86,14 +86,6 @@ export default function TournamentDetailPage() {
     onError: (e: Error) => setAddError(e.message),
   });
 
-  const removeParticipantMutation = useMutation({
-    mutationFn: (userId: string) =>
-      tournamentsApi.removeParticipant(id!, userId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tournament-participants', id] });
-    },
-  });
-
   const statusMutation = useMutation({
     mutationFn: (status: TournamentStatus) =>
       tournamentsApi.setStatus(id!, status),
@@ -113,6 +105,30 @@ export default function TournamentDetailPage() {
       qc.invalidateQueries({ queryKey: ['tournaments'] });
       qc.invalidateQueries({ queryKey: ['tournament-matches', id] });
     },
+    onError: (e: Error) => setActionError(e.message),
+  });
+
+  const confirmParticipantMutation = useMutation({
+    mutationFn: (userId: string) =>
+      tournamentsApi.confirmParticipant(id!, userId),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["tournament-participants", id] }),
+    onError: (e: Error) => setActionError(e.message),
+  });
+
+  const rejectParticipantMutation = useMutation({
+    mutationFn: (userId: string) =>
+      tournamentsApi.rejectParticipant(id!, userId),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["tournament-participants", id] }),
+    onError: (e: Error) => setActionError(e.message),
+  });
+
+  const removeParticipantMutation = useMutation({
+    mutationFn: (userId: string) =>
+      tournamentsApi.removeParticipant(id!, userId),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["tournament-participants", id] }),
     onError: (e: Error) => setActionError(e.message),
   });
 
@@ -307,20 +323,64 @@ export default function TournamentDetailPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-xs text-gray-500">{p.status}</span>
+                      <ParticipantStatusBadge status={p.status} />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => {
-                          if (confirm('Удалить участника?')) {
-                            removeParticipantMutation.mutate(p.userId);
-                          }
-                        }}
-                        disabled={removeParticipantMutation.isPending}
-                        className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
-                      >
-                        Удалить
-                      </button>
+                      {(tournament.status === 'registration_open' ||
+                        tournament.status === 'registration_closed') && (
+                        <div className="flex gap-2 justify-end">
+                          {p.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() =>
+                                  confirmParticipantMutation.mutate(p.userId)
+                                }
+                                disabled={
+                                  (confirmParticipantMutation.isPending &&
+                                    confirmParticipantMutation.variables ===
+                                      p.userId) ||
+                                  (rejectParticipantMutation.isPending &&
+                                    rejectParticipantMutation.variables ===
+                                      p.userId)
+                                }
+                                className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                              >
+                                Подтвердить
+                              </button>
+                              <button
+                                onClick={() =>
+                                  rejectParticipantMutation.mutate(p.userId)
+                                }
+                                disabled={
+                                  (confirmParticipantMutation.isPending &&
+                                    confirmParticipantMutation.variables ===
+                                      p.userId) ||
+                                  (rejectParticipantMutation.isPending &&
+                                    rejectParticipantMutation.variables ===
+                                      p.userId)
+                                }
+                                className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
+                              >
+                                Отклонить
+                              </button>
+                            </>
+                          )}
+                          {p.status === 'confirmed' && (
+                            <button
+                              onClick={() =>
+                                removeParticipantMutation.mutate(p.userId)
+                              }
+                              disabled={
+                                removeParticipantMutation.isPending &&
+                                removeParticipantMutation.variables === p.userId
+                              }
+                              className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
+                            >
+                              Снять
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -626,6 +686,28 @@ export default function TournamentDetailPage() {
       )}
     </div>
   );
+}
+
+function ParticipantStatusBadge({ status }: { status: string }) {
+  if (status === "confirmed")
+    return (
+      <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
+        Подтверждён
+      </span>
+    );
+  if (status === "pending")
+    return (
+      <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-700">
+        Ожидает
+      </span>
+    );
+  if (status === "cancelled")
+    return (
+      <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-500">
+        Отменён
+      </span>
+    );
+  return <span className="text-xs text-gray-500">{status}</span>;
 }
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
