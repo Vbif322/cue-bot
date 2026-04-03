@@ -392,13 +392,13 @@ export async function notifyRegistrationConfirmed(
   tournamentName: string,
 ): Promise<void> {
   await createAndSendNotification(api, {
-    userId,
+    userId: userId as UUID,
     type: "registration_confirmed",
     title: "Регистрация подтверждена",
     message:
       `Ваша заявка на турнир "${tournamentName}" подтверждена администратором.\n\n` +
       `Используйте /my\\_tournaments для просмотра ваших турниров.`,
-    tournamentId,
+    tournamentId: tournamentId as UUID,
   });
 }
 
@@ -412,11 +412,11 @@ export async function notifyRegistrationRejected(
   tournamentName: string,
 ): Promise<void> {
   await createAndSendNotification(api, {
-    userId,
+    userId: userId as UUID,
     type: "registration_rejected",
     title: "Заявка отклонена",
     message: `Ваша заявка на турнир "${tournamentName}" была отклонена администратором.`,
-    tournamentId,
+    tournamentId: tournamentId as UUID,
   });
 }
 

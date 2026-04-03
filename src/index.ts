@@ -5,6 +5,7 @@ import {
   tournamentCommands,
   registrationCommands,
   adminParticipantCommands,
+  matchCommands,
 } from './bot/handlers/index.js';
 import { setupCommands, setAdminCommands } from './bot/commands.js';
 import { createAdminServer } from './admin/server/index.js';

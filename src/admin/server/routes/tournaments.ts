@@ -262,7 +262,7 @@ export function createTournamentsRouter(botApi: Api) {
       const userId = c.req.param('userId');
       const { action } = c.req.valid('json');
 
-      const tournament = await getTournament(tournamentId);
+      const tournament = await getTournament(tournamentId as UUID);
       if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
 
       if (

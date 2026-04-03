@@ -5,7 +5,7 @@ import { DateTime } from 'luxon';
 export interface IDateTimeHelper {
   toDate(
     datetime: string,
-  ): { status: true; datetime: Date } | { status: false; datetime?: never };
+  ): { status: true; datetime: Date } | { status: false };
 
   formatDate(date?: Date | null, format?: string): string;
 }
@@ -19,6 +19,9 @@ const CUSTOM_FORMATS = [
   'dd.MM.yyyy HH:mm',
   'dd.MM.yyyy HH:mm:ss',
   'dd.MM.yyyy HH:mm:ss.SSS',
+  'dd.MM.yy',
+  'dd.MM.yy HH:mm',
+  'dd.MM.yy HH:mm:ss',
 
   'yyyy-MM-dd',
   'yyyy-MM-dd HH:mm',
@@ -28,10 +31,16 @@ const CUSTOM_FORMATS = [
   'dd-MM-yyyy',
   'dd-MM-yyyy HH:mm',
   'dd-MM-yyyy HH:mm:ss',
+  'dd-MM-yy',
+  'dd-MM-yy HH:mm',
+  'dd-MM-yy HH:mm:ss',
 
   'dd/MM/yyyy',
   'dd/MM/yyyy HH:mm',
   'dd/MM/yyyy HH:mm:ss',
+  'dd/MM/yy',
+  'dd/MM/yy HH:mm',
+  'dd/MM/yy HH:mm:ss',
 ] as const;
 
 // #endregion
@@ -49,12 +58,16 @@ export class DateTimeHelper implements IDateTimeHelper {
    */
   toDate(
     datetime: string,
-  ): { status: true; datetime: Date } | { status: false; datetime?: never } {
-    const { status, datetime: parsedDatetime } = this.parsedISO(datetime);
+  ): { status: true; datetime: Date } | { status: false } {
+    const { status, datetime: parsedDatetime, hasTime } = this.parsedISO(datetime);
 
     if (!status) return { status: false };
 
-    return { status: true, datetime: parsedDatetime.toJSDate() };
+    const result = hasTime
+      ? parsedDatetime
+      : parsedDatetime.set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
+
+    return { status: true, datetime: result.toJSDate() };
   }
 
   /**
@@ -91,16 +104,13 @@ export class DateTimeHelper implements IDateTimeHelper {
     datetime: string,
     defaultZone: string = 'utc',
   ):
-    | { status: true; datetime: DateTime<true> }
-    | { status: false; datetime?: never } {
+    | { status: true; datetime: DateTime<true>; hasTime: boolean }
+    | { status: false; datetime?: never; hasTime?: never } {
     const rawDatetime = datetime.trim();
 
-    if (!rawDatetime)
-      return {
-        status: false,
-      };
+    if (!rawDatetime) return { status: false };
 
-    // 1) Unix timestamp: seconds / milliseconds
+    // 1) Unix timestamp: seconds / milliseconds — время всегда задано явно
     if (/^\d{10,13}$/.test(rawDatetime)) {
       const numDatetime = Number(rawDatetime);
 
@@ -112,7 +122,7 @@ export class DateTimeHelper implements IDateTimeHelper {
 
         const normalized = this.toUTC(parsedDatetime);
 
-        if (normalized) return { status: true, datetime: normalized };
+        if (normalized) return { status: true, datetime: normalized, hasTime: true };
       }
     }
 
@@ -125,10 +135,13 @@ export class DateTimeHelper implements IDateTimeHelper {
       DateTime.fromSQL(rawDatetime, { zone: defaultZone, setZone: true }),
     ];
 
+    // Время считается заданным, если в строке есть цифры после пробела или символа T
+    const builtInHasTime = /[\sT]\d{1,2}:/.test(rawDatetime);
+
     for (const parsedDatetime of builtIn) {
       const normalized = this.toUTC(parsedDatetime);
 
-      if (normalized) return { status: true, datetime: normalized };
+      if (normalized) return { status: true, datetime: normalized, hasTime: builtInHasTime };
     }
 
     // 3) Кастомные форматы
@@ -141,12 +154,10 @@ export class DateTimeHelper implements IDateTimeHelper {
 
       const normalized = this.toUTC(parsedDatetime);
 
-      if (normalized) return { status: true, datetime: normalized };
+      if (normalized) return { status: true, datetime: normalized, hasTime: fmt.includes('HH') };
     }
 
-    return {
-      status: false,
-    };
+    return { status: false };
   }
 
   /**
