@@ -1,12 +1,12 @@
-import { useState } from "react";
-import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
-import { useMe, useLogout } from "../lib/useAuth.ts";
+import { useState } from 'react';
+import type { ReactNode } from 'react';
+import { NavLink } from 'react-router-dom';
+import { useMe, useLogout } from '../lib/useAuth.ts';
 
 const navItems = [
-  { to: "/tournaments", label: "Турниры" },
-  { to: "/venues", label: "Площадки" },
-  { to: "/users", label: "Пользователи" },
+  { to: '/tournaments', label: 'Турниры' },
+  { to: '/venues', label: 'Площадки' },
+  { to: '/users', label: 'Пользователи' },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -21,15 +21,15 @@ export default function Layout({ children }: { children: ReactNode }) {
         onClick={() => setSidebarOpen(false)}
         className={`fixed inset-0 z-20 bg-black/40 md:hidden transition-opacity duration-200 ${
           sidebarOpen
-            ? "opacity-100 pointer-events-auto"
-            : "opacity-0 pointer-events-none"
+            ? 'opacity-100 pointer-events-auto'
+            : 'opacity-0 pointer-events-none'
         }`}
       />
 
       {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-30 w-56 bg-white border-r border-gray-200 flex flex-col transition-transform duration-200 md:static md:translate-x-0 md:z-auto ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
@@ -67,8 +67,8 @@ export default function Layout({ children }: { children: ReactNode }) {
               className={({ isActive }) =>
                 `block px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive
-                    ? "bg-blue-50 text-blue-700"
-                    : "text-gray-700 hover:bg-gray-100"
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-100'
                 }`
               }
             >

@@ -1,20 +1,20 @@
-import { Composer, InlineKeyboard } from "grammy";
-import type { BotContext } from "../types.js";
-import { db } from "../../db/db.js";
-import { tournaments, tournamentFormat, discipline } from "../../db/schema.js";
-import { parseDate, formatDate } from "../../utils/dateHelpers.js";
-import { DISCIPLINE_LABELS, FORMAT_LABELS } from "../../utils/constants.js";
-import { safeEditMessageText } from "../../utils/messageHelpers.js";
+import { Composer, InlineKeyboard } from 'grammy';
+import type { BotContext } from '../types.js';
+import { db } from '../../db/db.js';
+import { tournaments, tournamentFormat, discipline } from '../../db/schema.js';
+import { parseDate, formatDate } from '../../utils/dateHelpers.js';
+import { DISCIPLINE_LABELS, FORMAT_LABELS } from '../../utils/constants.js';
+import { safeEditMessageText } from '../../utils/messageHelpers.js';
 
 const STEPS_COUNT = 6;
 
 type CreationStep =
-  | "name"
-  | "date"
-  | "discipline"
-  | "format"
-  | "maxParticipants"
-  | "winScore";
+  | 'name'
+  | 'date'
+  | 'discipline'
+  | 'format'
+  | 'maxParticipants'
+  | 'winScore';
 
 interface CreationData {
   name?: string;
@@ -43,7 +43,7 @@ export const tournamentCreationWizard = new Composer<BotContext>();
  */
 export function startCreationWizard(userId: number, messageId: number): void {
   creationState.set(userId, {
-    step: "name",
+    step: 'name',
     lastMessageId: messageId,
     data: {},
   });
@@ -75,17 +75,17 @@ export async function handleNameInput(
   const userId = ctx.from!.id;
   const state = creationState.get(userId);
 
-  if (!state || state.step !== "name") {
+  if (!state || state.step !== 'name') {
     return false;
   }
 
   if (text.length < 3) {
-    await ctx.reply("Название должно быть минимум 3 символа.");
+    await ctx.reply('Название должно быть минимум 3 символа.');
     return true;
   }
 
   state.data.name = text;
-  state.step = "date";
+  state.step = 'date';
 
   await ctx.reply(
     `Название: ${text}\n\nШаг 2/${STEPS_COUNT}: Введите дату турнира:`,
@@ -103,18 +103,18 @@ export async function handleDateInput(
   const userId = ctx.from!.id;
   const state = creationState.get(userId);
 
-  if (!state || state.step !== "date") {
+  if (!state || state.step !== 'date') {
     return false;
   }
 
   const parsedDate = parseDate(text);
   if (!parsedDate) {
-    await ctx.reply("Не удалось распознать дату, попробуйте еще раз");
+    await ctx.reply('Не удалось распознать дату, попробуйте еще раз');
     return true;
   }
 
   state.data.start_date = parsedDate;
-  state.step = "discipline";
+  state.step = 'discipline';
 
   const keyboard = new InlineKeyboard();
   for (const disc of discipline) {
@@ -122,13 +122,13 @@ export async function handleDateInput(
   }
 
   await ctx.reply(
-    `Дата: ${parsedDate.toLocaleString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "UTC",
+    `Дата: ${parsedDate.toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'UTC',
     })}\n\nШаг 3/${STEPS_COUNT}: Выберите дисциплину:`,
     {
       reply_markup: keyboard,
@@ -150,13 +150,13 @@ export async function handleDisciplineSelection(
   const userId = ctx.from.id;
   const state = creationState.get(userId);
 
-  if (!state || state.step !== "discipline") {
-    await ctx.answerCallbackQuery("Сессия создания истекла");
+  if (!state || state.step !== 'discipline') {
+    await ctx.answerCallbackQuery('Сессия создания истекла');
     return;
   }
 
   state.data.discipline = selectedDiscipline;
-  state.step = "format";
+  state.step = 'format';
 
   await ctx.answerCallbackQuery();
 
@@ -186,23 +186,23 @@ export async function handleFormatSelection(
   const userId = ctx.from.id;
   const state = creationState.get(userId);
 
-  if (!state || state.step !== "format") {
-    await ctx.answerCallbackQuery("Сессия создания истекла");
+  if (!state || state.step !== 'format') {
+    await ctx.answerCallbackQuery('Сессия создания истекла');
     return;
   }
 
   state.data.format = selectedFormat;
-  state.step = "maxParticipants";
+  state.step = 'maxParticipants';
 
   await ctx.answerCallbackQuery();
 
   const keyboard = new InlineKeyboard()
-    .text("8", "participants:8")
-    .text("16", "participants:16")
-    .text("32", "participants:32")
+    .text('8', 'participants:8')
+    .text('16', 'participants:16')
+    .text('32', 'participants:32')
     .row()
-    .text("64", "participants:64")
-    .text("128", "participants:128");
+    .text('64', 'participants:64')
+    .text('128', 'participants:128');
 
   await safeEditMessageText(ctx, {
     text:
@@ -225,22 +225,22 @@ export async function handleMaxParticipantsSelection(
   const userId = ctx.from.id;
   const state = creationState.get(userId);
 
-  if (!state || state.step !== "maxParticipants") {
-    await ctx.answerCallbackQuery("Сессия создания истекла");
+  if (!state || state.step !== 'maxParticipants') {
+    await ctx.answerCallbackQuery('Сессия создания истекла');
     return;
   }
 
   state.data.maxParticipants = participants;
-  state.step = "winScore";
+  state.step = 'winScore';
 
   await ctx.answerCallbackQuery();
 
   const keyboard = new InlineKeyboard()
-    .text("До 2 побед", "winscore:2")
-    .text("До 3 побед", "winscore:3")
+    .text('До 2 побед', 'winscore:2')
+    .text('До 3 побед', 'winscore:3')
     .row()
-    .text("До 4 побед", "winscore:4")
-    .text("До 5 побед", "winscore:5");
+    .text('До 4 побед', 'winscore:4')
+    .text('До 5 побед', 'winscore:5');
 
   await safeEditMessageText(ctx, {
     text:
@@ -263,8 +263,8 @@ export async function handleWinScoreSelection(
   const userId = ctx.from.id;
   const state = creationState.get(userId);
 
-  if (!state || state.step !== "winScore") {
-    await ctx.answerCallbackQuery("Сессия создания истекла");
+  if (!state || state.step !== 'winScore') {
+    await ctx.answerCallbackQuery('Сессия создания истекла');
     return;
   }
 
@@ -283,14 +283,14 @@ export async function handleWinScoreSelection(
         maxParticipants: state.data.maxParticipants!,
         winScore: winScore,
         createdBy: ctx.dbUser.id,
-        status: "draft",
+        status: 'draft',
         startDate: state.data.start_date,
       })
       .returning();
 
     if (!newTournament) {
       await safeEditMessageText(ctx, {
-        text: "При создании турнира возникла ошибка",
+        text: 'При создании турнира возникла ошибка',
       });
       return;
     }
@@ -298,7 +298,7 @@ export async function handleWinScoreSelection(
     creationState.delete(userId);
 
     const keyboard = new InlineKeyboard()
-      .text("Открыть регистрацию", `tournament_open_reg:${newTournament.id}`)
+      .text('Открыть регистрацию', `tournament_open_reg:${newTournament.id}`)
       .row();
 
     await safeEditMessageText(ctx, {
@@ -312,13 +312,13 @@ export async function handleWinScoreSelection(
         `До побед: ${newTournament.winScore}\n` +
         `Статус: Черновик\n\n` +
         `ID: \`${newTournament.id}\``,
-      parse_mode: "Markdown",
+      parse_mode: 'Markdown',
       reply_markup: keyboard,
     });
   } catch (error) {
-    console.error("Error creating tournament:", error);
+    console.error('Error creating tournament:', error);
     await safeEditMessageText(ctx, {
-      text: `❌ Ошибка при создании турнира:\n${error instanceof Error ? error.message : "Неизвестная ошибка"}`,
+      text: `❌ Ошибка при создании турнира:\n${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
     });
   }
 }

@@ -135,6 +135,18 @@ export const tournamentsApi = {
       `/api/tournaments/${tournamentId}/participants/${userId}`,
       { method: 'DELETE' },
     ),
+
+  confirmParticipant: (tournamentId: string, userId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/${userId}`,
+      { method: 'PATCH', body: JSON.stringify({ action: 'confirm' }) },
+    ),
+
+  rejectParticipant: (tournamentId: string, userId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/${userId}`,
+      { method: 'PATCH', body: JSON.stringify({ action: 'reject' }) },
+    ),
 };
 
 // ── Matches ──────────────────────────────────────────────────────────────────
