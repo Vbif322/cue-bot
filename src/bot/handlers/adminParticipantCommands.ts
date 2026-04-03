@@ -1,5 +1,6 @@
 import { Composer, InlineKeyboard } from "grammy";
 import { eq, and } from "drizzle-orm";
+import type { UUID } from "crypto";
 import { db } from "../../db/db.js";
 import { tournamentParticipants, users } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
@@ -41,7 +42,7 @@ async function showParticipantManagement(
   tournamentId: string,
   cachedTournament?: Awaited<ReturnType<typeof getTournament>>,
 ): Promise<void> {
-  const tournament = cachedTournament ?? (await getTournament(tournamentId));
+  const tournament = cachedTournament ?? (await getTournament(tournamentId as UUID));
   if (!tournament) {
     await ctx.answerCallbackQuery({
       text: "Турнир не найден",
@@ -60,7 +61,7 @@ async function showParticipantManagement(
     .innerJoin(users, eq(tournamentParticipants.userId, users.id))
     .where(
       and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
         eq(tournamentParticipants.status, "pending"),
       ),
     );
@@ -75,7 +76,7 @@ async function showParticipantManagement(
     .innerJoin(users, eq(tournamentParticipants.userId, users.id))
     .where(
       and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
         eq(tournamentParticipants.status, "confirmed"),
       ),
     );
@@ -168,7 +169,7 @@ adminParticipantCommands.callbackQuery(/^adm:c:(.+)$/, async (ctx) => {
   }
 
   const { tournamentId, userId } = entry;
-  const tournament = await getTournament(tournamentId);
+  const tournament = await getTournament(tournamentId as UUID);
   const updated = await confirmParticipant(tournamentId, userId);
 
   if (updated && tournament) {
@@ -202,7 +203,7 @@ adminParticipantCommands.callbackQuery(/^adm:r:(.+)$/, async (ctx) => {
   }
 
   const { tournamentId, userId } = entry;
-  const tournament = await getTournament(tournamentId);
+  const tournament = await getTournament(tournamentId as UUID);
   const updated = await rejectParticipant(tournamentId, userId);
 
   if (updated && tournament) {
@@ -236,7 +237,7 @@ adminParticipantCommands.callbackQuery(/^adm:rm:(.+)$/, async (ctx) => {
   }
 
   const { tournamentId, userId } = entry;
-  const tournament = await getTournament(tournamentId);
+  const tournament = await getTournament(tournamentId as UUID);
 
   await deleteParticipant(tournamentId, userId);
 

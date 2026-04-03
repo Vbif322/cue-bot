@@ -360,8 +360,8 @@ export async function confirmParticipant(
     .set({ status: "confirmed" })
     .where(
       and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        eq(tournamentParticipants.userId, userId),
+        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
+        eq(tournamentParticipants.userId, userId as UUID),
         eq(tournamentParticipants.status, "pending"),
       ),
     )
@@ -380,8 +380,8 @@ export async function deleteParticipant(
     .delete(tournamentParticipants)
     .where(
       and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        eq(tournamentParticipants.userId, userId),
+        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
+        eq(tournamentParticipants.userId, userId as UUID),
       ),
     );
 }
@@ -399,8 +399,8 @@ export async function rejectParticipant(
     .set({ status: "cancelled" })
     .where(
       and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        eq(tournamentParticipants.userId, userId),
+        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
+        eq(tournamentParticipants.userId, userId as UUID),
         eq(tournamentParticipants.status, "pending"),
       ),
     )
