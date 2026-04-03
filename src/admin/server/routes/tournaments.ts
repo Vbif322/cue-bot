@@ -23,11 +23,17 @@ import {
   canDeleteTournament,
   closeRegistrationWithCount,
   canStartTournament,
+  confirmParticipant,
+  rejectParticipant,
+  deleteParticipant,
 } from '@/services/tournamentService.js';
+import {
+  notifyRegistrationConfirmed,
+  notifyRegistrationRejected,
+} from '@/services/notificationService.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
 import { getMatchStats } from '@/services/matchService.js';
 import { getTournamentTables } from '@/services/tableService.js';
-
 import { requireAdmin } from '../middleware.js';
 
 export function createTournamentsRouter(botApi: Api) {
@@ -206,10 +212,38 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.post(
     '/:id/participants',
-    zValidator('json', z.object({ userId: z.uuid() })),
+    zValidator(
+      'json',
+      z.discriminatedUnion('type', [
+        z.object({ type: z.literal('user'), userId: z.string().uuid() }),
+        z.object({
+          type: z.literal('external'),
+          name: z.string().min(1).max(255),
+          username: z.string().max(255).optional(),
+        }),
+      ]),
+    ),
     async (c) => {
       const tournamentId = c.req.param('id') as UUID;
-      const { userId } = c.req.valid('json') as { userId: UUID };
+      const body = c.req.valid('json');
+
+      let userId: UUID;
+
+      if (body.type === 'external') {
+        const [newUser] = await db
+          .insert(users)
+          .values({
+            username: body.username ?? body.name.slice(0, 255),
+            name: body.name,
+          })
+          .returning({ id: users.id });
+
+        if (!newUser)
+          return c.json({ error: 'Ошибка создания участника' }, 500);
+        userId = newUser.id as UUID;
+      } else {
+        userId = body.userId as UUID;
+      }
 
       await db
         .insert(tournamentParticipants)
@@ -220,18 +254,50 @@ export function createTournamentsRouter(botApi: Api) {
     },
   );
 
+  router.patch(
+    '/:id/participants/:userId',
+    zValidator('json', z.object({ action: z.enum(['confirm', 'reject']) })),
+    async (c) => {
+      const tournamentId = c.req.param('id');
+      const userId = c.req.param('userId');
+      const { action } = c.req.valid('json');
+
+      const tournament = await getTournament(tournamentId);
+      if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
+
+      if (
+        tournament.status !== 'registration_open' &&
+        tournament.status !== 'registration_closed'
+      ) {
+        return c.json(
+          {
+            error: 'Подтверждение участников доступно только во время регистрации',
+          },
+          400,
+        );
+      }
+
+      if (action === 'confirm') {
+        const updated = await confirmParticipant(tournamentId, userId);
+        if (updated) {
+          await notifyRegistrationConfirmed(botApi, userId, tournamentId, tournament.name);
+        }
+      } else {
+        const updated = await rejectParticipant(tournamentId, userId);
+        if (updated) {
+          await notifyRegistrationRejected(botApi, userId, tournamentId, tournament.name);
+        }
+      }
+
+      return c.json({ ok: true });
+    },
+  );
+
   router.delete('/:id/participants/:userId', async (c) => {
     const tournamentId = c.req.param('id') as UUID;
     const userId = c.req.param('userId') as UUID;
 
-    await db
-      .delete(tournamentParticipants)
-      .where(
-        and(
-          eq(tournamentParticipants.tournamentId, tournamentId),
-          eq(tournamentParticipants.userId, userId),
-        ),
-      );
+    await deleteParticipant(tournamentId, userId);
 
     return c.json({ ok: true });
   });

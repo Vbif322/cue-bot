@@ -5,7 +5,7 @@ import { prodSchema } from '../schemaHelpers.js';
 
 export const users = prodSchema.table('users', {
   id: uuid('id').$type<UUID>().primaryKey().defaultRandom(),
-  telegram_id: varchar({ length: 255 }).notNull().unique(),
+  telegram_id: varchar({ length: 255 }).unique(),
   username: varchar({ length: 255 }).notNull(),
   phone: varchar({ length: 20 }),
   email: varchar({ length: 255 }),
