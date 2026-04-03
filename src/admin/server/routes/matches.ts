@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import type { Api } from 'grammy';
+import type { UUID } from 'crypto';
+
 import {
   getMatch,
   getTournamentMatches,
@@ -10,9 +13,9 @@ import {
   confirmResult,
   disputeResult,
   setTechnicalResult,
-} from '../../../services/matchService.js';
+} from '@/services/matchService.js';
+
 import { requireAdmin } from '../middleware.js';
-import type { Api } from 'grammy';
 
 export function createMatchesRouter(botApi: Api) {
   const router = new Hono();
@@ -21,26 +24,28 @@ export function createMatchesRouter(botApi: Api) {
 
   // List all matches for a tournament
   router.get('/tournament/:tournamentId', async (c) => {
-    const matches = await getTournamentMatches(c.req.param('tournamentId'));
+    const matches = await getTournamentMatches(
+      c.req.param('tournamentId') as UUID,
+    );
     return c.json({ data: matches });
   });
 
   // Get match stats for a tournament
   router.get('/tournament/:tournamentId/stats', async (c) => {
-    const stats = await getMatchStats(c.req.param('tournamentId'));
+    const stats = await getMatchStats(c.req.param('tournamentId') as UUID);
     return c.json({ data: stats });
   });
 
   // Get single match with player info
   router.get('/:id', async (c) => {
-    const match = await getMatch(c.req.param('id'));
+    const match = await getMatch(c.req.param('id') as UUID);
     if (!match) return c.json({ error: 'Матч не найден' }, 404);
     return c.json({ data: match });
   });
 
   // Start a match
   router.post('/:id/start', async (c) => {
-    const result = await startMatch(c.req.param('id'));
+    const result = await startMatch(c.req.param('id') as UUID);
     if (!result.success) return c.json({ error: result.error }, 400);
     return c.json({ data: result.match });
   });
@@ -51,7 +56,7 @@ export function createMatchesRouter(botApi: Api) {
     zValidator(
       'json',
       z.object({
-        reporterId: z.string().uuid(),
+        reporterId: z.uuid(),
         player1Score: z.number().int().min(0),
         player2Score: z.number().int().min(0),
       }),
@@ -59,8 +64,8 @@ export function createMatchesRouter(botApi: Api) {
     async (c) => {
       const { reporterId, player1Score, player2Score } = c.req.valid('json');
       const result = await reportResult(
-        c.req.param('id'),
-        reporterId,
+        c.req.param('id') as UUID,
+        reporterId as UUID,
         player1Score,
         player2Score,
       );
@@ -72,12 +77,12 @@ export function createMatchesRouter(botApi: Api) {
   // Confirm result
   router.post(
     '/:id/confirm',
-    zValidator('json', z.object({ confirmerId: z.string().uuid() })),
+    zValidator('json', z.object({ confirmerId: z.uuid() })),
     async (c) => {
       const { confirmerId } = c.req.valid('json');
       const result = await confirmResult(
-        c.req.param('id'),
-        confirmerId,
+        c.req.param('id') as UUID,
+        confirmerId as UUID,
         botApi,
       );
       if (!result.success) return c.json({ error: result.error }, 400);
@@ -88,10 +93,13 @@ export function createMatchesRouter(botApi: Api) {
   // Dispute result
   router.post(
     '/:id/dispute',
-    zValidator('json', z.object({ userId: z.string().uuid() })),
+    zValidator('json', z.object({ userId: z.uuid() })),
     async (c) => {
       const { userId } = c.req.valid('json');
-      const result = await disputeResult(c.req.param('id'), userId);
+      const result = await disputeResult(
+        c.req.param('id') as UUID,
+        userId as UUID,
+      );
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },
@@ -103,7 +111,7 @@ export function createMatchesRouter(botApi: Api) {
     zValidator(
       'json',
       z.object({
-        winnerId: z.string().uuid(),
+        winnerId: z.uuid(),
         reason: z.string().min(1),
       }),
     ),
@@ -111,10 +119,10 @@ export function createMatchesRouter(botApi: Api) {
       const { winnerId, reason } = c.req.valid('json');
       const admin = c.get('adminUser');
       const result = await setTechnicalResult(
-        c.req.param('id'),
-        winnerId,
+        c.req.param('id') as UUID,
+        winnerId as UUID,
         reason,
-        admin.id,
+        admin.id as UUID,
         botApi,
       );
       if (!result.success) return c.json({ error: result.error }, 400);

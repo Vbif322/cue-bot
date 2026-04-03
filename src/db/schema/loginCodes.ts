@@ -1,4 +1,5 @@
 import { integer, timestamp, varchar } from 'drizzle-orm/pg-core';
+
 import { prodSchema } from '../schemaHelpers.js';
 
 export const loginCodes = prodSchema.table('login_codes', {

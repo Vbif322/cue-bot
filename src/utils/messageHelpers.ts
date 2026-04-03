@@ -1,5 +1,5 @@
-import type { Context } from 'grammy';
 import { GrammyError } from 'grammy';
+import type { Context } from 'grammy';
 
 /**
  * Options for safe edit message text operation

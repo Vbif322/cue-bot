@@ -1,11 +1,13 @@
 import { createMiddleware } from 'hono/factory';
-import jwt from 'jsonwebtoken';
-import { db } from '../../db/db.js';
-import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
+import jwt from 'jsonwebtoken';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { users } from '@/db/schema.js';
 
 export interface AdminUser {
-  id: string;
+  id: UUID;
   username: string;
   role: string;
 }
