@@ -1,25 +1,36 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { venuesApi, tablesApi, type ApiVenue, type ApiTable } from "../lib/api.ts";
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  venuesApi,
+  tablesApi,
+  type ApiVenue,
+  type ApiTable,
+} from '../lib/api.ts';
 
 type EditState = { name: string; address: string; image: string };
 
 export default function VenuesPage() {
   const qc = useQueryClient();
   const { data: venues = [], isLoading } = useQuery({
-    queryKey: ["venues"],
+    queryKey: ['venues'],
     queryFn: () => venuesApi.list(),
   });
   const { data: tables = [] } = useQuery({
-    queryKey: ["tables"],
+    queryKey: ['tables'],
     queryFn: () => tablesApi.list(),
   });
 
-  const [form, setForm] = useState({ name: "", address: "", image: "" });
+  const [form, setForm] = useState({ name: '', address: '', image: '' });
   const [editId, setEditId] = useState<string | null>(null);
-  const [editState, setEditState] = useState<EditState>({ name: "", address: "", image: "" });
-  const [newTableNames, setNewTableNames] = useState<Record<string, string>>({});
-  const [error, setError] = useState("");
+  const [editState, setEditState] = useState<EditState>({
+    name: '',
+    address: '',
+    image: '',
+  });
+  const [newTableNames, setNewTableNames] = useState<Record<string, string>>(
+    {},
+  );
+  const [error, setError] = useState('');
 
   const tablesByVenue = tables.reduce<Record<string, ApiTable[]>>((acc, t) => {
     acc[t.venueId] = [...(acc[t.venueId] ?? []), t];
@@ -34,9 +45,9 @@ export default function VenuesPage() {
         image: form.image.trim() || undefined,
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["venues"] });
-      setForm({ name: "", address: "", image: "" });
-      setError("");
+      qc.invalidateQueries({ queryKey: ['venues'] });
+      setForm({ name: '', address: '', image: '' });
+      setError('');
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -49,9 +60,9 @@ export default function VenuesPage() {
         image: editState.image.trim() || null,
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["venues"] });
+      qc.invalidateQueries({ queryKey: ['venues'] });
       setEditId(null);
-      setError("");
+      setError('');
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -59,8 +70,8 @@ export default function VenuesPage() {
   const removeVenue = useMutation({
     mutationFn: (id: string) => venuesApi.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["venues"] });
-      qc.invalidateQueries({ queryKey: ["tables"] });
+      qc.invalidateQueries({ queryKey: ['venues'] });
+      qc.invalidateQueries({ queryKey: ['tables'] });
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -69,23 +80,27 @@ export default function VenuesPage() {
     mutationFn: ({ name, venueId }: { name: string; venueId: string }) =>
       tablesApi.create(name, venueId),
     onSuccess: (_, { venueId }) => {
-      qc.invalidateQueries({ queryKey: ["tables"] });
-      setNewTableNames((s) => ({ ...s, [venueId]: "" }));
-      setError("");
+      qc.invalidateQueries({ queryKey: ['tables'] });
+      setNewTableNames((s) => ({ ...s, [venueId]: '' }));
+      setError('');
     },
     onError: (e: Error) => setError(e.message),
   });
 
   const removeTable = useMutation({
     mutationFn: (id: string) => tablesApi.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tables"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tables'] }),
     onError: (e: Error) => setError(e.message),
   });
 
   function startEdit(venue: ApiVenue) {
     setEditId(venue.id);
-    setEditState({ name: venue.name, address: venue.address, image: venue.image ?? "" });
-    setError("");
+    setEditState({
+      name: venue.name,
+      address: venue.address,
+      image: venue.image ?? '',
+    });
+    setError('');
   }
 
   return (
@@ -93,7 +108,9 @@ export default function VenuesPage() {
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Площадки</h1>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm rounded-lg">{error}</div>
+        <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm rounded-lg">
+          {error}
+        </div>
       )}
 
       {/* Create venue form */}
@@ -125,7 +142,9 @@ export default function VenuesPage() {
         />
         <button
           type="submit"
-          disabled={!form.name.trim() || !form.address.trim() || createVenue.isPending}
+          disabled={
+            !form.name.trim() || !form.address.trim() || createVenue.isPending
+          }
           className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
         >
           Добавить
@@ -147,19 +166,25 @@ export default function VenuesPage() {
               >
                 <input
                   value={editState.name}
-                  onChange={(e) => setEditState((s) => ({ ...s, name: e.target.value }))}
+                  onChange={(e) =>
+                    setEditState((s) => ({ ...s, name: e.target.value }))
+                  }
                   placeholder="Название *"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <input
                   value={editState.address}
-                  onChange={(e) => setEditState((s) => ({ ...s, address: e.target.value }))}
+                  onChange={(e) =>
+                    setEditState((s) => ({ ...s, address: e.target.value }))
+                  }
                   placeholder="Адрес *"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <input
                   value={editState.image}
-                  onChange={(e) => setEditState((s) => ({ ...s, image: e.target.value }))}
+                  onChange={(e) =>
+                    setEditState((s) => ({ ...s, image: e.target.value }))
+                  }
                   placeholder="URL изображения (необязательно)"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -167,7 +192,9 @@ export default function VenuesPage() {
                   <button
                     onClick={() => updateVenue.mutate(venue.id)}
                     disabled={
-                      !editState.name.trim() || !editState.address.trim() || updateVenue.isPending
+                      !editState.name.trim() ||
+                      !editState.address.trim() ||
+                      updateVenue.isPending
                     }
                     className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
@@ -182,7 +209,10 @@ export default function VenuesPage() {
                 </div>
               </div>
             ) : (
-              <div key={venue.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+              <div
+                key={venue.id}
+                className="bg-white border border-gray-200 rounded-lg overflow-hidden"
+              >
                 {/* Venue header */}
                 <div className="p-4 flex gap-3">
                   {venue.image && (
@@ -193,8 +223,12 @@ export default function VenuesPage() {
                     />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900">{venue.name}</div>
-                    <div className="text-sm text-gray-500 mt-0.5">{venue.address}</div>
+                    <div className="font-medium text-gray-900">
+                      {venue.name}
+                    </div>
+                    <div className="text-sm text-gray-500 mt-0.5">
+                      {venue.address}
+                    </div>
                   </div>
                   <div className="flex flex-col gap-1 flex-shrink-0">
                     <button
@@ -223,8 +257,13 @@ export default function VenuesPage() {
                   ) : (
                     <div className="space-y-1 mb-2">
                       {(tablesByVenue[venue.id] ?? []).map((table) => (
-                        <div key={table.id} className="flex items-center justify-between">
-                          <span className="text-sm text-gray-700">{table.name}</span>
+                        <div
+                          key={table.id}
+                          className="flex items-center justify-between"
+                        >
+                          <span className="text-sm text-gray-700">
+                            {table.name}
+                          </span>
                           <button
                             onClick={() => removeTable.mutate(table.id)}
                             disabled={removeTable.isPending}
@@ -245,16 +284,21 @@ export default function VenuesPage() {
                     className="flex gap-2"
                   >
                     <input
-                      value={newTableNames[venue.id] ?? ""}
+                      value={newTableNames[venue.id] ?? ''}
                       onChange={(e) =>
-                        setNewTableNames((s) => ({ ...s, [venue.id]: e.target.value }))
+                        setNewTableNames((s) => ({
+                          ...s,
+                          [venue.id]: e.target.value,
+                        }))
                       }
                       placeholder="Название стола..."
                       className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <button
                       type="submit"
-                      disabled={!newTableNames[venue.id]?.trim() || addTable.isPending}
+                      disabled={
+                        !newTableNames[venue.id]?.trim() || addTable.isPending
+                      }
                       className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 disabled:opacity-50"
                     >
                       Добавить

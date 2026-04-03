@@ -1,11 +1,11 @@
-import { eq, and } from "drizzle-orm";
-import type { Api } from "grammy";
-import { db } from "../db/db.js";
-import { notifications, users, tournaments, matches } from "../db/schema.js";
-import type { BotContext } from "../bot/types.js";
-import type { MatchWithPlayers } from "../bot/@types/match.js";
+import { eq, and } from 'drizzle-orm';
+import type { Api } from 'grammy';
+import { db } from '../db/db.js';
+import { notifications, users, tournaments, matches } from '../db/schema.js';
+import type { BotContext } from '../bot/types.js';
+import type { MatchWithPlayers } from '../bot/@types/match.js';
 
-type NotificationType = (typeof notifications.$inferInsert)["type"];
+type NotificationType = (typeof notifications.$inferInsert)['type'];
 
 /**
  * Create a notification record in the database
@@ -30,7 +30,7 @@ export async function createNotification(data: {
     })
     .returning({ id: notifications.id });
 
-  return notification?.id ?? "";
+  return notification?.id ?? '';
 }
 
 /**
@@ -56,7 +56,7 @@ export async function sendNotification(
     await api.sendMessage(
       user.telegram_id,
       `*${notification.title}*\n\n${notification.message}`,
-      { parse_mode: "Markdown" },
+      { parse_mode: 'Markdown' },
     );
 
     await db
@@ -99,17 +99,17 @@ export async function notifyMatchAssigned(
 ): Promise<void> {
   const player1Name = match.player1Username
     ? `@${match.player1Username}`
-    : match.player1Name || "Участник";
+    : match.player1Name || 'Участник';
   const player2Name = match.player2Username
     ? `@${match.player2Username}`
-    : match.player2Name || "Участник";
+    : match.player2Name || 'Участник';
 
   // Notify player 1
   if (match.player1Id) {
     await createAndSendNotification(api, {
       userId: match.player1Id,
-      type: "bracket_formed",
-      title: "Назначен матч",
+      type: 'bracket_formed',
+      title: 'Назначен матч',
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player2Name}\n\n` +
@@ -123,8 +123,8 @@ export async function notifyMatchAssigned(
   if (match.player2Id) {
     await createAndSendNotification(api, {
       userId: match.player2Id,
-      type: "bracket_formed",
-      title: "Назначен матч",
+      type: 'bracket_formed',
+      title: 'Назначен матч',
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player1Name}\n\n` +
@@ -146,10 +146,10 @@ export async function notifyMatchStart(
 ): Promise<void> {
   const player1Name = match.player1Username
     ? `@${match.player1Username}`
-    : match.player1Name || "Участник";
+    : match.player1Name || 'Участник';
   const player2Name = match.player2Username
     ? `@${match.player2Username}`
-    : match.player2Name || "Участник";
+    : match.player2Name || 'Участник';
 
   for (const playerId of [match.player1Id, match.player2Id]) {
     if (!playerId || playerId === startedBy) continue;
@@ -159,8 +159,8 @@ export async function notifyMatchStart(
 
     await createAndSendNotification(api, {
       userId: playerId,
-      type: "match_reminder",
-      title: "Матч!",
+      type: 'match_reminder',
+      title: 'Матч!',
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${opponentName}\n\n` +
@@ -189,14 +189,14 @@ export async function notifyResultPending(
     match.player1Id === reportedByUserId
       ? match.player1Username
         ? `@${match.player1Username}`
-        : match.player1Name || "Соперник"
+        : match.player1Name || 'Соперник'
       : match.player2Username
         ? `@${match.player2Username}`
-        : match.player2Name || "Соперник";
+        : match.player2Name || 'Соперник';
   await createAndSendNotification(api, {
     userId: opponentId,
-    type: "result_confirmation_request",
-    title: "Подтвердите результат матча",
+    type: 'result_confirmation_request',
+    title: 'Подтвердите результат матча',
     message:
       `${reporterName} внёс результат: ${match.player1Score}:${match.player2Score}\n\n` +
       `Подтвердите или оспорьте результат.\n` +
@@ -216,7 +216,7 @@ export async function notifyResultConfirmed(
 ): Promise<void> {
   const winnerName = match.winnerUsername
     ? `@${match.winnerUsername}`
-    : match.winnerName || "Победитель";
+    : match.winnerName || 'Победитель';
 
   const message =
     `Результат матча подтверждён!\n\n` +
@@ -229,8 +229,8 @@ export async function notifyResultConfirmed(
 
     await createAndSendNotification(api, {
       userId: playerId,
-      type: "result_confirmed",
-      title: "Результат подтверждён",
+      type: 'result_confirmed',
+      title: 'Результат подтверждён',
       message,
       tournamentId: match.tournamentId,
       matchId: match.id,
@@ -250,10 +250,10 @@ export async function notifyResultDisputed(
     match.player1Id === disputedByUserId
       ? match.player1Username
         ? `@${match.player1Username}`
-        : match.player1Name || "Игрок"
+        : match.player1Name || 'Игрок'
       : match.player2Username
         ? `@${match.player2Username}`
-        : match.player2Name || "Игрок";
+        : match.player2Name || 'Игрок';
 
   const message =
     `${disputerName} оспорил результат матча.\n\n` +
@@ -266,8 +266,8 @@ export async function notifyResultDisputed(
 
     await createAndSendNotification(api, {
       userId: playerId,
-      type: "result_dispute",
-      title: "Результат оспорен",
+      type: 'result_dispute',
+      title: 'Результат оспорен',
       message,
       tournamentId: match.tournamentId,
       matchId: match.id,
@@ -307,8 +307,8 @@ export async function notifyTournamentCompleted(
 
     await createAndSendNotification(api, {
       userId: oderId,
-      type: "tournament_results",
-      title: isWinner ? "Поздравляем с победой!" : "Турнир завершён",
+      type: 'tournament_results',
+      title: isWinner ? 'Поздравляем с победой!' : 'Турнир завершён',
       message: isWinner
         ? `Вы победили в турнире "${tournament.name}"!`
         : `Турнир "${tournament.name}" завершён.\nПобедитель: ${winnerName}`,
@@ -332,10 +332,10 @@ export async function notifyDisqualification(
 
   await createAndSendNotification(api, {
     userId,
-    type: "disqualification",
-    title: "Дисквалификация",
+    type: 'disqualification',
+    title: 'Дисквалификация',
     message:
-      `Вы были дисквалифицированы из турнира "${tournament?.name || "Неизвестный"}".\n\n` +
+      `Вы были дисквалифицированы из турнира "${tournament?.name || 'Неизвестный'}".\n\n` +
       `Причина: ${reason}`,
     tournamentId,
   });
@@ -351,10 +351,10 @@ export async function sendMatchReminder(
 ): Promise<void> {
   const player1Name = match.player1Username
     ? `@${match.player1Username}`
-    : match.player1Name || "Участник";
+    : match.player1Name || 'Участник';
   const player2Name = match.player2Username
     ? `@${match.player2Username}`
-    : match.player2Name || "Участник";
+    : match.player2Name || 'Участник';
 
   for (const playerId of [match.player1Id, match.player2Id]) {
     if (!playerId) continue;
@@ -364,8 +364,8 @@ export async function sendMatchReminder(
 
     await createAndSendNotification(api, {
       userId: playerId,
-      type: "match_reminder",
-      title: "Напоминание о матче",
+      type: 'match_reminder',
+      title: 'Напоминание о матче',
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${opponentName}\n\n` +

@@ -1,5 +1,5 @@
-import type { Context } from "grammy";
-import { GrammyError } from "grammy";
+import type { Context } from 'grammy';
+import { GrammyError } from 'grammy';
 
 /**
  * Options for safe edit message text operation
@@ -8,7 +8,7 @@ export interface SafeEditOptions {
   /** Text to set */
   text: string;
   /** Parse mode */
-  parse_mode?: "Markdown" | "MarkdownV2" | "HTML";
+  parse_mode?: 'Markdown' | 'MarkdownV2' | 'HTML';
   /** Reply markup (inline keyboard) */
   reply_markup?: any;
 }
@@ -50,7 +50,7 @@ export async function safeEditMessageText(
     if (error instanceof GrammyError) {
       if (
         error.error_code === 400 &&
-        !error.description.includes("message is not modified") // если сообщение не изменилось, то ничего не делаем
+        !error.description.includes('message is not modified') // если сообщение не изменилось, то ничего не делаем
       ) {
         // Send new message instead
         await ctx.reply(text, {
