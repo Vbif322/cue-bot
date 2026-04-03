@@ -1,9 +1,13 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db } from '../../../db/db.js';
-import { tournaments, tournamentParticipants, users } from '../../../db/schema.js';
+import {
+  tournaments,
+  tournamentParticipants,
+  users,
+} from '../../../db/schema.js';
 import {
   getTournament,
   getTournaments,
@@ -191,10 +195,38 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.post(
     '/:id/participants',
-    zValidator('json', z.object({ userId: z.string().uuid() })),
+    zValidator(
+      'json',
+      z.discriminatedUnion('type', [
+        z.object({ type: z.literal('user'), userId: z.string().uuid() }),
+        z.object({
+          type: z.literal('external'),
+          name: z.string().min(1).max(255),
+          username: z.string().max(255).optional(),
+        }),
+      ]),
+    ),
     async (c) => {
       const tournamentId = c.req.param('id');
-      const { userId } = c.req.valid('json');
+      const body = c.req.valid('json');
+
+      let userId: string;
+
+      if (body.type === 'external') {
+        const [newUser] = await db
+          .insert(users)
+          .values({
+            username: body.username ?? body.name.slice(0, 255),
+            name: body.name,
+          })
+          .returning({ id: users.id });
+
+        if (!newUser)
+          return c.json({ error: 'Ошибка создания участника' }, 500);
+        userId = newUser.id;
+      } else {
+        userId = body.userId;
+      }
 
       await db
         .insert(tournamentParticipants)
