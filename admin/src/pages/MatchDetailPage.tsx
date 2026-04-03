@@ -20,8 +20,6 @@ export default function MatchDetailPage() {
     refetchInterval: 15_000,
   });
 
-  console.log(match);
-
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['match', id] });
     setError('');

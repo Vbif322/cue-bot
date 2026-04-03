@@ -141,7 +141,7 @@ export async function notifyMatchAssigned(
     });
   }
 }
-// }
+
 /**
  * Notify match start
  */
@@ -380,6 +380,44 @@ export async function sendMatchReminder(
       matchId: match.id,
     });
   }
+}
+
+/**
+ * Notify participant that their registration was confirmed by admin
+ */
+export async function notifyRegistrationConfirmed(
+  api: Api,
+  userId: string,
+  tournamentId: string,
+  tournamentName: string,
+): Promise<void> {
+  await createAndSendNotification(api, {
+    userId,
+    type: "registration_confirmed",
+    title: "Регистрация подтверждена",
+    message:
+      `Ваша заявка на турнир "${tournamentName}" подтверждена администратором.\n\n` +
+      `Используйте /my\\_tournaments для просмотра ваших турниров.`,
+    tournamentId,
+  });
+}
+
+/**
+ * Notify participant that their registration was rejected by admin
+ */
+export async function notifyRegistrationRejected(
+  api: Api,
+  userId: string,
+  tournamentId: string,
+  tournamentName: string,
+): Promise<void> {
+  await createAndSendNotification(api, {
+    userId,
+    type: "registration_rejected",
+    title: "Заявка отклонена",
+    message: `Ваша заявка на турнир "${tournamentName}" была отклонена администратором.`,
+    tournamentId,
+  });
 }
 
 /**
