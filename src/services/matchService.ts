@@ -1,21 +1,24 @@
 import { and, eq, inArray, isNull, or, asc } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Api } from 'grammy';
-import { db } from '../db/db.js';
-import { matches, tournaments, users, tables } from '../db/schema.js';
-import type { BracketMatch } from './bracketGenerator.js';
-import type { Match, MatchWithPlayers } from '../bot/@types/match.js';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { matches, tournaments, users, tables } from '@/db/schema.js';
+import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
+
 import { completeTournament, getTournament } from './tournamentService.js';
 import { notifyMatchStart } from './notificationService.js';
+import type { BracketMatch } from './bracketGenerator.js';
 
 /**
  * Create matches in database from generated bracket
  */
 export async function createMatches(
-  tournamentId: string,
+  tournamentId: UUID,
   bracket: BracketMatch[],
 ): Promise<void> {
-  const createdMatches: { position: number; id: string }[] = [];
+  const createdMatches: { position: number; id: UUID }[] = [];
 
   for (const match of bracket) {
     const [created] = await db
@@ -67,7 +70,7 @@ function determineInitialStatus(
  * Get match by ID with player information and table name
  */
 export async function getMatch(
-  matchId: string,
+  matchId: UUID,
 ): Promise<MatchWithPlayers | null> {
   const p1 = alias(users, 'p1');
   const p2 = alias(users, 'p2');
@@ -118,8 +121,8 @@ export async function getMatch(
  * Get current active match for a player in a tournament
  */
 export async function getPlayerCurrentMatch(
-  tournamentId: string,
-  userId: string,
+  tournamentId: UUID,
+  userId: UUID,
 ): Promise<MatchWithPlayers | null> {
   const result = await db
     .select()
@@ -148,7 +151,7 @@ export async function getPlayerCurrentMatch(
  * Get all active matches for a player across all tournaments
  */
 export async function getPlayerActiveMatches(
-  userId: string,
+  userId: UUID,
 ): Promise<MatchWithPlayers[]> {
   const result = await db
     .select()
@@ -180,7 +183,7 @@ export async function getPlayerActiveMatches(
  * Get all matches for a tournament with table names
  */
 export async function getTournamentMatches(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<MatchWithPlayers[]> {
   const p1 = alias(users, 'p1');
   const p2 = alias(users, 'p2');
@@ -220,7 +223,7 @@ export async function getTournamentMatches(
  * Get matches for a specific round
  */
 export async function getRoundMatches(
-  tournamentId: string,
+  tournamentId: UUID,
   round: number,
   bracketType?: string,
 ): Promise<Match[]> {
@@ -243,7 +246,7 @@ export async function getRoundMatches(
  * Get the next scheduled match with both players assigned and no table yet
  */
 export async function getNextReadyMatch(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<Match | null> {
   const result = await db.query.matches.findMany({
     where: and(
@@ -263,8 +266,8 @@ export async function getNextReadyMatch(
  * Returns true if assignment succeeded (false = race condition).
  */
 export async function assignTableAndStart(
-  matchId: string,
-  tableId: string,
+  matchId: UUID,
+  tableId: UUID,
   botApi?: Api,
 ): Promise<boolean> {
   const updated = await db
@@ -307,8 +310,8 @@ export async function assignTableAndStart(
  * Called when a table is freed — assigns it to the next ready match
  */
 export async function onTableFreed(
-  tournamentId: string,
-  tableId: string,
+  tournamentId: UUID,
+  tableId: UUID,
   botApi: Api,
 ): Promise<void> {
   const next = await getNextReadyMatch(tournamentId);
@@ -320,8 +323,8 @@ export async function onTableFreed(
  * Report match result
  */
 export async function reportResult(
-  matchId: string,
-  reporterId: string,
+  matchId: UUID,
+  reporterId: UUID,
   player1Score: number,
   player2Score: number,
 ): Promise<{ success: boolean; error?: string }> {
@@ -373,8 +376,8 @@ export async function reportResult(
  * Confirm match result
  */
 export async function confirmResult(
-  matchId: string,
-  confirmerId: string,
+  matchId: UUID,
+  confirmerId: UUID,
   botApi?: Api,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
@@ -422,8 +425,8 @@ export async function confirmResult(
  * Dispute match result
  */
 export async function disputeResult(
-  matchId: string,
-  userId: string,
+  matchId: UUID,
+  userId: UUID,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
@@ -464,10 +467,10 @@ export async function disputeResult(
  * Set technical result for a match
  */
 export async function setTechnicalResult(
-  matchId: string,
-  winnerId: string,
+  matchId: UUID,
+  winnerId: UUID,
   reason: string,
-  setById: string,
+  setById: UUID,
   botApi?: Api,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
@@ -511,7 +514,7 @@ export async function setTechnicalResult(
  * Advance winner to next match and free the table
  */
 export async function advanceWinner(
-  matchId: string,
+  matchId: UUID,
   botApi?: Api,
 ): Promise<void> {
   const match = await db.query.matches.findFirst({
@@ -527,7 +530,7 @@ export async function advanceWinner(
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
   if (!match.nextMatchId) {
-    await completeTournament(match.tournamentId, match.winnerId);
+    await completeTournament(match.tournamentId);
     // Free the table even at tournament end (no-op since no next match)
     if (match.tableId && botApi) {
       await onTableFreed(match.tournamentId, match.tableId, botApi);
@@ -573,7 +576,7 @@ export async function advanceWinner(
 
 async function advanceLoserToLosersBracket(
   match: Match,
-  loserId: string,
+  loserId: UUID,
 ): Promise<void> {
   if (match.round > 2 || match.bracketType !== 'winners') return;
 
@@ -612,7 +615,7 @@ async function advanceLoserToLosersBracket(
  * Check if tournament is complete
  */
 export async function checkTournamentCompletion(
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<boolean> {
   const tournament = await getTournament(tournamentId);
   if (!tournament) return false;
@@ -642,7 +645,7 @@ export async function checkTournamentCompletion(
 /**
  * Get match statistics for a tournament
  */
-export async function getMatchStats(tournamentId: string): Promise<{
+export async function getMatchStats(tournamentId: UUID): Promise<{
   total: number;
   completed: number;
   inProgress: number;
@@ -664,7 +667,7 @@ export async function getMatchStats(tournamentId: string): Promise<{
  * Start a match manually (change status from scheduled to in_progress)
  */
 export async function startMatch(
-  matchId: string,
+  matchId: UUID,
 ): Promise<{ success: boolean; error?: string; match?: Match }> {
   try {
     const updatedMatch = await db

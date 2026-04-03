@@ -1,22 +1,25 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { inArray } from 'drizzle-orm';
-import { db } from '../../db/db.js';
-import { tournaments } from '../../db/schema.js';
-import type { BotContext } from '../types.js';
-import { adminOnly } from '../guards.js';
-import { isAdmin } from '../permissions.js';
-import { safeEditMessageText } from '../../utils/messageHelpers.js';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { tournaments } from '@/db/schema.js';
+import { FORMAT_LABELS, STATUS_LABELS } from '@/utils/constants.js';
+import { safeEditMessageText } from '@/utils/messageHelpers.js';
+import { getBracketStats } from '@/services/bracketGenerator.js';
+import { startTournamentFull } from '@/services/tournamentStartService.js';
 import {
   canStartTournament,
+  getTournaments,
   getTournament,
   updateTournamentStatus,
   deleteTournament,
   canDeleteTournament,
   closeRegistrationWithCount,
-} from '../../services/tournamentService.js';
-import { getBracketStats } from '../../services/bracketGenerator.js';
-import { startTournamentFull } from '../../services/tournamentStartService.js';
-import { FORMAT_LABELS, STATUS_LABELS } from '../../utils/constants.js';
+} from '@/services/tournamentService.js';
+
+import { adminOnly } from '../guards.js';
+import { isAdmin } from '../permissions.js';
 import {
   getTournamentInfo,
   buildTournamentMessage,
@@ -25,17 +28,9 @@ import {
   buildTournamentListKeyboard,
   buildTournamentSelectionKeyboard,
 } from '../ui/tournamentUI.js';
-import {
-  startCreationWizard,
-  cancelCreation,
-  getCreationState,
-  handleNameInput,
-  handleDateInput,
-  handleDisciplineSelection,
-  handleFormatSelection,
-  handleMaxParticipantsSelection,
-  handleWinScoreSelection,
-} from '../wizards/tournamentCreationWizard.js';
+import { getMatchStatusEmoji } from '../ui/matchUI.js';
+import { tournamentCreationFlow } from '../wizards/tournamentCreation.module.js';
+import type { BotContext } from '../types.js';
 
 export const tournamentCommands = new Composer<BotContext>();
 
@@ -47,13 +42,7 @@ export const tournamentCommands = new Composer<BotContext>();
  * /create_tournament - Start tournament creation wizard
  */
 tournamentCommands.command('create_tournament', adminOnly(), async (ctx) => {
-  const userId = ctx.from!.id;
-
-  const msg = await ctx.reply(
-    'Создание нового турнира\n\n' + `Шаг 1/6: Введите название турнира:`,
-  );
-
-  startCreationWizard(userId, msg.message_id);
+  await tournamentCreationFlow.startCreationWizard(ctx);
 });
 
 /**
@@ -62,7 +51,9 @@ tournamentCommands.command('create_tournament', adminOnly(), async (ctx) => {
 tournamentCommands.command('cancel', async (ctx) => {
   const userId = ctx.from!.id;
 
-  if (cancelCreation(userId)) {
+  const cancelStatus = tournamentCreationFlow.cancelCreation(userId);
+
+  if (cancelStatus) {
     await ctx.reply('Создание турнира отменено.');
   } else {
     await ctx.reply('Нет активного процесса создания турнира.');
@@ -76,9 +67,9 @@ tournamentCommands.command('tournaments', async (ctx) => {
   const admin = isAdmin(ctx);
 
   // Get all tournaments
-  const allTournaments = await db.query.tournaments.findMany({
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
+  const allTournaments = await getTournaments({
     limit: 10,
+    includesDrafts: true,
   });
 
   if (allTournaments.length === 0) {
@@ -153,7 +144,7 @@ tournamentCommands.command('tournament', async (ctx) => {
   }
 
   // Show tournament details
-  await showTournamentDetails(ctx, args[0]!);
+  await showTournamentDetails(ctx, args[0]! as UUID);
 });
 
 /**
@@ -192,7 +183,7 @@ tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
   }
 
   // Delete tournament by ID
-  await handleTournamentDeletion(ctx, args[0]!);
+  await handleTournamentDeletion(ctx, args[0]! as UUID);
 });
 
 // ============================================================================
@@ -203,7 +194,7 @@ tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
  * Show tournament info when selected from list
  */
 tournamentCommands.callbackQuery(/^tournament_info:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match![1]! as UUID;
   await ctx.answerCallbackQuery();
   await showTournamentDetails(ctx, tournamentId, true);
 });
@@ -217,12 +208,14 @@ tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match![1]! as UUID;
   await updateTournamentStatus(tournamentId, 'registration_open');
 
   await ctx.answerCallbackQuery('Регистрация открыта');
   await safeEditMessageText(ctx, {
-    text: ctx.callbackQuery.message?.text + '\n\n✅ Регистрация открыта!',
+    text:
+      ctx.callbackQuery.message?.text +
+      `\n\n${getMatchStatusEmoji('completed')} Регистрация открыта!`,
   });
 });
 
@@ -235,7 +228,7 @@ tournamentCommands.callbackQuery(/^tournament_close_reg:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match![1]! as UUID;
 
   try {
     // Close registration and get participant count
@@ -266,7 +259,7 @@ tournamentCommands.callbackQuery(/^tournament_delete:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match![1]! as UUID;
   await deleteTournament(tournamentId);
 
   await ctx.answerCallbackQuery('Турнир удалён');
@@ -286,7 +279,7 @@ tournamentCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]!;
+    const tournamentId = ctx.match![1]! as UUID;
     const tournament = await getTournament(tournamentId);
 
     if (!tournament) {
@@ -308,8 +301,14 @@ tournamentCommands.callbackQuery(
     await ctx.answerCallbackQuery();
 
     const keyboard = new InlineKeyboard()
-      .text('✅ Да, удалить', `tournament_delete:${tournament.id}`)
-      .text('❌ Отмена', `tournament_delete_cancel`);
+      .text(
+        `${getMatchStatusEmoji('completed')} Да, удалить`,
+        `tournament_delete:${tournament.id}`,
+      )
+      .text(
+        `${getMatchStatusEmoji('cancelled')} Отмена`,
+        `tournament_delete_cancel`,
+      );
 
     await safeEditMessageText(ctx, {
       text:
@@ -345,7 +344,7 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match![1]! as UUID;
   const result = await canStartTournament(tournamentId);
 
   if (!result.canStart) {
@@ -376,9 +375,15 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
   );
 
   const keyboard = new InlineKeyboard()
-    .text('✅ Да, начать турнир', `tournament_start_confirm:${tournamentId}`)
+    .text(
+      `${getMatchStatusEmoji('completed')} Да, начать турнир`,
+      `tournament_start_confirm:${tournamentId}`,
+    )
     .row()
-    .text('❌ Отмена', `tournament_info:${tournamentId}`);
+    .text(
+      `${getMatchStatusEmoji('cancelled')} Отмена`,
+      `tournament_info:${tournamentId}`,
+    );
 
   await safeEditMessageText(ctx, {
     text:
@@ -408,7 +413,7 @@ tournamentCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]!;
+    const tournamentId = ctx.match![1]! as UUID;
 
     // Double-check if tournament can be started
     const result = await canStartTournament(tournamentId);
@@ -442,7 +447,7 @@ tournamentCommands.callbackQuery(
 
       await safeEditMessageText(ctx, {
         text:
-          `✅ *Турнир "${startResult.tournamentName}" запущен!*\n\n` +
+          `${getMatchStatusEmoji('completed')} *Турнир "${startResult.tournamentName}" запущен!*\n\n` +
           `Участников: ${startResult.participantsCount}\n` +
           `Матчей создано: ${startResult.matchesCreated}\n\n` +
           `Сетка сформирована, участники получили уведомления.\n` +
@@ -464,21 +469,46 @@ tournamentCommands.callbackQuery(
 // ============================================================================
 
 tournamentCommands.callbackQuery(/^discipline:(.+)$/, async (ctx) => {
-  await handleDisciplineSelection(ctx, ctx.match![1]!);
+  await tournamentCreationFlow.handleDisciplineSelection(ctx, ctx.match![1]!);
+});
+
+tournamentCommands.callbackQuery(/^venue:(.+)$/, async (ctx) => {
+  await tournamentCreationFlow.handleVenueSelection(
+    ctx,
+    ctx.match![1]! as UUID,
+  );
 });
 
 tournamentCommands.callbackQuery(/^format:(.+)$/, async (ctx) => {
-  await handleFormatSelection(ctx, ctx.match![1]!);
+  await tournamentCreationFlow.handleFormatSelection(ctx, ctx.match![1]!);
 });
 
 tournamentCommands.callbackQuery(/^participants:(\d+)$/, async (ctx) => {
   const participants = parseInt(ctx.match![1]!, 10);
-  await handleMaxParticipantsSelection(ctx, participants);
+  await tournamentCreationFlow.handleMaxParticipantsSelection(
+    ctx,
+    participants,
+  );
 });
 
 tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
   const winScore = parseInt(ctx.match![1]!, 10);
-  await handleWinScoreSelection(ctx, winScore);
+  await tournamentCreationFlow.handleWinScoreSelection(ctx, winScore);
+});
+
+tournamentCommands.callbackQuery(/^tables_toggle:(.+)$/, async (ctx) => {
+  await tournamentCreationFlow.handleTableSelectionToggle(
+    ctx,
+    ctx.match![1]! as UUID,
+  );
+});
+
+tournamentCommands.callbackQuery('tables_done', async (ctx) => {
+  await tournamentCreationFlow.handleTableSelectionFinalize(ctx, false);
+});
+
+tournamentCommands.callbackQuery('tables_skip', async (ctx) => {
+  await tournamentCreationFlow.handleTableSelectionFinalize(ctx, true);
 });
 
 // ============================================================================
@@ -487,20 +517,20 @@ tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
 
 tournamentCommands.on('message:text', async (ctx, next) => {
   const userId = ctx.from.id;
-  const state = getCreationState(userId);
+  const state = tournamentCreationFlow.getCreationState(userId);
 
-  if (!state || !state.lastMessageId) {
+  if (!state) {
     return next();
   }
 
   const text = ctx.message.text;
 
   if (state.step === 'name') {
-    if (await handleNameInput(ctx, text)) return;
+    if (await tournamentCreationFlow.handleNameInput(ctx, text)) return;
   }
 
   if (state.step === 'date') {
-    if (await handleDateInput(ctx, text)) return;
+    if (await tournamentCreationFlow.handleStartDateInput(ctx, text)) return;
   }
 
   return next();
@@ -515,7 +545,7 @@ tournamentCommands.on('message:text', async (ctx, next) => {
  */
 async function showTournamentDetails(
   ctx: BotContext,
-  tournamentId: string,
+  tournamentId: UUID,
   editMessage: boolean = false,
 ): Promise<void> {
   const tournament = await getTournament(tournamentId);
@@ -553,7 +583,7 @@ async function showTournamentDetails(
  */
 async function handleTournamentDeletion(
   ctx: BotContext,
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<void> {
   const tournament = await getTournament(tournamentId);
 

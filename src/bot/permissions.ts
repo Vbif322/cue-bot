@@ -1,6 +1,9 @@
 import { and, eq } from 'drizzle-orm';
-import { db } from '../db/db.js';
-import { tournamentReferees } from '../db/schema.js';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { tournamentReferees } from '@/db/schema.js';
+
 import type { BotContext } from './types.js';
 
 export function isAdmin(ctx: BotContext): boolean {
@@ -9,7 +12,7 @@ export function isAdmin(ctx: BotContext): boolean {
 
 export async function isTournamentReferee(
   ctx: BotContext,
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<boolean> {
   const referee = await db.query.tournamentReferees.findFirst({
     where: and(
@@ -23,7 +26,7 @@ export async function isTournamentReferee(
 
 export async function canManageTournament(
   ctx: BotContext,
-  tournamentId: string,
+  tournamentId: UUID,
 ): Promise<boolean> {
   if (isAdmin(ctx)) {
     return true;
@@ -31,9 +34,7 @@ export async function canManageTournament(
   return isTournamentReferee(ctx, tournamentId);
 }
 
-export async function getUserRefereeTournaments(
-  userId: string,
-): Promise<string[]> {
+export async function getUserRefereeTournaments(userId: UUID): Promise<UUID[]> {
   const refs = await db.query.tournamentReferees.findMany({
     where: eq(tournamentReferees.userId, userId),
   });

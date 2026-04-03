@@ -1,5 +1,6 @@
 import type { BotCommand } from 'grammy/types';
 import type { Bot } from 'grammy';
+
 import type { BotContext } from './types.js';
 
 const userCommands: BotCommand[] = [

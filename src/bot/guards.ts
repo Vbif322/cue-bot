@@ -1,6 +1,7 @@
 import type { NextFunction } from 'grammy';
-import type { BotContext } from './types.js';
+
 import { isAdmin } from './permissions.js';
+import type { BotContext } from './types.js';
 
 export function adminOnly(
   errorMessage = 'Эта команда доступна только администраторам.',

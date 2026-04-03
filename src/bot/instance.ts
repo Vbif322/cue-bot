@@ -1,4 +1,5 @@
 import { Bot } from 'grammy';
+
 import type { BotContext } from './types.js';
 
 const token = process.env.BOT_TOKEN;

@@ -1,10 +1,10 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { eq, inArray } from 'drizzle-orm';
-import { db } from '../../db/db.js';
-import { tournaments, users } from '../../db/schema.js';
-import type { BotContext } from '../types.js';
-import { isAdmin } from '../permissions.js';
-import { safeEditMessageText } from '../../utils/messageHelpers.js';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { tournaments, users } from '@/db/schema.js';
+import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import {
   getMatch,
   getPlayerActiveMatches,
@@ -15,24 +15,27 @@ import {
   setTechnicalResult,
   getMatchStats,
   startMatch,
-} from '../../services/matchService.js';
+} from '@/services/matchService.js';
 import {
   getRoundName,
   calculateRounds,
   getNextPowerOfTwo,
-} from '../../services/bracketGenerator.js';
+} from '@/services/bracketGenerator.js';
+import {
+  notifyMatchStart,
+  notifyResultPending,
+  notifyResultConfirmed,
+  notifyResultDisputed,
+} from '@/services/notificationService.js';
+
 import {
   formatMatchCard,
   getMatchKeyboard,
   formatPlayerName,
   getMatchStatusEmoji,
 } from '../ui/matchUI.js';
-import {
-  notifyMatchStart,
-  notifyResultPending,
-  notifyResultConfirmed,
-  notifyResultDisputed,
-} from '../../services/notificationService.js';
+import { isAdmin } from '../permissions.js';
+import type { BotContext } from '../types.js';
 
 export const matchCommands = new Composer<BotContext>();
 
@@ -88,7 +91,7 @@ matchCommands.command('my_match', async (ctx) => {
 // /bracket [id] - показать сетку турнира
 matchCommands.command('bracket', async (ctx) => {
   const args = ctx.message?.text?.split(' ').slice(1);
-  let tournamentId = args?.[0]?.trim();
+  let tournamentId = args?.[0]?.trim() as UUID | undefined;
 
   if (!tournamentId) {
     // Show list of active tournaments
@@ -122,15 +125,15 @@ matchCommands.command('bracket', async (ctx) => {
 
 // Просмотр сетки турнира
 matchCommands.callbackQuery(/^bracket:view:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]!;
+  const tournamentId = ctx.match![1]! as UUID;
   await ctx.answerCallbackQuery();
   await showBracket(ctx, tournamentId, true);
 });
 
 // Просмотр конкретного матча
 matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
-  const userId = ctx.dbUser.id;
+  const matchId = ctx.match![1]! as UUID;
+  const userId = ctx.dbUser.id as UUID;
 
   const match = await getMatch(matchId);
   if (!match) {
@@ -164,8 +167,8 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
 
 // Начать матч
 matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
-  const userId = ctx.dbUser.id;
+  const matchId = ctx.match![1]! as UUID;
+  const userId = ctx.dbUser.id as UUID;
 
   const match = await getMatch(matchId);
   if (!match) {
@@ -219,8 +222,8 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
 
 // Показать форму внесения результата
 matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
-  const userId = ctx.dbUser.id;
+  const matchId = ctx.match![1]! as UUID;
+  const userId = ctx.dbUser.id as UUID;
 
   const match = await getMatch(matchId);
   if (!match) {
@@ -289,7 +292,10 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   }
   keyboard.row();
 
-  keyboard.text('❌ Отмена', `match:view:${matchId}`);
+  keyboard.text(
+    `${getMatchStatusEmoji('cancelled')} Отмена`,
+    `match:view:${matchId}`,
+  );
 
   await safeEditMessageText(ctx, {
     text:
@@ -304,10 +310,10 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
 
 // Выбор счёта
 matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match![1]! as UUID;
   const player1Score = parseInt(ctx.match![2]!, 10);
   const player2Score = parseInt(ctx.match![3]!, 10);
-  const userId = ctx.dbUser.id;
+  const userId = ctx.dbUser.id as UUID;
 
   const result = await reportResult(
     matchId,
@@ -365,8 +371,8 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
 
 // Подтвердить результат
 matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
-  const userId = ctx.dbUser.id;
+  const matchId = ctx.match![1]! as UUID;
+  const userId = ctx.dbUser.id as UUID;
 
   const result = await confirmResult(matchId, userId);
 
@@ -391,7 +397,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   if (match && tournament) {
     // Send notification to both players
     try {
-      await notifyResultConfirmed(ctx.api, match, tournament.name);
+      await notifyResultConfirmed(ctx.api, match);
     } catch (error) {
       console.error('Failed to send result confirmed notification:', error);
       // Don't fail the whole operation if notification fails
@@ -410,8 +416,8 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
 
 // Оспорить результат
 matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]!;
-  const userId = ctx.dbUser.id;
+  const matchId = ctx.match![1]! as UUID;
+  const userId = ctx.dbUser.id as UUID;
 
   const result = await disputeResult(matchId, userId);
 
@@ -463,8 +469,9 @@ matchCommands.callbackQuery(/^match:waiting:(.+)$/, async (ctx) => {
   //   text: "Ожидаем подтверждения от соперника",
   //   show_alert: false,
   // });
-  const userId = ctx.dbUser.id;
-  const matchId = ctx.match![1]!;
+  const userId = ctx.dbUser.id as UUID;
+  const matchId = ctx.match![1]! as UUID;
+
   const updatedMatch = await getMatch(matchId);
   if (!updatedMatch) {
     await ctx.answerCallbackQuery({
@@ -486,7 +493,8 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
     return;
   }
 
-  const matchId = ctx.match![1]!;
+  const matchId = ctx.match![1]! as UUID;
+
   const match = await getMatch(matchId);
 
   if (!match) {
@@ -517,7 +525,10 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
       .text(`✅ Победа ${player2}`, `match:tech_win:${matchId}:2:walkover`)
       .row();
   }
-  keyboard.text('❌ Отмена', `match:view:${matchId}`);
+  keyboard.text(
+    `${getMatchStatusEmoji('cancelled')} Отмена`,
+    `match:view:${matchId}`,
+  );
 
   await safeEditMessageText(ctx, {
     text:
@@ -539,10 +550,10 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
     return;
   }
 
-  const matchId = ctx.match![1]!;
-  const playerIndex = ctx.match![2]!; // "1" или "2"
+  const matchId = ctx.match![1]! as UUID;
+  const playerIndex = ctx.match![2]! as '1' | '2'; // "1" или "2"
   const reason = ctx.match![3]!;
-  const userId = ctx.dbUser.id;
+  const userId = ctx.dbUser.id as UUID;
 
   // Получаем матч для определения winnerId по индексу
   const matchData = await getMatch(matchId);
@@ -676,7 +687,7 @@ function formatMatchSection(
  */
 async function showBracket(
   ctx: BotContext,
-  tournamentId: string,
+  tournamentId: UUID,
   isEdit: boolean = false,
 ): Promise<void> {
   const tournament = await db.query.tournaments.findFirst({
@@ -716,7 +727,8 @@ async function showBracket(
   }
 
   // Get all player IDs from matches
-  const playerIds = new Set<string>();
+  const playerIds = new Set<UUID>();
+
   for (const match of allMatches) {
     if (match.player1Id) {
       playerIds.add(match.player1Id);

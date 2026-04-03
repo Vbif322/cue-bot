@@ -1,16 +1,20 @@
-import type { Tournament } from '../bot/@types/tournament.js';
-import type { TournamentParticipant } from '../bot/@types/tournament.js';
+import type { UUID } from 'crypto';
+
+import type { Tournament } from '@/bot/@types/tournament.js';
+import type { TournamentParticipant } from '@/bot/@types/tournament.js';
 
 export interface BracketMatch {
   round: number;
   position: number;
-  player1Id: string | null;
-  player2Id: string | null;
+  player1Id: UUID | null;
+  player2Id: UUID | null;
   nextMatchId?: number; // Position of next match (will be converted to UUID after creation)
   nextMatchPosition?: 'player1' | 'player2'; // Which slot in next match
   bracketType: 'winners' | 'losers' | 'grand_final';
   losersNextMatchPosition?: number; // For double elimination - where loser goes
 }
+
+type ParticipantSlot = TournamentParticipant | { isBye: true };
 
 /**
  * Get nearest power of 2 >= n
@@ -180,7 +184,7 @@ export function generateSingleEliminationBracket(
 function advanceToNextMatch(
   matches: BracketMatch[],
   currentMatch: BracketMatch,
-  playerId: string,
+  playerId: UUID,
 ): void {
   if (currentMatch.nextMatchId === undefined) return;
 
@@ -388,15 +392,12 @@ export function generateRoundRobinMatches(
   const shuffled = shuffleArray(participants);
 
   // Use circle algorithm for scheduling
-  const players = [...shuffled];
+  const players: ParticipantSlot[] = [...shuffled];
+
   const hasBye = n % 2 === 1;
+
   if (hasBye) {
-    players.push({
-      userId: 'BYE',
-      username: null,
-      name: null,
-      seed: null,
-    } as TournamentParticipant);
+    players.push({ isBye: true });
   }
 
   const totalPlayers = players.length;
@@ -411,7 +412,7 @@ export function generateRoundRobinMatches(
       const away = players[totalPlayers - 1 - i];
 
       // Skip BYE matches or undefined
-      if (!home || !away || home.userId === 'BYE' || away.userId === 'BYE') {
+      if (!home || !away || 'isBye' in home || 'isBye' in away) {
         continue;
       }
 

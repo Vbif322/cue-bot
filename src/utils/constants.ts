@@ -11,7 +11,7 @@ export const FORMAT_LABELS: Record<string, string> = {
   round_robin: 'Круговая система',
 };
 
-export const STATUS_LABELS = {
+export const STATUS_LABELS: Record<string, string> = {
   draft: 'Черновик',
   registration_open: 'Регистрация открыта',
   registration_closed: 'Регистрация закрыта',
@@ -19,3 +19,15 @@ export const STATUS_LABELS = {
   completed: 'Завершён',
   cancelled: 'Отменён',
 };
+
+export function formatDiscipline(discipline: string): string {
+  return DISCIPLINE_LABELS[discipline] ?? discipline;
+}
+
+export function formatFormat(format: string): string {
+  return FORMAT_LABELS[format] ?? format;
+}
+
+export function formatStatus(status: string): string {
+  return STATUS_LABELS[status] ?? status;
+}
