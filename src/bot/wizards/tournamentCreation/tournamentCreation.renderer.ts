@@ -3,13 +3,13 @@ import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
 
 import { STEPS_COUNT } from './tournamentCreation.const.js';
-import { getMatchStatusEmoji } from '../ui/matchUI.js';
-import type { BotContext } from '../types.js';
+import { getMatchStatusEmoji } from '../../ui/matchUI.js';
+import type { BotContext } from '../../types.js';
 import type { ITournamentCreationKeyboards } from './tournamentCreation.keyboards.js';
 import type { IRequiredCreationData } from './tournamentCreation.js';
-import type { Tournament } from '../@types/tournament.js';
-import type { Venue } from '../@types/venue.js';
-import type { Table } from '../@types/table.js';
+import type { Tournament } from '../../@types/tournament.js';
+import type { Venue } from '../../@types/venue.js';
+import type { Table } from '../../@types/table.js';
 
 // #region Types / Interfaces
 

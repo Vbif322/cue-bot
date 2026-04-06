@@ -17,7 +17,7 @@ import type {
   ITournamentWinScore,
 } from '@/db/schema.js';
 
-import type { BotContext } from '../types.js';
+import type { BotContext } from '../../types.js';
 import type {
   ICreationData,
   ICreationState,
