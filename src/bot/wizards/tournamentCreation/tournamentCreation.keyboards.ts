@@ -8,8 +8,8 @@ import {
 } from '@/db/schema/tournaments.js';
 import { formatDiscipline, formatFormat } from '@/utils/constants.js';
 
-import type { Venue } from '../@types/venue.js';
-import type { Table } from '../@types/table.js';
+import type { Venue } from '../../@types/venue.js';
+import type { Table } from '../../@types/table.js';
 
 // #region Types / Interfaces
 
@@ -49,7 +49,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     const keyboard = new InlineKeyboard();
 
     for (const venue of venues) {
-      keyboard.text(venue.name, `venue:${venue.id}`).row();
+      keyboard.text(venue.name, `tc:venue:${venue.id}`).row();
     }
 
     return keyboard;
@@ -65,7 +65,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
 
     for (const discipline of disciplines) {
       keyboard
-        .text(formatDiscipline(discipline), `discipline:${discipline}`)
+        .text(formatDiscipline(discipline), `tc:discipline:${discipline}`)
         .row();
     }
 
@@ -81,7 +81,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     const keyboard = new InlineKeyboard();
 
     for (const format of formats) {
-      keyboard.text(formatFormat(format), `format:${format}`).row();
+      keyboard.text(formatFormat(format), `tc:format:${format}`).row();
     }
 
     return keyboard;
@@ -98,7 +98,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     const keyboard = new InlineKeyboard();
 
     maxParticipants.forEach((v, i) => {
-      keyboard.text(String(v), `participants:${v}`);
+      keyboard.text(String(v), `tc:participants:${v}`);
 
       if ((i + 1) % perRow === 0) {
         keyboard.row();
@@ -119,7 +119,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     const keyboard = new InlineKeyboard();
 
     winScores.forEach((v, i) => {
-      keyboard.text(String(v), `winscore:${v}`);
+      keyboard.text(String(v), `tc:winscore:${v}`);
 
       if ((i + 1) % perRow === 0) {
         keyboard.row();
@@ -151,11 +151,11 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
 
       const label = `${isSelected ? '✅' : '⬜'} ${table.name}`;
 
-      keyboard.text(label, `tables_toggle:${table.id}`).row();
+      keyboard.text(label, `tc:tables_toggle:${table.id}`).row();
     }
 
-    keyboard.text('Готово', 'tables_done');
-    keyboard.text('Пропустить', 'tables_skip');
+    keyboard.text('Готово', 'tc:tables_done');
+    keyboard.text('Пропустить', 'tc:tables_skip');
 
     return keyboard;
   }
@@ -166,7 +166,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
    * @returns {InlineKeyboard} Клавиатура с кнопкой "Пропустить" и коллбеком 'tables_skip'
    */
   buildTablesSkipOnlyKeyboard(): InlineKeyboard {
-    return new InlineKeyboard().text('Завершить', 'tables_skip');
+    return new InlineKeyboard().text('Завершить', 'tc:tables_skip');
   }
 
   /**

@@ -1,7 +1,7 @@
-import type { CREATION_STEPS } from './tournamentCreation.const.ts';
-import type { Venue } from '../@types/venue.js';
-import type { Tournament } from '../@types/tournament.js';
-import type { Table } from '../@types/table.js';
+import type { CREATION_STEPS } from './tournamentCreation.const.js';
+import type { Venue } from '../../@types/venue.js';
+import type { Tournament } from '../../@types/tournament.js';
+import type { Table } from '../../@types/table.js';
 
 // #region Types / Interfaces
 

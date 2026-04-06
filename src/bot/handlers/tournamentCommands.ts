@@ -29,7 +29,7 @@ import {
   buildTournamentSelectionKeyboard,
 } from '../ui/tournamentUI.js';
 import { getMatchStatusEmoji } from '../ui/matchUI.js';
-import { tournamentCreationFlow } from '../wizards/tournamentCreation.module.js';
+import { tournamentCreationFlow } from '../wizards/tournamentCreation/tournamentCreation.module.js';
 import type { BotContext } from '../types.js';
 
 export const tournamentCommands = new Composer<BotContext>();
@@ -468,22 +468,22 @@ tournamentCommands.callbackQuery(
 // CALLBACK HANDLERS - Tournament Creation Wizard
 // ============================================================================
 
-tournamentCommands.callbackQuery(/^discipline:(.+)$/, async (ctx) => {
+tournamentCommands.callbackQuery(/^tc:discipline:(.+)$/, async (ctx) => {
   await tournamentCreationFlow.handleDisciplineSelection(ctx, ctx.match![1]!);
 });
 
-tournamentCommands.callbackQuery(/^venue:(.+)$/, async (ctx) => {
+tournamentCommands.callbackQuery(/^tc:venue:(.+)$/, async (ctx) => {
   await tournamentCreationFlow.handleVenueSelection(
     ctx,
     ctx.match![1]! as UUID,
   );
 });
 
-tournamentCommands.callbackQuery(/^format:(.+)$/, async (ctx) => {
+tournamentCommands.callbackQuery(/^tc:format:(.+)$/, async (ctx) => {
   await tournamentCreationFlow.handleFormatSelection(ctx, ctx.match![1]!);
 });
 
-tournamentCommands.callbackQuery(/^participants:(\d+)$/, async (ctx) => {
+tournamentCommands.callbackQuery(/^tc:participants:(\d+)$/, async (ctx) => {
   const participants = parseInt(ctx.match![1]!, 10);
   await tournamentCreationFlow.handleMaxParticipantsSelection(
     ctx,
@@ -491,23 +491,23 @@ tournamentCommands.callbackQuery(/^participants:(\d+)$/, async (ctx) => {
   );
 });
 
-tournamentCommands.callbackQuery(/^winscore:(\d+)$/, async (ctx) => {
+tournamentCommands.callbackQuery(/^tc:winscore:(\d+)$/, async (ctx) => {
   const winScore = parseInt(ctx.match![1]!, 10);
   await tournamentCreationFlow.handleWinScoreSelection(ctx, winScore);
 });
 
-tournamentCommands.callbackQuery(/^tables_toggle:(.+)$/, async (ctx) => {
+tournamentCommands.callbackQuery(/^tc:tables_toggle:(.+)$/, async (ctx) => {
   await tournamentCreationFlow.handleTableSelectionToggle(
     ctx,
     ctx.match![1]! as UUID,
   );
 });
 
-tournamentCommands.callbackQuery('tables_done', async (ctx) => {
+tournamentCommands.callbackQuery('tc:tables_done', async (ctx) => {
   await tournamentCreationFlow.handleTableSelectionFinalize(ctx, false);
 });
 
-tournamentCommands.callbackQuery('tables_skip', async (ctx) => {
+tournamentCommands.callbackQuery('tc:tables_skip', async (ctx) => {
   await tournamentCreationFlow.handleTableSelectionFinalize(ctx, true);
 });
 

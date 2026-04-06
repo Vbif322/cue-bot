@@ -4,6 +4,7 @@ import { TournamentCreationStateStore } from './tournamentCreation.stateStore.js
 import { TournamentCreationRenderer } from './tournamentCreation.renderer.js';
 import { TournamentCreationFlow } from './tournamentCreation.flow.js';
 import { TournamentCreationKeyboards } from './tournamentCreation.keyboards.js';
+import { registerWizard } from '../wizardRegistry.js';
 
 const tournamentCreationStateStore = new TournamentCreationStateStore();
 
@@ -19,6 +20,12 @@ const tournamentCreationFlow = new TournamentCreationFlow(
   tournamentCreationRenderer,
   DateTimeHelperInstance,
 );
+
+registerWizard({
+  name: 'создание турнира',
+  isActive: (userId) => tournamentCreationStateStore.has(userId),
+  callbackPrefix: 'tc:',
+});
 
 export {
   tournamentCreationStateStore,

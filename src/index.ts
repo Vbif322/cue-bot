@@ -1,5 +1,5 @@
 import { bot } from './bot/instance.js';
-import { authMiddleware } from './bot/middleware/index.js';
+import { authMiddleware, wizardGuardMiddleware } from './bot/middleware/index.js';
 import {
   roleCommands,
   tournamentCommands,
@@ -17,6 +17,7 @@ import { db } from './db/db.js';
 import { loginTokens } from './db/schema.js';
 
 bot.use(authMiddleware);
+bot.use(wizardGuardMiddleware);
 bot.use(roleCommands);
 bot.use(tournamentCommands);
 bot.use(registrationCommands);
