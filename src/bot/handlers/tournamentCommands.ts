@@ -503,6 +503,10 @@ tournamentCommands.callbackQuery(/^tc:tables_toggle:(.+)$/, async (ctx) => {
   );
 });
 
+tournamentCommands.callbackQuery('tc:tables_all', async (ctx) => {
+  await tournamentCreationFlow.handleTableSelectAll(ctx);
+});
+
 tournamentCommands.callbackQuery('tc:tables_done', async (ctx) => {
   await tournamentCreationFlow.handleTableSelectionFinalize(ctx, false);
 });
