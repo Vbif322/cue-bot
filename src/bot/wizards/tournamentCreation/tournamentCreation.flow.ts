@@ -58,6 +58,8 @@ export interface ITournamentCreationFlow {
 
   handleTableSelectionToggle(ctx: BotContext, tableId: UUID): Promise<boolean>;
 
+  handleTableSelectAll(ctx: BotContext): Promise<boolean>;
+
   handleTableSelectionFinalize(
     ctx: BotContext,
     isSkip: boolean,
@@ -573,6 +575,43 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     await ctx.answerCallbackQuery();
 
     await this.renderer.showTablesStep(ctx, venueTables, [...selectedTableIds]);
+
+    return true;
+  }
+
+  async handleTableSelectAll(ctx: BotContext): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'tables',
+    );
+
+    if (!hasStep) return false;
+
+    const state = this.stateStore.getOrThrow(userId);
+
+    if (state.data.venue?.id === undefined) {
+      this.stateStore.clear(userId);
+
+      await this.renderer.showVenueMissing(ctx);
+
+      return false;
+    }
+
+    const venueTables = await getTablesByVenue(state.data.venue.id);
+
+    const allSelected =
+      venueTables.length > 0 &&
+      venueTables.every((t) => state.data.tables?.some((st) => st.id === t.id));
+
+    this.stateStore.updateData(userId, {
+      tables: allSelected ? [] : venueTables,
+    });
+
+    const newSelectedIds = allSelected ? [] : venueTables.map((t) => t.id);
+
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showTablesStep(ctx, venueTables, newSelectedIds);
 
     return true;
   }

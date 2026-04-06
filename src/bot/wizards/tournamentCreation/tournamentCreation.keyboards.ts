@@ -154,6 +154,10 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
       keyboard.text(label, `tc:tables_toggle:${table.id}`).row();
     }
 
+    const allSelected =
+      tables.length > 0 && tables.every((t) => selectedSet.has(t.id));
+    keyboard.text(`${allSelected ? '✅' : '⬜'} Все`, 'tc:tables_all').row();
+
     keyboard.text('Готово', 'tc:tables_done');
     keyboard.text('Пропустить', 'tc:tables_skip');
 
