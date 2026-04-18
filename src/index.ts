@@ -73,6 +73,7 @@ async function start() {
   // Serve static files from admin/dist in production
   if (process.env.NODE_ENV === 'production') {
     app.use('/*', serveStatic({ root: './admin/dist' }));
+    app.get('/*', serveStatic({ path: './admin/dist/index.html' }));
   }
 
   const port = Number(process.env.ADMIN_PORT ?? 3000);
