@@ -1,1 +1,2 @@
-export { authMiddleware } from "./auth.js";
+export { authMiddleware } from './auth.js';
+export { wizardGuardMiddleware } from './wizardGuard.js';

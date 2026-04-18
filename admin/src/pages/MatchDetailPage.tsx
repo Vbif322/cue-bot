@@ -1,30 +1,28 @@
-import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { matchesApi } from "../lib/api.ts";
-import { MatchStatusBadge } from "../components/StatusBadge.tsx";
+import { useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { matchesApi } from '../lib/api.ts';
+import { MatchStatusBadge } from '../components/StatusBadge.tsx';
 
 export default function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const [error, setError] = useState("");
-  const [techReason, setTechReason] = useState("");
-  const [techWinnerId, setTechWinnerId] = useState("");
+  const [error, setError] = useState('');
+  const [techReason, setTechReason] = useState('');
+  const [techWinnerId, setTechWinnerId] = useState('');
   const [p1Score, setP1Score] = useState(0);
   const [p2Score, setP2Score] = useState(0);
 
   const { data: match, isLoading } = useQuery({
-    queryKey: ["match", id],
+    queryKey: ['match', id],
     queryFn: () => matchesApi.get(id!),
     enabled: !!id,
     refetchInterval: 15_000,
   });
 
-  console.log(match);
-
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["match", id] });
-    setError("");
+    qc.invalidateQueries({ queryKey: ['match', id] });
+    setError('');
   };
 
   const startMutation = useMutation({
@@ -60,8 +58,8 @@ export default function MatchDetailPage() {
     mutationFn: () => matchesApi.setTechnical(id!, techWinnerId, techReason),
     onSuccess: () => {
       invalidate();
-      setTechReason("");
-      setTechWinnerId("");
+      setTechReason('');
+      setTechWinnerId('');
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -110,7 +108,7 @@ export default function MatchDetailPage() {
         <div className="grid grid-cols-3 gap-4 items-center">
           <div className="text-center min-w-0">
             <p className="font-semibold text-gray-900 truncate">
-              {match.player1Name ?? match.player1Username ?? "TBD"}
+              {match.player1Name ?? match.player1Username ?? 'TBD'}
             </p>
             {match.player1Username && (
               <p className="text-xs text-gray-500">@{match.player1Username}</p>
@@ -129,7 +127,7 @@ export default function MatchDetailPage() {
 
           <div className="text-center min-w-0">
             <p className="font-semibold text-gray-900 truncate">
-              {match.player2Name ?? match.player2Username ?? "TBD"}
+              {match.player2Name ?? match.player2Username ?? 'TBD'}
             </p>
             {match.player2Username && (
               <p className="text-xs text-gray-500">@{match.player2Username}</p>
@@ -139,7 +137,7 @@ export default function MatchDetailPage() {
 
         {match.winnerId && (
           <p className="text-center text-sm text-green-600 mt-4">
-            Победитель:{" "}
+            Победитель:{' '}
             {match.winnerUsername ? `@${match.winnerUsername}` : match.winnerId}
           </p>
         )}
@@ -148,7 +146,7 @@ export default function MatchDetailPage() {
       {/* Actions */}
       <div className="space-y-4">
         {/* Start match */}
-        {match.status === "scheduled" && match.player1Id && match.player2Id && (
+        {match.status === 'scheduled' && match.player1Id && match.player2Id && (
           <ActionCard title="Начать матч">
             <button
               onClick={() => startMutation.mutate()}
@@ -161,7 +159,7 @@ export default function MatchDetailPage() {
         )}
 
         {/* Report result */}
-        {match.status === "in_progress" &&
+        {match.status === 'in_progress' &&
           match.player1Id &&
           match.player2Id && (
             <ActionCard title="Внести результат">
@@ -203,7 +201,7 @@ export default function MatchDetailPage() {
           )}
 
         {/* Confirm/dispute */}
-        {match.status === "pending_confirmation" && (
+        {match.status === 'pending_confirmation' && (
           <ActionCard title="Подтверждение результата">
             <div className="flex gap-2">
               <button
@@ -225,8 +223,8 @@ export default function MatchDetailPage() {
         )}
 
         {/* Technical result */}
-        {match.status !== "completed" &&
-          match.status !== "cancelled" &&
+        {match.status !== 'completed' &&
+          match.status !== 'cancelled' &&
           match.player1Id &&
           match.player2Id && (
             <ActionCard title="Технический результат">

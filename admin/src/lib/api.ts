@@ -9,7 +9,7 @@ import type {
   ApiVenue,
   StartTournamentResponse,
   TournamentStatus,
-} from "@server/apiTypes";
+} from '@server/apiTypes';
 
 export type {
   ApiTournament,
@@ -23,15 +23,12 @@ export type {
   TournamentStatus,
 };
 
-async function apiFetch<T>(
-  url: string,
-  options?: RequestInit,
-): Promise<T> {
+async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
-    credentials: "include",
+    credentials: 'include',
     headers: {
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
       ...options?.headers,
     },
   });
@@ -40,14 +37,14 @@ async function apiFetch<T>(
 
   if (!res.ok) {
     const err =
-      typeof data === "object" && data !== null && "error" in data
+      typeof data === 'object' && data !== null && 'error' in data
         ? String((data as { error: string }).error)
         : `HTTP ${res.status}`;
     throw new Error(err);
   }
 
   // Unwrap { data: T } envelope if present
-  if (typeof data === "object" && data !== null && "data" in data) {
+  if (typeof data === 'object' && data !== null && 'data' in data) {
     return (data as { data: T }).data;
   }
 
@@ -58,30 +55,30 @@ async function apiFetch<T>(
 
 export const auth = {
   requestCode: (username: string) =>
-    apiFetch<{ ok: boolean }>("/api/auth/request-code", {
-      method: "POST",
+    apiFetch<{ ok: boolean }>('/api/auth/request-code', {
+      method: 'POST',
       body: JSON.stringify({ username }),
     }),
 
   verifyCode: (username: string, code: string) =>
     apiFetch<{ user: { id: string; username: string; role: string } }>(
-      "/api/auth/verify-code",
-      { method: "POST", body: JSON.stringify({ username, code }) },
+      '/api/auth/verify-code',
+      { method: 'POST', body: JSON.stringify({ username, code }) },
     ),
 
   logout: () =>
-    apiFetch<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+    apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 
   me: () =>
     apiFetch<{ user: { id: string; username: string; role: string } | null }>(
-      "/api/auth/me",
+      '/api/auth/me',
     ),
 };
 
 // ── Tournaments ──────────────────────────────────────────────────────────────
 
 export const tournamentsApi = {
-  list: () => apiFetch<ApiTournament[]>("/api/tournaments"),
+  list: () => apiFetch<ApiTournament[]>('/api/tournaments'),
 
   get: (id: string) => apiFetch<ApiTournament>(`/api/tournaments/${id}`),
 
@@ -91,46 +88,65 @@ export const tournamentsApi = {
     name: string;
     description?: string;
     rules?: string;
-    format: "single_elimination" | "double_elimination" | "round_robin";
+    format: 'single_elimination' | 'double_elimination' | 'round_robin';
     maxParticipants?: number;
     winScore?: number;
     startDate?: string;
+    venueId: string;
     tableIds?: string[];
   }) =>
-    apiFetch<ApiTournament>("/api/tournaments", {
-      method: "POST",
+    apiFetch<ApiTournament>('/api/tournaments', {
+      method: 'POST',
       body: JSON.stringify(data),
     }),
 
   setStatus: (id: string, status: TournamentStatus) =>
     apiFetch<ApiTournament>(`/api/tournaments/${id}/status`, {
-      method: "PATCH",
+      method: 'PATCH',
       body: JSON.stringify({ status }),
     }),
 
   start: (id: string) =>
     apiFetch<StartTournamentResponse>(`/api/tournaments/${id}/start`, {
-      method: "POST",
+      method: 'POST',
     }),
 
   delete: (id: string) =>
-    apiFetch<{ ok: boolean }>(`/api/tournaments/${id}`, { method: "DELETE" }),
+    apiFetch<{ ok: boolean }>(`/api/tournaments/${id}`, { method: 'DELETE' }),
 
   participants: (id: string) =>
     apiFetch<ApiTournamentParticipant[]>(`/api/tournaments/${id}/participants`),
 
-  stats: (id: string) => apiFetch<ApiMatchStats>(`/api/tournaments/${id}/stats`),
+  stats: (id: string) =>
+    apiFetch<ApiMatchStats>(`/api/tournaments/${id}/stats`),
 
-  addParticipant: (tournamentId: string, userId: string) =>
+  addParticipant: (
+    tournamentId: string,
+    body:
+      | { type: 'user'; userId: string }
+      | { type: 'external'; name: string; username?: string },
+  ) =>
     apiFetch<{ ok: boolean }>(`/api/tournaments/${tournamentId}/participants`, {
-      method: "POST",
-      body: JSON.stringify({ userId }),
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
 
   removeParticipant: (tournamentId: string, userId: string) =>
     apiFetch<{ ok: boolean }>(
       `/api/tournaments/${tournamentId}/participants/${userId}`,
-      { method: "DELETE" },
+      { method: 'DELETE' },
+    ),
+
+  confirmParticipant: (tournamentId: string, userId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/${userId}`,
+      { method: 'PATCH', body: JSON.stringify({ action: 'confirm' }) },
+    ),
+
+  rejectParticipant: (tournamentId: string, userId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/${userId}`,
+      { method: 'PATCH', body: JSON.stringify({ action: 'reject' }) },
     ),
 };
 
@@ -143,32 +159,32 @@ export const matchesApi = {
   get: (id: string) => apiFetch<ApiMatch>(`/api/matches/${id}`),
 
   start: (id: string) =>
-    apiFetch<{ ok: boolean }>(`/api/matches/${id}/start`, { method: "POST" }),
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/start`, { method: 'POST' }),
 
   report: (
     id: string,
     data: { reporterId: string; player1Score: number; player2Score: number },
   ) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/report`, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify(data),
     }),
 
   confirm: (id: string, confirmerId: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/confirm`, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify({ confirmerId }),
     }),
 
   dispute: (id: string, userId: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/dispute`, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify({ userId }),
     }),
 
   setTechnical: (id: string, winnerId: string, reason: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/technical`, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify({ winnerId, reason }),
     }),
 };
@@ -176,61 +192,63 @@ export const matchesApi = {
 // ── Users ────────────────────────────────────────────────────────────────────
 
 export const usersApi = {
-  list: () => apiFetch<ApiUser[]>("/api/users"),
+  list: () => apiFetch<ApiUser[]>('/api/users'),
 
   get: (id: string) => apiFetch<ApiUser>(`/api/users/${id}`),
 
-  setRole: (id: string, role: "user" | "admin") =>
+  setRole: (id: string, role: 'user' | 'admin') =>
     apiFetch<ApiUser>(`/api/users/${id}/role`, {
-      method: "PATCH",
+      method: 'PATCH',
       body: JSON.stringify({ role }),
     }),
 
   assignReferee: (userId: string, tournamentId: string) =>
     apiFetch<{ ok: boolean }>(`/api/users/${userId}/referee`, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify({ tournamentId }),
     }),
 
   removeReferee: (userId: string, tournamentId: string) =>
-    apiFetch<{ ok: boolean }>(
-      `/api/users/${userId}/referee/${tournamentId}`,
-      { method: "DELETE" },
-    ),
+    apiFetch<{ ok: boolean }>(`/api/users/${userId}/referee/${tournamentId}`, {
+      method: 'DELETE',
+    }),
 };
 
 // ── Tables ────────────────────────────────────────────────────────────────────
 
 export const tablesApi = {
-  list: () => apiFetch<ApiTable[]>("/api/tables"),
+  list: () => apiFetch<ApiTable[]>('/api/tables'),
 
   create: (name: string, venueId: string) =>
-    apiFetch<ApiTable>("/api/tables", {
-      method: "POST",
+    apiFetch<ApiTable>('/api/tables', {
+      method: 'POST',
       body: JSON.stringify({ name, venueId }),
     }),
 
   delete: (id: string) =>
-    apiFetch<{ ok: boolean }>(`/api/tables/${id}`, { method: "DELETE" }),
+    apiFetch<{ ok: boolean }>(`/api/tables/${id}`, { method: 'DELETE' }),
 };
 
 // ── Venues ────────────────────────────────────────────────────────────────────
 
 export const venuesApi = {
-  list: () => apiFetch<ApiVenue[]>("/api/venues"),
+  list: () => apiFetch<ApiVenue[]>('/api/venues'),
 
   create: (data: { name: string; address: string; image?: string }) =>
-    apiFetch<ApiVenue>("/api/venues", {
-      method: "POST",
+    apiFetch<ApiVenue>('/api/venues', {
+      method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  update: (id: string, data: { name?: string; address?: string; image?: string | null }) =>
+  update: (
+    id: string,
+    data: { name?: string; address?: string; image?: string | null },
+  ) =>
     apiFetch<ApiVenue>(`/api/venues/${id}`, {
-      method: "PATCH",
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
 
   delete: (id: string) =>
-    apiFetch<{ ok: boolean }>(`/api/venues/${id}`, { method: "DELETE" }),
+    apiFetch<{ ok: boolean }>(`/api/venues/${id}`, { method: 'DELETE' }),
 };
