@@ -1,13 +1,16 @@
-import { and, eq, lt } from "drizzle-orm";
-import { Bot } from "grammy";
-import { db } from "../db/db.js";
-import { matches, tournaments } from "../db/schema.js";
-import type { BotContext } from "../bot/types.js";
-import { getMatch, setTechnicalResult } from "./matchService.js";
+import { and, eq, lt } from 'drizzle-orm';
+import { Bot } from 'grammy';
+import type { UUID } from 'crypto';
+
+import { db } from '@/db/db.js';
+import { matches, tournaments } from '@/db/schema.js';
+import type { BotContext } from '@/bot/types.js';
+
+import { getMatch, setTechnicalResult } from './matchService.js';
 import {
   sendMatchReminder,
   createAndSendNotification,
-} from "./notificationService.js";
+} from './notificationService.js';
 
 export interface TimeoutConfig {
   resultSubmissionHours: number; // Time to submit result (default: 24)
@@ -63,7 +66,7 @@ export function stopTimeoutChecker(): void {
     clearInterval(timeoutInterval);
     timeoutInterval = null;
   }
-  console.log("Timeout checker stopped");
+  console.log('Timeout checker stopped');
 }
 
 /**
@@ -77,7 +80,7 @@ async function checkAllTimeouts(): Promise<void> {
     await checkPendingConfirmations();
     await checkInProgressMatches();
   } catch (error) {
-    console.error("Error checking timeouts:", error);
+    console.error('Error checking timeouts:', error);
   }
 }
 
@@ -95,7 +98,7 @@ async function checkMatchReminders(): Promise<void> {
   // Find scheduled matches with scheduledAt within reminder window
   const matchesToRemind = await db.query.matches.findMany({
     where: and(
-      eq(matches.status, "scheduled"),
+      eq(matches.status, 'scheduled'),
       lt(matches.scheduledAt, reminderThreshold),
     ),
   });
@@ -112,7 +115,11 @@ async function checkMatchReminders(): Promise<void> {
     });
 
     if (tournament) {
-      await sendMatchReminder(botInstance.api, matchWithPlayers, tournament.name);
+      await sendMatchReminder(
+        botInstance.api,
+        matchWithPlayers,
+        tournament.name,
+      );
     }
   }
 }
@@ -129,7 +136,7 @@ async function checkPendingConfirmations(): Promise<void> {
   // Find matches pending confirmation longer than timeout
   const expiredMatches = await db.query.matches.findMany({
     where: and(
-      eq(matches.status, "pending_confirmation"),
+      eq(matches.status, 'pending_confirmation'),
       lt(matches.updatedAt, timeout),
     ),
   });
@@ -142,7 +149,7 @@ async function checkPendingConfirmations(): Promise<void> {
     await db
       .update(matches)
       .set({
-        status: "completed",
+        status: 'completed',
         confirmedBy: match.reportedBy, // Auto-confirm
         completedAt: new Date(),
         updatedAt: new Date(),
@@ -164,8 +171,8 @@ async function checkPendingConfirmations(): Promise<void> {
     if (opponentId) {
       await createAndSendNotification(botInstance.api, {
         userId: opponentId,
-        type: "result_confirmed",
-        title: "Результат автоматически подтверждён",
+        type: 'result_confirmed',
+        title: 'Результат автоматически подтверждён',
         message:
           `Результат матча был автоматически подтверждён из-за истечения времени ожидания.\n\n` +
           `Счёт: ${match.player1Score}:${match.player2Score}`,
@@ -190,7 +197,7 @@ async function checkInProgressMatches(): Promise<void> {
   // Find matches in progress longer than timeout without result
   const idleMatches = await db.query.matches.findMany({
     where: and(
-      eq(matches.status, "in_progress"),
+      eq(matches.status, 'in_progress'),
       lt(matches.startedAt, timeout),
     ),
   });
@@ -212,8 +219,8 @@ async function checkInProgressMatches(): Promise<void> {
 
       await createAndSendNotification(botInstance.api, {
         userId: playerId,
-        type: "match_result_pending",
-        title: "Напоминание: внесите результат",
+        type: 'match_result_pending',
+        title: 'Напоминание: внесите результат',
         message:
           `Матч в турнире "${tournament.name}" ожидает результата уже более ${currentConfig.resultSubmissionHours} часов.\n\n` +
           `Пожалуйста, внесите результат или обратитесь к судье.`,
@@ -257,13 +264,13 @@ export function updateTimeoutConfig(config: Partial<TimeoutConfig>): void {
  * Assign technical loss due to timeout (for admin use)
  */
 export async function assignTimeoutTechnicalLoss(
-  matchId: string,
-  loserId: string,
-  adminId: string,
+  matchId: UUID,
+  loserId: UUID,
+  adminId: UUID,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
   if (!match) {
-    return { success: false, error: "Матч не найден" };
+    return { success: false, error: 'Матч не найден' };
   }
 
   // Determine winner (the other player)
@@ -271,13 +278,13 @@ export async function assignTimeoutTechnicalLoss(
     match.player1Id === loserId ? match.player2Id : match.player1Id;
 
   if (!winnerId) {
-    return { success: false, error: "Невозможно определить победителя" };
+    return { success: false, error: 'Невозможно определить победителя' };
   }
 
   return setTechnicalResult(
     matchId,
     winnerId,
-    "Техническое поражение по таймауту",
+    'Техническое поражение по таймауту',
     adminId,
   );
 }
