@@ -3,12 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { tournamentsApi } from '../lib/api.ts';
 import { TournamentStatusBadge } from '../components/StatusBadge.tsx';
-import type { TournamentStatus } from '../lib/api.ts';
+import type { TournamentStatus, ITournamentFormat } from '../lib/api.ts';
 import CreateTournamentModal from '../components/CreateTournamentModal.tsx';
 
-const FORMAT_LABELS = {
+const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elim.',
   double_elimination: 'Double Elim.',
+  double_elimination_random: 'Double Elim. (random)',
   round_robin: 'Round Robin',
 };
 

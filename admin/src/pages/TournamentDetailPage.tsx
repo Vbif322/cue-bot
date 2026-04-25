@@ -7,11 +7,12 @@ import {
   TournamentStatusBadge,
   MatchStatusBadge,
 } from '../components/StatusBadge.tsx';
-import type { TournamentStatus } from '../lib/api.ts';
+import type { TournamentStatus, ITournamentFormat } from '../lib/api.ts';
 
-const FORMAT_LABELS = {
+const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elimination',
   double_elimination: 'Double Elimination',
+  double_elimination_random: 'Double Elimination (random)',
   round_robin: 'Round Robin',
 };
 
@@ -51,7 +52,10 @@ export default function TournamentDetailPage() {
   const { data: participants } = useQuery({
     queryKey: ['tournament-participants', id],
     queryFn: () => tournamentsApi.participants(id!),
-    enabled: !!id && activeTab === 'participants',
+    enabled:
+      !!id &&
+      (activeTab === 'participants' ||
+        tournament?.status === 'registration_closed'),
   });
 
   const { data: matches } = useQuery({
@@ -112,7 +116,7 @@ export default function TournamentDetailPage() {
     mutationFn: (userId: string) =>
       tournamentsApi.confirmParticipant(id!, userId),
     onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["tournament-participants", id] }),
+      qc.invalidateQueries({ queryKey: ['tournament-participants', id] }),
     onError: (e: Error) => setActionError(e.message),
   });
 
@@ -120,7 +124,7 @@ export default function TournamentDetailPage() {
     mutationFn: (userId: string) =>
       tournamentsApi.rejectParticipant(id!, userId),
     onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["tournament-participants", id] }),
+      qc.invalidateQueries({ queryKey: ['tournament-participants', id] }),
     onError: (e: Error) => setActionError(e.message),
   });
 
@@ -128,7 +132,22 @@ export default function TournamentDetailPage() {
     mutationFn: (userId: string) =>
       tournamentsApi.removeParticipant(id!, userId),
     onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["tournament-participants", id] }),
+      qc.invalidateQueries({ queryKey: ['tournament-participants', id] }),
+    onError: (e: Error) => setActionError(e.message),
+  });
+
+  const setSeedMutation = useMutation({
+    mutationFn: ({ userId, seed }: { userId: string; seed: number | null }) =>
+      tournamentsApi.setParticipantSeed(id!, userId, seed),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['tournament-participants', id] }),
+    onError: (e: Error) => setActionError(e.message),
+  });
+
+  const randomizeSeedsMutation = useMutation({
+    mutationFn: () => tournamentsApi.randomizeSeeds(id!),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['tournament-participants', id] }),
     onError: (e: Error) => setActionError(e.message),
   });
 
@@ -154,6 +173,34 @@ export default function TournamentDetailPage() {
 
   const nextStatus = NEXT_STATUS[tournament.status];
   const nextLabel = STATUS_ACTION_LABELS[tournament.status];
+
+  const confirmedParticipants =
+    participants?.filter((p) => p.status === 'confirmed') ?? [];
+  const confirmedCount = confirmedParticipants.length;
+  const seedCounts = new Map<number, number>();
+  for (const p of confirmedParticipants) {
+    if (p.seed != null) {
+      seedCounts.set(p.seed, (seedCounts.get(p.seed) ?? 0) + 1);
+    }
+  }
+  const seedIsInvalid = (seed: number | null): boolean =>
+    seed != null &&
+    (seed < 1 || seed > confirmedCount || (seedCounts.get(seed) ?? 0) > 1);
+  const hasInvalidSeeds = confirmedParticipants.some((p) =>
+    seedIsInvalid(p.seed),
+  );
+  const freeSeeds: number[] = [];
+  if (confirmedCount > 0) {
+    for (let s = 1; s <= confirmedCount; s++) {
+      if (!seedCounts.has(s)) freeSeeds.push(s);
+    }
+  }
+  const isRegistrationStatus =
+    tournament.status === 'registration_open' ||
+    tournament.status === 'registration_closed';
+  const seedsEditable =
+    isRegistrationStatus && tournament.format !== 'round_robin';
+  const startBlockedBySeeds = nextStatus === 'in_progress' && hasInvalidSeeds;
 
   return (
     <div>
@@ -182,7 +229,16 @@ export default function TournamentDetailPage() {
           {nextStatus && nextLabel && (
             <button
               onClick={handleNextAction}
-              disabled={statusMutation.isPending || startMutation.isPending}
+              disabled={
+                statusMutation.isPending ||
+                startMutation.isPending ||
+                startBlockedBySeeds
+              }
+              title={
+                startBlockedBySeeds
+                  ? 'Разрешите конфликты сидов перед запуском'
+                  : undefined
+              }
               className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
               {statusMutation.isPending || startMutation.isPending
@@ -278,7 +334,22 @@ export default function TournamentDetailPage() {
 
       {activeTab === 'participants' && (
         <div>
-          <div className="flex justify-end mb-3">
+          <div className="flex justify-end gap-2 mb-3">
+            {seedsEditable && confirmedCount > 0 && (
+              <button
+                onClick={() => {
+                  if (confirm('Перезаписать все сиды случайными значениями?')) {
+                    randomizeSeedsMutation.mutate();
+                  }
+                }}
+                disabled={randomizeSeedsMutation.isPending}
+                className="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                {randomizeSeedsMutation.isPending
+                  ? 'Перемешивание...'
+                  : 'Случайные сиды'}
+              </button>
+            )}
             <button
               onClick={() => {
                 setShowModal(true);
@@ -294,10 +365,29 @@ export default function TournamentDetailPage() {
             </button>
           </div>
 
+          {seedsEditable && confirmedCount > 0 && (
+            <div className="mb-3 space-y-1">
+              {freeSeeds.length > 0 && (
+                <div className="text-xs text-gray-500">
+                  Свободные сиды: {freeSeeds.join(', ')}
+                </div>
+              )}
+              {hasInvalidSeeds && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
+                  Есть некорректные сиды (дубликаты или вне диапазона 1..
+                  {confirmedCount}). Запуск турнира заблокирован.
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    №
+                  </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Сид
                   </th>
@@ -311,9 +401,29 @@ export default function TournamentDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {participants?.map((p) => (
+                {participants?.map((p, i) => (
                   <tr key={p.userId}>
-                    <td className="px-4 py-3 text-gray-500">{p.seed ?? '—'}</td>
+                    <td className="px-4 py-3 font-medium">{i + 1}</td>
+                    <td className="px-4 py-3">
+                      <SeedCell
+                        seed={p.seed}
+                        editable={seedsEditable && p.status === 'confirmed'}
+                        maxSeed={confirmedCount}
+                        invalid={
+                          p.status === 'confirmed' && seedIsInvalid(p.seed)
+                        }
+                        saving={
+                          setSeedMutation.isPending &&
+                          setSeedMutation.variables?.userId === p.userId
+                        }
+                        onSave={(newSeed) =>
+                          setSeedMutation.mutate({
+                            userId: p.userId,
+                            seed: newSeed,
+                          })
+                        }
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium">
                       <span>{p.name ?? p.username ?? p.userId}</span>
                       {p.username && (
@@ -689,19 +799,19 @@ export default function TournamentDetailPage() {
 }
 
 function ParticipantStatusBadge({ status }: { status: string }) {
-  if (status === "confirmed")
+  if (status === 'confirmed')
     return (
       <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
         Подтверждён
       </span>
     );
-  if (status === "pending")
+  if (status === 'pending')
     return (
       <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-700">
         Ожидает
       </span>
     );
-  if (status === "cancelled")
+  if (status === 'cancelled')
     return (
       <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-500">
         Отменён
@@ -716,5 +826,88 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
       <span className="text-sm text-gray-500 w-36 shrink-0">{label}</span>
       <span className="text-sm text-gray-900">{value}</span>
     </div>
+  );
+}
+
+function SeedCell({
+  seed,
+  editable,
+  maxSeed,
+  invalid,
+  saving,
+  onSave,
+}: {
+  seed: number | null;
+  editable: boolean;
+  maxSeed: number;
+  invalid: boolean;
+  saving: boolean;
+  onSave: (seed: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState<string>(seed != null ? String(seed) : '');
+
+  if (!editable) {
+    return (
+      <span
+        className={invalid ? 'text-red-600 font-semibold' : 'text-gray-500'}
+      >
+        {seed ?? '—'}
+      </span>
+    );
+  }
+
+  const commit = () => {
+    setEditing(false);
+    const trimmed = value.trim();
+    const next = trimmed === '' ? null : Number(trimmed);
+    if (next != null && (!Number.isInteger(next) || next < 1)) {
+      return;
+    }
+    if (next === seed) return;
+    onSave(next);
+  };
+
+  if (editing) {
+    return (
+      <input
+        type="number"
+        min={1}
+        max={maxSeed || undefined}
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            (e.target as HTMLInputElement).blur();
+          } else if (e.key === 'Escape') {
+            setValue(seed != null ? String(seed) : '');
+            setEditing(false);
+          }
+        }}
+        disabled={saving}
+        className={`w-16 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          invalid ? 'border-red-400' : 'border-gray-300'
+        }`}
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        setValue(seed != null ? String(seed) : '');
+        setEditing(true);
+      }}
+      disabled={saving}
+      className={`min-w-[2rem] px-2 py-0.5 text-left rounded hover:bg-gray-100 disabled:opacity-50 ${
+        invalid
+          ? 'text-red-600 font-semibold bg-red-50 border border-red-200'
+          : 'text-gray-700'
+      }`}
+    >
+      {saving ? '…' : (seed ?? '—')}
+    </button>
   );
 }

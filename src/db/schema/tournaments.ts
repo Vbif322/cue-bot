@@ -5,6 +5,10 @@ import { createdAt, prodSchema, updatedAt } from '../schemaHelpers.js';
 import { users } from './users.js';
 import { venues } from './venues.js';
 
+export { formats, type ITournamentFormat } from '../../admin/server/formats.js';
+import { formats } from '../../admin/server/formats.js';
+import type { ITournamentFormat } from '../../admin/server/formats.js';
+
 export const statuses = [
   'draft',
   'registration_open',
@@ -15,14 +19,6 @@ export const statuses = [
 ] as const;
 
 export type ITournamentStatus = (typeof statuses)[number];
-
-export const formats = [
-  'single_elimination',
-  'double_elimination',
-  'round_robin',
-] as const;
-
-export type ITournamentFormat = (typeof formats)[number];
 
 export const disciplines = [
   // "pool",
