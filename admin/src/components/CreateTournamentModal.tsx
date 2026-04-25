@@ -2,6 +2,15 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { tournamentsApi, tablesApi, venuesApi } from '../lib/api.ts';
+import { formats } from '@server/apiTypes';
+import type { ITournamentFormat } from '../lib/api.ts';
+
+const FORMAT_OPTIONS: Record<ITournamentFormat, string> = {
+  single_elimination: 'Single Elimination',
+  double_elimination: 'Double Elimination',
+  double_elimination_random: 'Double Elimination (random)',
+  round_robin: 'Round Robin',
+};
 
 export default function CreateTournamentModal({
   onClose,
@@ -149,9 +158,11 @@ export default function CreateTournamentModal({
               }
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="single_elimination">Single Elimination</option>
-              <option value="double_elimination">Double Elimination</option>
-              <option value="round_robin">Round Robin</option>
+              {formats.map((f) => (
+                <option key={f} value={f}>
+                  {FORMAT_OPTIONS[f]}
+                </option>
+              ))}
             </select>
           </div>
 

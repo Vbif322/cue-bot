@@ -5,9 +5,12 @@ export const DISCIPLINE_LABELS: Record<string, string> = {
   // carom: "Карамболь",
 };
 
-export const FORMAT_LABELS: Record<string, string> = {
+import type { ITournamentFormat } from '@/admin/server/formats.js';
+
+export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Олимпийская система',
   double_elimination: 'Двойная элиминация',
+  double_elimination_random: 'Двойная элиминация (рандом)',
   round_robin: 'Круговая система',
 };
 
@@ -25,7 +28,7 @@ export function formatDiscipline(discipline: string): string {
 }
 
 export function formatFormat(format: string): string {
-  return FORMAT_LABELS[format] ?? format;
+  return (FORMAT_LABELS as Record<string, string>)[format] ?? format;
 }
 
 export function formatStatus(status: string): string {
