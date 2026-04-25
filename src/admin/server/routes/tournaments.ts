@@ -27,6 +27,8 @@ import {
   confirmParticipant,
   rejectParticipant,
   deleteParticipant,
+  setParticipantSeed,
+  randomizeSeeds,
 } from '@/services/tournamentService.js';
 import {
   notifyRegistrationConfirmed,
@@ -296,6 +298,63 @@ export function createTournamentsRouter(botApi: Api) {
 
     await deleteParticipant(tournamentId, userId);
 
+    return c.json({ ok: true });
+  });
+
+  router.patch(
+    '/:id/participants/:userId/seed',
+    zValidator(
+      'json',
+      z.object({ seed: z.number().int().min(1).nullable() }),
+    ),
+    async (c) => {
+      const tournamentId = c.req.param('id') as UUID;
+      const userId = c.req.param('userId') as UUID;
+      const { seed } = c.req.valid('json');
+
+      const tournament = await getTournament(tournamentId);
+      if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
+
+      if (
+        tournament.status !== 'registration_open' &&
+        tournament.status !== 'registration_closed'
+      ) {
+        return c.json(
+          { error: 'Сиды можно менять только во время регистрации' },
+          400,
+        );
+      }
+
+      try {
+        await setParticipantSeed(tournamentId, userId, seed);
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : 'Ошибка установки сида' },
+          400,
+        );
+      }
+
+      return c.json({ ok: true });
+    },
+  );
+
+  router.post('/:id/participants/seeds/randomize', async (c) => {
+    const tournamentId = c.req.param('id') as UUID;
+
+    const tournament = await getTournament(tournamentId);
+    if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
+
+    if (
+      tournament.status !== 'registration_open' &&
+      tournament.status !== 'registration_closed'
+    ) {
+      return c.json(
+        { error: 'Сиды можно менять только во время регистрации' },
+        400,
+      );
+    }
+
+    await randomizeSeeds(tournamentId);
     return c.json({ ok: true });
   });
 

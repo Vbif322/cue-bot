@@ -2,8 +2,8 @@ import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
 import {
-  assignRandomSeeds,
-  getConfirmedParticipants,
+  fillMissingSeeds,
+  getConfirmedParticipantsBySeed,
   startTournament,
   getTournament,
 } from './tournamentService.js';
@@ -40,11 +40,14 @@ export async function startTournamentFull(
   const tournament = await getTournament(tournamentId);
   if (!tournament) throw new Error('Турнир не найден');
 
-  // 1. Assign random seeds
-  await assignRandomSeeds(tournamentId);
+  // 1. Fill in missing seeds (preserves manual ones)
+  await fillMissingSeeds(tournamentId);
 
-  // 2. Get participants with seeds
-  const participants = await getConfirmedParticipants(tournamentId);
+  // 2. Get participants ordered by seed
+  const participants = await getConfirmedParticipantsBySeed(tournamentId);
+  if (participants.some((p) => p.seed == null)) {
+    throw new Error('Не удалось проставить сиды всем участникам');
+  }
 
   // 3. Generate bracket
   const bracket = generateBracket(tournament.format, participants);

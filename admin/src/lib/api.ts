@@ -150,6 +150,22 @@ export const tournamentsApi = {
       `/api/tournaments/${tournamentId}/participants/${userId}`,
       { method: 'PATCH', body: JSON.stringify({ action: 'reject' }) },
     ),
+
+  setParticipantSeed: (
+    tournamentId: string,
+    userId: string,
+    seed: number | null,
+  ) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/${userId}/seed`,
+      { method: 'PATCH', body: JSON.stringify({ seed }) },
+    ),
+
+  randomizeSeeds: (tournamentId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/seeds/randomize`,
+      { method: 'POST' },
+    ),
 };
 
 // ── Matches ──────────────────────────────────────────────────────────────────
