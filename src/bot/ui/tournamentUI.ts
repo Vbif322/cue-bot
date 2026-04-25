@@ -5,7 +5,7 @@ import type { UUID } from 'crypto';
 
 import {
   DISCIPLINE_LABELS,
-  FORMAT_LABELS,
+  formatFormat,
   STATUS_LABELS,
 } from '@/utils/constants.js';
 import { db } from '@/db/db.js';
@@ -109,7 +109,7 @@ export function buildTournamentMessage(
     `📋 *${info.name}*\n\n` +
     `Площадка: ${info.venueName ?? 'Не указана'}\n` +
     `Дисциплина: ${DISCIPLINE_LABELS[info.discipline] || info.discipline}\n` +
-    `Формат: ${FORMAT_LABELS[info.format] || info.format}\n` +
+    `Формат: ${formatFormat(info.format)}\n` +
     `Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
     `Участников: ${info.participantsCount}/${info.maxParticipants}\n` +
     `Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +
@@ -135,7 +135,7 @@ export function buildTournamentListItem(
     `📋 *${info.name}*\n` +
     `   Площадка: ${info.venueName ?? 'Не указана'}\n` +
     `   Дисциплина: ${DISCIPLINE_LABELS[info.discipline] || info.discipline}\n` +
-    `   Формат: ${FORMAT_LABELS[info.format] || info.format}\n` +
+    `   Формат: ${formatFormat(info.format)}\n` +
     `   Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
     `   Участников: ${info.participantsCount}/${info.maxParticipants}\n` +
     `   Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +

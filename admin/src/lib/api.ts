@@ -9,6 +9,7 @@ import type {
   ApiVenue,
   StartTournamentResponse,
   TournamentStatus,
+  ITournamentFormat,
 } from '@server/apiTypes';
 
 export type {
@@ -21,6 +22,7 @@ export type {
   ApiVenue,
   StartTournamentResponse,
   TournamentStatus,
+  ITournamentFormat,
 };
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -88,7 +90,7 @@ export const tournamentsApi = {
     name: string;
     description?: string;
     rules?: string;
-    format: 'single_elimination' | 'double_elimination' | 'round_robin';
+    format: ITournamentFormat;
     maxParticipants?: number;
     winScore?: number;
     startDate?: string;
@@ -147,6 +149,22 @@ export const tournamentsApi = {
     apiFetch<{ ok: boolean }>(
       `/api/tournaments/${tournamentId}/participants/${userId}`,
       { method: 'PATCH', body: JSON.stringify({ action: 'reject' }) },
+    ),
+
+  setParticipantSeed: (
+    tournamentId: string,
+    userId: string,
+    seed: number | null,
+  ) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/${userId}/seed`,
+      { method: 'PATCH', body: JSON.stringify({ seed }) },
+    ),
+
+  randomizeSeeds: (tournamentId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/seeds/randomize`,
+      { method: 'POST' },
     ),
 };
 

@@ -8,6 +8,7 @@ export type {
   ApiTournament,
   ApiTournamentParticipant,
 } from '../../bot/@types/tournament.js';
+export { formats, type ITournamentFormat } from './formats.js';
 export type {
   MatchStatus,
   BracketType,
