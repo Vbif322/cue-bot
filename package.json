@@ -20,7 +20,7 @@
     "lint:fix": "eslint . --fix",
     "dev": "nodemon",
     "dev:admin": "npm run dev --prefix admin",
-    "dev:all": "npm run db:up && concurrently -i -n api,web,db -c blue,magenta,green \"npm:dev\" \"npm:dev:admin\" \"npm:db:studio\"",
+    "dev:all": "npm run db:up && concurrently -k -n api,web,db -c blue,magenta,green \"nodemon\" \"node admin/node_modules/vite/bin/vite.js --config admin/vite.config.ts admin\" \"tsx node_modules/drizzle-kit/bin.cjs studio\"",
     "build": "tsc && tsc-alias",
     "start": "node --env-file=.env build/index.js",
     "build:admin": "npm run build --prefix admin",
