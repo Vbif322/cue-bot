@@ -77,19 +77,37 @@ NODE_ENV=development
 
 ### Режим разработки
 
-Запустить бот + API сервер:
+**Быстрый старт — одна команда поднимает весь стек:**
 
 ```bash
-npm run dev
+npm run dev:all
 ```
 
-Запустить Vite dev сервер для фронтенда (в отдельном терминале):
+Скрипт автоматически:
+
+1. Стартует Docker-контейнер `drizzle-postgres` в WSL и ждёт готовности Postgres (`pg_isready`).
+2. Параллельно запускает в одном терминале с цветными префиксами:
+   - `[api]` — бот + Hono API (порт **3000**)
+   - `[web]` — Vite dev сервер для SPA (порт **5173**, проксирует `/api` на 3000)
+   - `[db]` — Drizzle Studio (https://local.drizzle.studio)
+
+`Ctrl+C` корректно гасит все три процесса разом. Контейнер БД остаётся запущенным — повторный `npm run dev:all` стартует за секунды.
+
+**Предпосылки для `dev:all`:**
+
+- Windows + WSL2 (Ubuntu) с Docker внутри WSL.
+- Контейнер с именем `drizzle-postgres` уже создан.
+- WSL-пользователь добавлен в группу `docker` (`sudo usermod -aG docker $USER` + перелогин), иначе скрипт упадёт на правах сокета.
+
+**Отдельные команды (если нужно запустить что-то одно):**
 
 ```bash
-npm run dev:admin
+npm run dev          # только бот + API
+npm run dev:admin    # только Vite SPA
+npm run db:studio    # только Drizzle Studio
+npm run db:up        # поднять контейнер БД
+npm run db:down      # остановить контейнер БД
 ```
-
-Vite dev сервер запускается на порту **5173** и проксирует `/api` запросы на порт **3000**.
 
 ### Туннель для Telegram Web App
 
