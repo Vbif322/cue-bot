@@ -70,6 +70,7 @@ export async function startTournamentFull(
   const firstRoundMatches = await getRoundMatches(tournamentId, 1);
   for (const match of firstRoundMatches) {
     if (autoStartedMatchIds.has(match.id)) continue;
+    if (match.status === 'completed') continue;
     try {
       const matchWithPlayers = await getMatch(match.id);
       if (matchWithPlayers) {
