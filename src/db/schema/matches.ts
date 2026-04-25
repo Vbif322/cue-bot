@@ -37,6 +37,8 @@ export const matches = prodSchema.table('matches', {
   player2Id: uuid('player2_id')
     .$type<UUID>()
     .references(() => users.id),
+  player1IsWalkover: boolean('player1_is_walkover').notNull().default(false),
+  player2IsWalkover: boolean('player2_is_walkover').notNull().default(false),
   winnerId: uuid('winner_id')
     .$type<UUID>()
     .references(() => users.id),

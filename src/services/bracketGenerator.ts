@@ -12,6 +12,10 @@ export interface BracketMatch {
   nextMatchPosition?: 'player1' | 'player2'; // Which slot in next match
   bracketType: 'winners' | 'losers' | 'grand_final';
   losersNextMatchPosition?: number; // For double elimination - where loser goes
+  player1IsWalkover?: boolean;
+  player2IsWalkover?: boolean;
+  isCompletedWalkover?: boolean;
+  walkoverWinnerId?: UUID | null;
 }
 
 type ParticipantSlot = TournamentParticipant | { isBye: true };
@@ -201,9 +205,9 @@ function advanceToNextMatch(
 }
 
 /**
- * Generate hybrid Double Elimination bracket for 16 participants.
+ * Generate hybrid Double Elimination bracket for 8–16 participants.
  *
- * Structure:
+ * Structure (always 27 matches, fixed slots):
  *   R1 upper (8 matches, pos 1-8)   → winners to R2 upper, losers to R1 lower
  *   R1 lower (4 matches, pos 9-12)  → winners to R2 lower, losers eliminated
  *   R2 upper (4 matches, pos 13-16) → winners to R3 merge, losers to R2 lower
@@ -212,28 +216,38 @@ function advanceToNextMatch(
  *   R4 semi  (2 matches, pos 25-26) → winners to R5
  *   R5 final (1 match,   pos 27)    → champion
  *
- * Total: 27 matches
+ * For <16 participants: empty slots are filled with walkover (auto-loss in
+ * upper AND lower bracket). Distribution is via generateSeedPositions so
+ * walkovers spread evenly across the bracket.
  */
 export function generateDoubleEliminationBracket(
   participants: TournamentParticipant[],
 ): BracketMatch[] {
-  if (participants.length !== 16) {
+  if (participants.length < 8 || participants.length > 16) {
     throw new Error(
-      'Double elimination поддерживает только 16 участников. ' +
-        `Текущее количество: ${participants.length}`,
+      `Double elimination поддерживает 8–16 участников. Текущее количество: ${participants.length}`,
     );
   }
 
   const shuffled = shuffleArray(participants);
+  const seedPositions = generateSeedPositions(16);
+  const allSlots: (TournamentParticipant | null)[] = seedPositions.map(
+    (seed) => (seed <= participants.length ? shuffled[seed - 1] ?? null : null),
+  );
+
   const allMatches: BracketMatch[] = [];
 
   // R1 upper: 8 matches (positions 1-8)
   for (let i = 0; i < 8; i++) {
+    const p1 = allSlots[i * 2];
+    const p2 = allSlots[i * 2 + 1];
     allMatches.push({
       round: 1,
       position: i + 1,
-      player1Id: shuffled[i * 2]?.userId ?? null,
-      player2Id: shuffled[i * 2 + 1]?.userId ?? null,
+      player1Id: p1?.userId ?? null,
+      player2Id: p2?.userId ?? null,
+      player1IsWalkover: p1 == null,
+      player2IsWalkover: p2 == null,
       bracketType: 'winners',
     });
   }
@@ -355,7 +369,85 @@ export function generateDoubleEliminationBracket(
 
   // R1 lower, R2 lower, R3+ losers → eliminated (no losersNextMatchPosition)
 
+  // === WALKOVER RESOLUTION PASS ===
+  // Process matches in position order. For each match, classify slot states:
+  //   REAL: playerNId !== null
+  //   WALKOVER_BOUND: playerNId === null && playerNIsWalkover === true
+  //   WAITING: playerNId === null && playerNIsWalkover === false
+  // and resolve fully-determined walkover matches at gen-time. Mixed cases
+  // (WAITING + WALKOVER_BOUND) are left for runtime detection in matchService.
+  for (const match of allMatches) {
+    const slot1Real = match.player1Id !== null;
+    const slot2Real = match.player2Id !== null;
+    const slot1Walkover = match.player1IsWalkover === true;
+    const slot2Walkover = match.player2IsWalkover === true;
+
+    if (slot1Real && slot2Walkover) {
+      match.isCompletedWalkover = true;
+      match.walkoverWinnerId = match.player1Id;
+      advanceToNextMatch(allMatches, match, match.player1Id!);
+      if (match.bracketType === 'winners') {
+        markLoserSlotAsWalkover(allMatches, match);
+      }
+    } else if (slot2Real && slot1Walkover) {
+      match.isCompletedWalkover = true;
+      match.walkoverWinnerId = match.player2Id;
+      advanceToNextMatch(allMatches, match, match.player2Id!);
+      if (match.bracketType === 'winners') {
+        markLoserSlotAsWalkover(allMatches, match);
+      }
+    } else if (slot1Walkover && slot2Walkover) {
+      match.isCompletedWalkover = true;
+      match.walkoverWinnerId = null;
+      markNextMatchSlotAsWalkover(allMatches, match);
+      if (match.bracketType === 'winners') {
+        markLoserSlotAsWalkover(allMatches, match);
+      }
+    }
+    // All other combinations (REAL+REAL, REAL+WAITING, WAITING+WAITING,
+    // WAITING+WALKOVER_BOUND) are left for runtime.
+  }
+
   return allMatches;
+}
+
+function markNextMatchSlotAsWalkover(
+  matches: BracketMatch[],
+  currentMatch: BracketMatch,
+): void {
+  if (currentMatch.nextMatchId === undefined) return;
+  const nextMatch = matches.find((m) => m.position === currentMatch.nextMatchId);
+  if (!nextMatch) return;
+  if (currentMatch.nextMatchPosition === 'player1') {
+    nextMatch.player1IsWalkover = true;
+  } else {
+    nextMatch.player2IsWalkover = true;
+  }
+}
+
+// Slot formula must stay in sync with matchService.advanceLoserToLosersBracket
+function markLoserSlotAsWalkover(
+  matches: BracketMatch[],
+  currentMatch: BracketMatch,
+): void {
+  if (currentMatch.losersNextMatchPosition === undefined) return;
+  const losersMatch = matches.find(
+    (m) => m.position === currentMatch.losersNextMatchPosition,
+  );
+  if (!losersMatch) return;
+
+  const slot: 'player1' | 'player2' =
+    currentMatch.round === 1
+      ? currentMatch.position % 2 === 1
+        ? 'player1'
+        : 'player2'
+      : 'player2';
+
+  if (slot === 'player1') {
+    losersMatch.player1IsWalkover = true;
+  } else {
+    losersMatch.player2IsWalkover = true;
+  }
 }
 
 /**

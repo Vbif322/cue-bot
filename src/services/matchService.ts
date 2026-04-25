@@ -21,6 +21,7 @@ export async function createMatches(
   const createdMatches: { position: number; id: UUID }[] = [];
 
   for (const match of bracket) {
+    const isWalkover = match.isCompletedWalkover === true;
     const [created] = await db
       .insert(matches)
       .values({
@@ -29,10 +30,16 @@ export async function createMatches(
         position: match.position,
         player1Id: match.player1Id,
         player2Id: match.player2Id,
+        player1IsWalkover: match.player1IsWalkover ?? false,
+        player2IsWalkover: match.player2IsWalkover ?? false,
         bracketType: match.bracketType,
         nextMatchPosition: match.nextMatchPosition ?? null,
         losersNextMatchPosition: match.losersNextMatchPosition ?? null,
-        status: determineInitialStatus(match),
+        status: isWalkover ? 'completed' : 'scheduled',
+        winnerId: isWalkover ? match.walkoverWinnerId ?? null : null,
+        isTechnicalResult: isWalkover,
+        technicalReason: isWalkover ? 'walkover' : null,
+        completedAt: isWalkover ? new Date() : null,
       })
       .returning({ id: matches.id, position: matches.position });
 
@@ -560,12 +567,19 @@ export async function advanceWinner(
       .where(eq(matches.id, nextMatch.id));
   }
 
+  await maybeAutoResolveWalkover(
+    nextMatch.id,
+    slot === 'player1' ? 'player1' : 'player2',
+    match.winnerId,
+    botApi,
+  );
+
   if (
     tournament.format === 'double_elimination' &&
     match.bracketType === 'winners' &&
     loserId
   ) {
-    await advanceLoserToLosersBracket(match, loserId);
+    await advanceLoserToLosersBracket(match, loserId, botApi);
   }
 
   // Free the table and assign to next ready match
@@ -577,6 +591,7 @@ export async function advanceWinner(
 async function advanceLoserToLosersBracket(
   match: Match,
   loserId: UUID,
+  botApi?: Api,
 ): Promise<void> {
   if (match.round > 2 || match.bracketType !== 'winners') return;
 
@@ -609,6 +624,51 @@ async function advanceLoserToLosersBracket(
     .update(matches)
     .set({ [targetSlot]: loserId, updatedAt: new Date() })
     .where(eq(matches.id, losersMatch.id));
+
+  const filledSlot: 'player1' | 'player2' =
+    targetSlot === 'player1Id' ? 'player1' : 'player2';
+  await maybeAutoResolveWalkover(losersMatch.id, filledSlot, loserId, botApi);
+}
+
+/**
+ * After a real player is placed into a slot, check if the OTHER slot is
+ * walkover-bound (null with playerNIsWalkover=true). If so, auto-complete
+ * the match with the just-placed player as winner and recursively propagate.
+ */
+async function maybeAutoResolveWalkover(
+  matchId: UUID,
+  filledSlot: 'player1' | 'player2',
+  filledPlayerId: UUID,
+  botApi?: Api,
+): Promise<void> {
+  const target = await db.query.matches.findFirst({
+    where: eq(matches.id, matchId),
+  });
+  if (!target) return;
+  if (target.status === 'completed') return;
+
+  const otherIsWalkover =
+    filledSlot === 'player1'
+      ? target.player2IsWalkover
+      : target.player1IsWalkover;
+  const otherPlayerId =
+    filledSlot === 'player1' ? target.player2Id : target.player1Id;
+
+  if (!otherIsWalkover || otherPlayerId !== null) return;
+
+  await db
+    .update(matches)
+    .set({
+      winnerId: filledPlayerId,
+      status: 'completed',
+      isTechnicalResult: true,
+      technicalReason: 'walkover',
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(matches.id, target.id));
+
+  await advanceWinner(target.id, botApi);
 }
 
 /**
