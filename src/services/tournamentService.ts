@@ -84,7 +84,30 @@ export async function canStartTournament(
     };
   }
 
+  const seedError = validateSeeds(participants, count);
+  if (seedError) {
+    return { canStart: false, error: seedError, participantsCount: count };
+  }
+
   return { canStart: true, participantsCount: count };
+}
+
+function validateSeeds(
+  participants: TournamentParticipant[],
+  count: number,
+): string | null {
+  const seen = new Set<number>();
+  for (const p of participants) {
+    if (p.seed == null) continue;
+    if (p.seed < 1 || p.seed > count) {
+      return `Сид ${p.seed} выходит за диапазон 1..${count}`;
+    }
+    if (seen.has(p.seed)) {
+      return `Сид ${p.seed} задан нескольким участникам`;
+    }
+    seen.add(p.seed);
+  }
+  return null;
 }
 
 /**
@@ -247,27 +270,131 @@ export async function getTournament(
 }
 
 /**
- * Assign random seeds to participants
+ * Get confirmed participants ordered by seed (NULLS LAST), then by createdAt.
+ * Used by tournament start to feed bracket generators a seed-ordered array.
  */
-export async function assignRandomSeeds(tournamentId: UUID): Promise<void> {
+export async function getConfirmedParticipantsBySeed(
+  tournamentId: UUID,
+): Promise<TournamentParticipant[]> {
+  const rows = await db
+    .select({
+      userId: tournamentParticipants.userId,
+      username: users.username,
+      name: users.name,
+      seed: tournamentParticipants.seed,
+    })
+    .from(tournamentParticipants)
+    .innerJoin(users, eq(tournamentParticipants.userId, users.id))
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.status, 'confirmed'),
+      ),
+    )
+    .orderBy(
+      sql`${tournamentParticipants.seed} ASC NULLS LAST`,
+      asc(tournamentParticipants.createdAt),
+    );
+
+  return rows;
+}
+
+/**
+ * Fill in missing seeds: keep valid manual seeds (1..N, no duplicates), assign
+ * remaining free numbers randomly to participants without a seed.
+ *
+ * Contract: caller must validate via canStartTournament beforehand. After this
+ * call every confirmed participant has a unique seed in 1..N.
+ */
+export async function fillMissingSeeds(tournamentId: UUID): Promise<void> {
   const participants = await getConfirmedParticipants(tournamentId);
-  const shuffled = shuffleArray(participants);
+  const N = participants.length;
+  if (N === 0) return;
 
-  for (let i = 0; i < shuffled.length; i++) {
-    const participant = shuffled[i];
-
-    if (!participant) continue;
-
-    await db
-      .update(tournamentParticipants)
-      .set({ seed: i + 1 })
-      .where(
-        and(
-          eq(tournamentParticipants.tournamentId, tournamentId),
-          eq(tournamentParticipants.userId, participant.userId),
-        ),
-      );
+  const usedSeeds = new Set<number>();
+  for (const p of participants) {
+    if (p.seed != null) usedSeeds.add(p.seed);
   }
+
+  const freeSeeds: number[] = [];
+  for (let s = 1; s <= N; s++) {
+    if (!usedSeeds.has(s)) freeSeeds.push(s);
+  }
+  const shuffledFree = shuffleArray(freeSeeds);
+
+  const unseeded = participants.filter((p) => p.seed == null);
+
+  await db.transaction(async (tx) => {
+    for (const participant of unseeded) {
+      const seed = shuffledFree.pop();
+      if (seed == null) break;
+      await tx
+        .update(tournamentParticipants)
+        .set({ seed })
+        .where(
+          and(
+            eq(tournamentParticipants.tournamentId, tournamentId),
+            eq(tournamentParticipants.userId, participant.userId),
+          ),
+        );
+    }
+  });
+}
+
+/**
+ * Set seed for a single confirmed participant. Duplicates are allowed at this
+ * layer — they are surfaced to the admin UI as red highlights and blocked at
+ * tournament start via canStartTournament.
+ */
+export async function setParticipantSeed(
+  tournamentId: UUID,
+  userId: UUID,
+  seed: number | null,
+): Promise<void> {
+  if (seed != null && (!Number.isInteger(seed) || seed < 1)) {
+    throw new Error('Сид должен быть целым числом ≥ 1');
+  }
+
+  const [existing] = await db
+    .select({ status: tournamentParticipants.status })
+    .from(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    );
+
+  if (!existing) throw new Error('Участник не найден');
+  if (existing.status !== 'confirmed') {
+    throw new Error('Сиды доступны только подтверждённым участникам');
+  }
+
+  await db
+    .update(tournamentParticipants)
+    .set({ seed })
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    );
+}
+
+/**
+ * Reset all confirmed participants' seeds and reassign randomly.
+ */
+export async function randomizeSeeds(tournamentId: UUID): Promise<void> {
+  await db
+    .update(tournamentParticipants)
+    .set({ seed: null })
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.status, 'confirmed'),
+      ),
+    );
+  await fillMissingSeeds(tournamentId);
 }
 
 /**
@@ -399,7 +526,7 @@ export async function rejectParticipant(
 ): Promise<boolean> {
   const result = await db
     .update(tournamentParticipants)
-    .set({ status: "cancelled" })
+    .set({ status: "cancelled", seed: null })
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId as UUID),

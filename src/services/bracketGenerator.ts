@@ -83,12 +83,6 @@ export function generateSingleEliminationBracket(
   const bracketSize = getNextPowerOfTwo(participants.length);
   const totalRounds = calculateRounds(bracketSize);
 
-  // Assign seeds to shuffled participants (random seeding)
-  // const seededParticipants = shuffled.map((p, index) => ({
-  //   ...p,
-  //   seed: index + 1,
-  // }));
-
   // Create null entries for BYEs
   const allSlots: (TournamentParticipant | null)[] = [];
   const seedPositions = generateSeedPositions(bracketSize);
@@ -230,10 +224,10 @@ export function generateDoubleEliminationBracket(
     );
   }
 
-  const shuffled = shuffleArray(participants);
   const seedPositions = generateSeedPositions(16);
   const allSlots: (TournamentParticipant | null)[] = seedPositions.map(
-    (seed) => (seed <= participants.length ? shuffled[seed - 1] ?? null : null),
+    (seed) =>
+      seed <= participants.length ? participants[seed - 1] ?? null : null,
   );
 
   const allMatches: BracketMatch[] = [];
