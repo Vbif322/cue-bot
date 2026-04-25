@@ -10,6 +10,10 @@ import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
 import { completeTournament, getTournament } from './tournamentService.js';
 import { notifyMatchStart } from './notificationService.js';
 import type { BracketMatch } from './bracketGenerator.js';
+import {
+  getRandomTargetPool,
+  placeIntoRandomFreeSlot,
+} from './randomBracketAdvancement.js';
 
 /**
  * Create matches in database from generated bracket
@@ -536,6 +540,11 @@ export async function advanceWinner(
   const loserId =
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
+  if (tournament.format === 'double_elimination_random') {
+    await advanceWinnerRandom(match, loserId, botApi);
+    return;
+  }
+
   if (!match.nextMatchId) {
     await completeTournament(match.tournamentId);
     // Free the table even at tournament end (no-op since no next match)
@@ -583,6 +592,62 @@ export async function advanceWinner(
   }
 
   // Free the table and assign to next ready match
+  if (match.tableId && botApi) {
+    await onTableFreed(match.tournamentId, match.tableId, botApi);
+  }
+}
+
+/**
+ * Random-mode advancement: place winner (and, for winners-bracket matches,
+ * the loser too) into a random free slot of the corresponding next-round pool.
+ * Used only for tournaments with format === 'double_elimination_random'.
+ */
+async function advanceWinnerRandom(
+  match: Match,
+  loserId: UUID | null,
+  botApi?: Api,
+): Promise<void> {
+  if (!match.winnerId) return;
+
+  const winnerPool = getRandomTargetPool(match, true);
+
+  if (winnerPool === null) {
+    await completeTournament(match.tournamentId);
+    if (match.tableId && botApi) {
+      await onTableFreed(match.tournamentId, match.tableId, botApi);
+    }
+    return;
+  }
+
+  const placedWinner = await placeIntoRandomFreeSlot(
+    match.tournamentId,
+    winnerPool,
+    match.winnerId,
+  );
+  await maybeAutoResolveWalkover(
+    placedWinner.matchId,
+    placedWinner.slot,
+    match.winnerId,
+    botApi,
+  );
+
+  if (match.bracketType === 'winners' && loserId) {
+    const loserPool = getRandomTargetPool(match, false);
+    if (loserPool) {
+      const placedLoser = await placeIntoRandomFreeSlot(
+        match.tournamentId,
+        loserPool,
+        loserId,
+      );
+      await maybeAutoResolveWalkover(
+        placedLoser.matchId,
+        placedLoser.slot,
+        loserId,
+        botApi,
+      );
+    }
+  }
+
   if (match.tableId && botApi) {
     await onTableFreed(match.tournamentId, match.tableId, botApi);
   }
@@ -690,7 +755,10 @@ export async function checkTournamentCompletion(
     return finalMatch?.status === 'completed';
   }
 
-  if (tournament.format === 'double_elimination') {
+  if (
+    tournament.format === 'double_elimination' ||
+    tournament.format === 'double_elimination_random'
+  ) {
     const grandFinal = allMatches.find((m) => m.bracketType === 'grand_final');
     return grandFinal?.status === 'completed';
   }

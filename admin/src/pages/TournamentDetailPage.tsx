@@ -7,11 +7,12 @@ import {
   TournamentStatusBadge,
   MatchStatusBadge,
 } from '../components/StatusBadge.tsx';
-import type { TournamentStatus } from '../lib/api.ts';
+import type { TournamentStatus, ITournamentFormat } from '../lib/api.ts';
 
-const FORMAT_LABELS = {
+const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elimination',
   double_elimination: 'Double Elimination',
+  double_elimination_random: 'Double Elimination (random)',
   round_robin: 'Round Robin',
 };
 

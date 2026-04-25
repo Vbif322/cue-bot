@@ -7,6 +7,7 @@ import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import {
+  formats,
   maxParticipants,
   tournamentParticipants,
   users,
@@ -65,11 +66,7 @@ export function createTournamentsRouter(botApi: Api) {
         name: z.string().min(1),
         description: z.string().optional(),
         rules: z.string().optional(),
-        format: z.enum([
-          'single_elimination',
-          'double_elimination',
-          'round_robin',
-        ]),
+        format: z.enum(formats),
         maxParticipants: z
           .number()
           .int()

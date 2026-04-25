@@ -130,7 +130,10 @@ export async function startTournament(tournamentId: UUID): Promise<void> {
   }
 
   // Validate double elimination requires exactly 16 participants
-  if (tournament.format === 'double_elimination') {
+  if (
+    tournament.format === 'double_elimination' ||
+    tournament.format === 'double_elimination_random'
+  ) {
     const participants = await getConfirmedParticipants(tournamentId);
     if (participants.length < 8) {
       throw new Error(

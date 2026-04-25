@@ -222,6 +222,7 @@ function advanceToNextMatch(
  */
 export function generateDoubleEliminationBracket(
   participants: TournamentParticipant[],
+  options?: { randomAdvancement?: boolean },
 ): BracketMatch[] {
   if (participants.length < 8 || participants.length > 16) {
     throw new Error(
@@ -408,6 +409,17 @@ export function generateDoubleEliminationBracket(
     // WAITING+WALKOVER_BOUND) are left for runtime.
   }
 
+  // For random advancement mode, the deterministic pointers were only needed
+  // by the gen-time walkover pass above. Clear them so runtime advancement
+  // goes through randomBracketAdvancement.placeIntoRandomFreeSlot instead.
+  if (options?.randomAdvancement) {
+    for (const m of allMatches) {
+      delete m.nextMatchId;
+      delete m.nextMatchPosition;
+      delete m.losersNextMatchPosition;
+    }
+  }
+
   return allMatches;
 }
 
@@ -466,6 +478,10 @@ export function generateBracket(
       return generateSingleEliminationBracket(participants);
     case 'double_elimination':
       return generateDoubleEliminationBracket(participants);
+    case 'double_elimination_random':
+      return generateDoubleEliminationBracket(participants, {
+        randomAdvancement: true,
+      });
     case 'round_robin':
       return generateRoundRobinMatches(participants);
     default:
@@ -529,7 +545,11 @@ export function generateRoundRobinMatches(
  * Get bracket statistics
  */
 export function getBracketStats(
-  format: 'single_elimination' | 'double_elimination' | 'round_robin',
+  format:
+    | 'single_elimination'
+    | 'double_elimination'
+    | 'double_elimination_random'
+    | 'round_robin',
   participantsCount: number,
 ): { totalMatches: number; totalRounds: number } {
   const bracketSize = getNextPowerOfTwo(participantsCount);
@@ -541,6 +561,7 @@ export function getBracketStats(
         totalRounds: calculateRounds(bracketSize),
       };
     case 'double_elimination':
+    case 'double_elimination_random':
       return {
         totalMatches: 27,
         totalRounds: 5,
@@ -569,7 +590,10 @@ export function getRoundName(
     return `Тур ${round}`;
   }
 
-  if (format === 'double_elimination') {
+  if (
+    format === 'double_elimination' ||
+    format === 'double_elimination_random'
+  ) {
     if (bracketType === 'losers') {
       if (round === 1) return 'Нижняя сетка, раунд 1';
       if (round === 2) return 'Нижняя сетка, раунд 2';
