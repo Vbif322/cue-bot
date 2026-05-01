@@ -83,9 +83,64 @@ matchCommands.command('my_match', async (ctx) => {
   if (activeMatches.length > 1) {
     await ctx.reply(
       `У вас ещё ${activeMatches.length - 1} активных матчей.\n` +
-        `Используйте /my\\_matches для просмотра всех.`,
+        `Используйте /my_matches для просмотра всех.`,
     );
   }
+});
+
+// /my_matches - все активные матчи игрока
+matchCommands.command('my_matches', async (ctx) => {
+  const userId = ctx.dbUser.id as UUID;
+  const activeMatches = await getPlayerActiveMatches(userId);
+
+  if (activeMatches.length === 0) {
+    await ctx.reply('У вас нет активных матчей.');
+    return;
+  }
+
+  const byTournamentId = new Map<UUID, typeof activeMatches>();
+  for (const m of activeMatches) {
+    const tid = m.tournamentId as UUID;
+    const list = byTournamentId.get(tid) ?? [];
+    list.push(m);
+    byTournamentId.set(tid, list);
+  }
+
+  const tournamentList = await db.query.tournaments.findMany({
+    where: inArray(tournaments.id, Array.from(byTournamentId.keys())),
+  });
+  const tournamentMap = new Map(tournamentList.map((t) => [t.id, t]));
+
+  let text = `🎱 *Ваши активные матчи (${activeMatches.length})*\n\n`;
+  const keyboard = new InlineKeyboard();
+
+  for (const [tournamentId, matchList] of byTournamentId) {
+    const tournament = tournamentMap.get(tournamentId);
+    if (!tournament) continue;
+
+    text += `*${tournament.name}*\n`;
+    for (const m of matchList) {
+      const p1 = formatPlayerName(
+        m.player1Username ?? null,
+        m.player1Name ?? null,
+      );
+      const p2 = formatPlayerName(
+        m.player2Username ?? null,
+        m.player2Name ?? null,
+      );
+      const emoji = getMatchStatusEmoji(m.status);
+      text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
+
+      const opponent = m.player1Id === userId ? p2 : p1;
+      keyboard.text(`${opponent}`, `match:view:${m.id}`).row();
+    }
+    text += '\n';
+  }
+
+  await ctx.reply(text.trimEnd(), {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
 });
 
 // /bracket [id] - показать сетку турнира
@@ -672,7 +727,7 @@ function formatMatchSection(
         score = ` (${match.player1Score}:${match.player2Score})`;
       }
 
-      text += `${emoji} ${player1Name} vs ${player2Name}${score}\n`;
+      text += `#${match.position} ${emoji} ${player1Name} vs ${player2Name}${score}\n`;
       keyboard.text(`#${match.position}`, `match:view:${match.id}`);
     }
     keyboard.row();
@@ -740,7 +795,8 @@ async function showBracket(
 
   const bracketSize = getNextPowerOfTwo(playerIds.size);
   const totalRounds =
-    tournament.format === 'double_elimination'
+    tournament.format === 'double_elimination' ||
+    tournament.format === 'double_elimination_random'
       ? 5
       : calculateRounds(bracketSize);
 
@@ -764,7 +820,10 @@ async function showBracket(
 
   const keyboard = new InlineKeyboard();
 
-  if (tournament.format === 'double_elimination') {
+  if (
+    tournament.format === 'double_elimination' ||
+    tournament.format === 'double_elimination_random'
+  ) {
     // Split matches by bracket type
     const winnersMatches = allMatches.filter(
       (m) => m.bracketType === 'winners',
