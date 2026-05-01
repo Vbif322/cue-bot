@@ -10,6 +10,7 @@ const userCommands: BotCommand[] = [
   { command: 'tournament', description: 'Информация о турнире' },
   { command: 'my_tournaments', description: 'Мои турниры' },
   { command: 'my_match', description: 'Мой текущий матч' },
+  { command: 'my_matches', description: 'Все мои активные матчи' },
   { command: 'bracket', description: 'Сетка турнира' },
 ];
 

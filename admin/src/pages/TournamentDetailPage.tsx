@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tournamentsApi, matchesApi, usersApi } from '../lib/api.ts';
 import type { ApiTable } from '../lib/api.ts';
@@ -31,9 +31,13 @@ const STATUS_ACTION_LABELS: Partial<Record<TournamentStatus, string>> = {
 export default function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<
-    'info' | 'participants' | 'matches'
-  >('info');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get('tab') ?? 'info') as
+    | 'info'
+    | 'participants'
+    | 'matches';
+  const setActiveTab = (tab: string) =>
+    setSearchParams({ tab }, { replace: true });
   const [actionError, setActionError] = useState('');
 
   const [showModal, setShowModal] = useState(false);

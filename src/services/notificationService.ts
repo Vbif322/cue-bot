@@ -56,14 +56,21 @@ export async function sendNotification(
     where: eq(users.id, notification.userId),
   });
 
-  if (!user || !user.telegram_id) return false;
+  if (!user || !user.telegram_id) {
+    return false;
+  }
+
+  const isDevMockUser =
+    process.env.NODE_ENV === 'development' && user.username.includes('mock');
 
   try {
-    await api.sendMessage(
-      user.telegram_id,
-      `*${notification.title}*\n\n${notification.message}`,
-      { parse_mode: 'Markdown' },
-    );
+    if (!isDevMockUser) {
+      await api.sendMessage(
+        user.telegram_id,
+        `*${notification.title}*\n\n${notification.message}`,
+        { parse_mode: 'Markdown' },
+      );
+    }
 
     await db
       .update(notifications)
@@ -393,8 +400,8 @@ export async function notifyRegistrationConfirmed(
 ): Promise<void> {
   await createAndSendNotification(api, {
     userId: userId as UUID,
-    type: "registration_confirmed",
-    title: "Регистрация подтверждена",
+    type: 'registration_confirmed',
+    title: 'Регистрация подтверждена',
     message:
       `Ваша заявка на турнир "${tournamentName}" подтверждена администратором.\n\n` +
       `Используйте /my\\_tournaments для просмотра ваших турниров.`,
@@ -413,8 +420,8 @@ export async function notifyRegistrationRejected(
 ): Promise<void> {
   await createAndSendNotification(api, {
     userId: userId as UUID,
-    type: "registration_rejected",
-    title: "Заявка отклонена",
+    type: 'registration_rejected',
+    title: 'Заявка отклонена',
     message: `Ваша заявка на турнир "${tournamentName}" была отклонена администратором.`,
     tournamentId: tournamentId as UUID,
   });
