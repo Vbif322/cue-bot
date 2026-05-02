@@ -6,7 +6,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-SERVICE_NAME="cue-bot.service"
+SERVICE_NAME="cuebot.service"
 BACKUP_DIR="$HOME/backups"
 BRANCH="master"
 
@@ -31,6 +31,7 @@ pg_dump "$DB_URL" > "$BACKUP_FILE"
 echo "    Backup: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
 
 echo "==> [4/6] Running migrations"
+npm run db:generate
 npm run db:migrate
 
 echo "==> [5/6] Building"
