@@ -119,7 +119,7 @@ export function getMatchKeyboard(
   match: MatchWithPlayers,
   userId: string,
   tournament: typeof tournaments.$inferSelect,
-  isAdminUser: boolean,
+  canManage: boolean,
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const isPlayer1 = match.player1Id === userId;
@@ -158,7 +158,7 @@ export function getMatchKeyboard(
 
   // Admin/referee can set technical result
   if (
-    isAdminUser &&
+    canManage &&
     match.status !== 'completed' &&
     match.status !== 'cancelled'
   ) {

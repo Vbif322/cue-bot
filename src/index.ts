@@ -1,5 +1,8 @@
 import { bot } from './bot/instance.js';
-import { authMiddleware, wizardGuardMiddleware } from './bot/middleware/index.js';
+import {
+  authMiddleware,
+  wizardGuardMiddleware,
+} from './bot/middleware/index.js';
 import {
   roleCommands,
   tournamentCommands,
@@ -31,9 +34,6 @@ bot.command('start', async (ctx) => {
 
   await ctx.reply(
     `Привет, ${ctx.dbUser.name ?? ctx.dbUser.username}!` +
-      (process.env.NODE_ENV === 'development'
-        ? `\nВаша роль: ${ctx.dbUser.role}`
-        : '') +
       '\n\n' +
       'Нажмите / чтобы увидеть доступные команды',
   );

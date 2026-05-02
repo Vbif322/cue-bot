@@ -1,5 +1,5 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, and } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -34,7 +34,10 @@ import {
   formatPlayerName,
   getMatchStatusEmoji,
 } from '../ui/matchUI.js';
-import { isAdmin } from '../permissions.js';
+import {
+  canManageTournament,
+  getUserRefereeTournaments,
+} from '../permissions.js';
 import type { BotContext } from '../types.js';
 
 export const matchCommands = new Composer<BotContext>();
@@ -72,7 +75,8 @@ matchCommands.command('my_match', async (ctx) => {
   }
 
   const text = formatMatchCard(match, tournament);
-  const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
+  const canManage = await canManageTournament(ctx, match.tournamentId);
+  const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
 
   await ctx.reply(text, {
     parse_mode: 'Markdown',
@@ -135,6 +139,70 @@ matchCommands.command('my_matches', async (ctx) => {
       keyboard.text(`${opponent}`, `match:view:${m.id}`).row();
     }
     text += '\n';
+  }
+
+  await ctx.reply(text.trimEnd(), {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+});
+
+// /referee_matches - активные матчи турниров, где пользователь судья
+matchCommands.command('referee_matches', async (ctx) => {
+  const userId = ctx.dbUser.id as UUID;
+
+  const refereeTournamentIds = await getUserRefereeTournaments(userId);
+
+  if (refereeTournamentIds.length === 0) {
+    await ctx.reply('Вы не назначены судьёй ни одного турнира.');
+    return;
+  }
+
+  const activeTournaments = await db.query.tournaments.findMany({
+    where: and(
+      inArray(tournaments.id, refereeTournamentIds),
+      eq(tournaments.status, 'in_progress'),
+    ),
+  });
+
+  if (activeTournaments.length === 0) {
+    await ctx.reply('Нет активных турниров, где вы судья.');
+    return;
+  }
+
+  let text = '⚖️ *Матчи турниров, где вы судья*\n\n';
+  const keyboard = new InlineKeyboard();
+  let totalMatches = 0;
+
+  for (const tournament of activeTournaments) {
+    const allMatches = await getTournamentMatches(tournament.id as UUID);
+    const activeMatches = allMatches.filter((m) =>
+      ['scheduled', 'in_progress', 'pending_confirmation'].includes(m.status),
+    );
+
+    if (activeMatches.length === 0) continue;
+
+    text += `*${tournament.name}* (${activeMatches.length})\n`;
+    for (const m of activeMatches) {
+      const p1 = formatPlayerName(
+        m.player1Username ?? null,
+        m.player1Name ?? null,
+      );
+      const p2 = formatPlayerName(
+        m.player2Username ?? null,
+        m.player2Name ?? null,
+      );
+      const emoji = getMatchStatusEmoji(m.status);
+      text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
+      keyboard.text(`${p1} vs ${p2}`, `match:view:${m.id}`).row();
+      totalMatches++;
+    }
+    text += '\n';
+  }
+
+  if (totalMatches === 0) {
+    await ctx.reply('Нет активных матчей в ваших турнирах.');
+    return;
   }
 
   await ctx.reply(text.trimEnd(), {
@@ -211,7 +279,8 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
 
   const text = formatMatchCard(match, tournament);
-  const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
+  const canManage = await canManageTournament(ctx, match.tournamentId);
+  const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
 
   await safeEditMessageText(ctx, {
     text,
@@ -260,11 +329,12 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
   if (updatedMatch && tournament) {
     await notifyMatchStart(ctx.api, updatedMatch, tournament.name, userId);
     const text = formatMatchCard(updatedMatch, tournament);
+    const canManage = await canManageTournament(ctx, updatedMatch.tournamentId);
     const keyboard = getMatchKeyboard(
       updatedMatch,
       userId,
       tournament,
-      isAdmin(ctx),
+      canManage,
     );
 
     await safeEditMessageText(ctx, {
@@ -409,11 +479,12 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
 
     // Show updated match UI
     const text = formatMatchCard(updatedMatch, tournament);
+    const canManage = await canManageTournament(ctx, updatedMatch.tournamentId);
     const keyboard = getMatchKeyboard(
       updatedMatch,
       userId,
       tournament,
-      isAdmin(ctx),
+      canManage,
     );
 
     await safeEditMessageText(ctx, {
@@ -459,7 +530,8 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
     }
 
     const text = formatMatchCard(match, tournament);
-    const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
+    const canManage = await canManageTournament(ctx, match.tournamentId);
+    const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
 
     await safeEditMessageText(ctx, {
       text,
@@ -508,7 +580,8 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
     const text =
       formatMatchCard(match, tournament) +
       '\n\n⚠️ Результат оспорен. Ожидайте решения судьи.';
-    const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
+    const canManage = await canManageTournament(ctx, match.tournamentId);
+    const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
 
     await safeEditMessageText(ctx, {
       text,
@@ -540,20 +613,20 @@ matchCommands.callbackQuery(/^match:waiting:(.+)$/, async (ctx) => {
 
 // Технический результат - меню
 matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) {
-    await ctx.answerCallbackQuery({
-      text: 'Недостаточно прав',
-      show_alert: true,
-    });
-    return;
-  }
-
   const matchId = ctx.match![1]! as UUID;
 
   const match = await getMatch(matchId);
 
   if (!match) {
     await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
+    return;
+  }
+
+  if (!(await canManageTournament(ctx, match.tournamentId))) {
+    await ctx.answerCallbackQuery({
+      text: 'Недостаточно прав',
+      show_alert: true,
+    });
     return;
   }
 
@@ -597,14 +670,6 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
 
 // Установить технический результат
 matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) {
-    await ctx.answerCallbackQuery({
-      text: 'Недостаточно прав',
-      show_alert: true,
-    });
-    return;
-  }
-
   const matchId = ctx.match![1]! as UUID;
   const playerIndex = ctx.match![2]! as '1' | '2'; // "1" или "2"
   const reason = ctx.match![3]!;
@@ -615,6 +680,14 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
   if (!matchData) {
     await ctx.answerCallbackQuery({
       text: 'Матч не найден',
+      show_alert: true,
+    });
+    return;
+  }
+
+  if (!(await canManageTournament(ctx, matchData.tournamentId))) {
+    await ctx.answerCallbackQuery({
+      text: 'Недостаточно прав',
       show_alert: true,
     });
     return;
@@ -666,7 +739,8 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
 
   if (match && tournament) {
     const text = formatMatchCard(match, tournament);
-    const keyboard = getMatchKeyboard(match, userId, tournament, isAdmin(ctx));
+    const canManage = await canManageTournament(ctx, match.tournamentId);
+    const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
 
     await safeEditMessageText(ctx, {
       text,
