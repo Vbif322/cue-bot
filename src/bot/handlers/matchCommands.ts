@@ -466,11 +466,9 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
         where: eq(tournaments.id, updatedMatch.tournamentId),
       })
     : null;
-  console.log(tournament, '1');
   if (updatedMatch && tournament) {
     // Send notification to opponent
     try {
-      console.log(updatedMatch, '2');
       await notifyResultPending(ctx.api, updatedMatch, userId);
     } catch (error) {
       console.error('Failed to send result pending notification:', error);
