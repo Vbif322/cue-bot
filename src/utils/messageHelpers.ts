@@ -2,6 +2,18 @@ import { GrammyError } from 'grammy';
 import type { Context } from 'grammy';
 
 /**
+ * Escape characters that have special meaning in Telegram **legacy Markdown**
+ * (parse_mode: 'Markdown'): `_`, `*`, `` ` ``, `[`. These are the only four
+ * tokens the legacy parser treats as syntax — no need to escape `]`, `(`, `)`,
+ * `~`, etc. Pass user-supplied substrings through this before interpolating
+ * them into a Markdown message; do NOT escape an already-formatted Markdown
+ * string (double-escape risk).
+ */
+export function escapeMarkdown(text: string): string {
+  return text.replace(/([_*`\[])/g, '\\$1');
+}
+
+/**
  * Options for safe edit message text operation
  */
 export interface SafeEditOptions {
