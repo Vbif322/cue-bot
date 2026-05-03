@@ -6,6 +6,7 @@ import { db } from '@/db/db.js';
 import { notifications, users, tournaments, matches } from '@/db/schema.js';
 import type { INotification } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
+import { escapeMarkdown } from '@/utils/messageHelpers.js';
 
 type NotificationType = (typeof notifications.$inferInsert)['type'];
 
@@ -112,10 +113,10 @@ export async function notifyMatchAssigned(
   tournamentName: string,
 ): Promise<void> {
   const player1Name = match.player1Username
-    ? `@${match.player1Username}`
+    ? `@${escapeMarkdown(match.player1Username)}`
     : match.player1Name || 'Участник';
   const player2Name = match.player2Username
-    ? `@${match.player2Username}`
+    ? `@${escapeMarkdown(match.player2Username)}`
     : match.player2Name || 'Участник';
 
   // Notify player 1
@@ -159,10 +160,10 @@ export async function notifyMatchStart(
   startedBy: string,
 ): Promise<void> {
   const player1Name = match.player1Username
-    ? `@${match.player1Username}`
+    ? `@${escapeMarkdown(match.player1Username)}`
     : match.player1Name || 'Участник';
   const player2Name = match.player2Username
-    ? `@${match.player2Username}`
+    ? `@${escapeMarkdown(match.player2Username)}`
     : match.player2Name || 'Участник';
 
   for (const playerId of [match.player1Id, match.player2Id]) {
@@ -202,10 +203,10 @@ export async function notifyResultPending(
   const reporterName =
     match.player1Id === reportedByUserId
       ? match.player1Username
-        ? `@${match.player1Username}`
+        ? `@${escapeMarkdown(match.player1Username)}`
         : match.player1Name || 'Соперник'
       : match.player2Username
-        ? `@${match.player2Username}`
+        ? `@${escapeMarkdown(match.player2Username)}`
         : match.player2Name || 'Соперник';
   await createAndSendNotification(api, {
     userId: opponentId,
@@ -228,7 +229,7 @@ export async function notifyResultConfirmed(
   match: MatchWithPlayers,
 ): Promise<void> {
   const winnerName = match.winnerUsername
-    ? `@${match.winnerUsername}`
+    ? `@${escapeMarkdown(match.winnerUsername)}`
     : match.winnerName || 'Победитель';
 
   const message =
@@ -262,10 +263,10 @@ export async function notifyResultDisputed(
   const disputerName =
     match.player1Id === disputedByUserId
       ? match.player1Username
-        ? `@${match.player1Username}`
+        ? `@${escapeMarkdown(match.player1Username)}`
         : match.player1Name || 'Игрок'
       : match.player2Username
-        ? `@${match.player2Username}`
+        ? `@${escapeMarkdown(match.player2Username)}`
         : match.player2Name || 'Игрок';
 
   const message =
@@ -363,10 +364,10 @@ export async function sendMatchReminder(
   tournamentName: string,
 ): Promise<void> {
   const player1Name = match.player1Username
-    ? `@${match.player1Username}`
+    ? `@${escapeMarkdown(match.player1Username)}`
     : match.player1Name || 'Участник';
   const player2Name = match.player2Username
-    ? `@${match.player2Username}`
+    ? `@${escapeMarkdown(match.player2Username)}`
     : match.player2Name || 'Участник';
 
   for (const playerId of [match.player1Id, match.player2Id]) {

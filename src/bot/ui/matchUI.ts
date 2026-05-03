@@ -5,17 +5,20 @@ import {
   calculateRounds,
   getNextPowerOfTwo,
 } from '../../services/bracketGenerator.js';
+import { escapeMarkdown } from '../../utils/messageHelpers.js';
 import type { Tournament } from '../@types/tournament.js';
 import type { MatchWithPlayers } from '../@types/match.js';
 
 /**
- * Format player name for display
+ * Format player name for display in a Telegram **Markdown** message.
+ * Returned string is Markdown-safe — do NOT pass it through escapeMarkdown
+ * again (double-escape).
  */
 export function formatPlayerName(
   username: string | null,
   name: string | null,
 ): string {
-  if (username) return `@${username}`;
+  if (username) return `@${escapeMarkdown(username)}`;
   if (name) return name;
   return 'Участник';
 }
