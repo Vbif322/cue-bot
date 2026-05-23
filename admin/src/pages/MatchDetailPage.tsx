@@ -24,6 +24,11 @@ export default function MatchDetailPage() {
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['match', id] });
+    if (match?.tournamentId) {
+      qc.invalidateQueries({
+        queryKey: ['tournament-matches', match.tournamentId],
+      });
+    }
     setError('');
   };
 
