@@ -12,6 +12,8 @@ export default function MatchDetailPage() {
   const [techWinnerId, setTechWinnerId] = useState('');
   const [p1Score, setP1Score] = useState(0);
   const [p2Score, setP2Score] = useState(0);
+  const [p1Focused, setP1Focused] = useState(false);
+  const [p2Focused, setP2Focused] = useState(false);
 
   const { data: match, isLoading } = useQuery({
     queryKey: ['match', id],
@@ -171,8 +173,10 @@ export default function MatchDetailPage() {
                   <input
                     type="number"
                     min={0}
-                    value={p1Score}
-                    onChange={(e) => setP1Score(Number(e.target.value))}
+                    value={p1Focused && p1Score === 0 ? '' : p1Score}
+                    onFocus={() => setP1Focused(true)}
+                    onBlur={() => setP1Focused(false)}
+                    onChange={(e) => setP1Score(Number(e.target.value) || 0)}
                     className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
                   />
                 </div>
@@ -184,8 +188,10 @@ export default function MatchDetailPage() {
                   <input
                     type="number"
                     min={0}
-                    value={p2Score}
-                    onChange={(e) => setP2Score(Number(e.target.value))}
+                    value={p2Focused && p2Score === 0 ? '' : p2Score}
+                    onFocus={() => setP2Focused(true)}
+                    onBlur={() => setP2Focused(false)}
+                    onChange={(e) => setP2Score(Number(e.target.value) || 0)}
                     className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
                   />
                 </div>
