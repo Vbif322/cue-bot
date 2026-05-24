@@ -205,7 +205,7 @@ export async function notifyResultPending(
     match.player1Id === reportedByUserId ? match.player2Id : match.player1Id;
 
   if (!opponentId) return;
-
+  // TODO Писать в чью пользу счет
   const reporterName =
     match.player1Id === reportedByUserId
       ? match.player1Username

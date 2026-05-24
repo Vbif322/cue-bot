@@ -50,11 +50,7 @@ export default function MatchDetailPage() {
     const m = new Map<string, { round: number; position: number }>();
     if (!tournamentMatches) return m;
     for (const tm of tournamentMatches) {
-      if (
-        tm.tableId &&
-        tm.status === 'in_progress' &&
-        tm.id !== match?.id
-      ) {
+      if (tm.tableId && tm.status === 'in_progress' && tm.id !== match?.id) {
         m.set(tm.tableId, { round: tm.round, position: tm.position });
       }
     }
@@ -363,15 +359,12 @@ export default function MatchDetailPage() {
               const busy = selectedTableId
                 ? busyByTable.get(selectedTableId)
                 : undefined;
-              const unchanged =
-                selectedTableId === (match.tableId ?? null);
+              const unchanged = selectedTableId === (match.tableId ?? null);
               return (
                 <div className="space-y-2">
                   <select
                     value={selectedTableId ?? ''}
-                    onChange={(e) =>
-                      setSelectedTableId(e.target.value || null)
-                    }
+                    onChange={(e) => setSelectedTableId(e.target.value || null)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   >
                     <option value="">— Без стола —</option>
@@ -388,6 +381,7 @@ export default function MatchDetailPage() {
                       );
                     })}
                   </select>
+                  {/** TODO не показывать уведомление у завершенных матчей */}
                   {busy && (
                     <p className="text-xs text-orange-600">
                       Этот стол занят матчем R{busy.round} #{busy.position}.

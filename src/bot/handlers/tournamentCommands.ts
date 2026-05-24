@@ -26,7 +26,6 @@ import {
   buildTournamentKeyboard,
   buildTournamentListItem,
   buildTournamentListKeyboard,
-  buildTournamentSelectionKeyboard,
 } from '../ui/tournamentUI.js';
 import { getMatchStatusEmoji } from '../ui/matchUI.js';
 import { tournamentCreationFlow } from '../wizards/tournamentCreation/tournamentCreation.module.js';
@@ -113,38 +112,6 @@ tournamentCommands.command('tournaments', async (ctx) => {
   } else {
     await ctx.reply(message, { parse_mode: 'Markdown' });
   }
-});
-
-/**
- * /tournament [id] - Show tournament details
- */
-tournamentCommands.command('tournament', async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
-  const admin = isAdmin(ctx);
-
-  // If no ID provided, show selection menu
-  if (!args || args.length === 0 || args[0]?.trim() === '') {
-    const allTournaments = await db.query.tournaments.findMany({
-      orderBy: (t, { desc }) => [desc(t.createdAt)],
-      limit: 10,
-    });
-
-    const visibleTournaments = admin
-      ? allTournaments
-      : allTournaments.filter((t) => t.status !== 'draft');
-
-    if (visibleTournaments.length === 0) {
-      await ctx.reply('Турниров пока нет.');
-      return;
-    }
-
-    const keyboard = buildTournamentSelectionKeyboard(visibleTournaments);
-    await ctx.reply('Выберите турнир:', { reply_markup: keyboard });
-    return;
-  }
-
-  // Show tournament details
-  await showTournamentDetails(ctx, args[0]! as UUID);
 });
 
 /**

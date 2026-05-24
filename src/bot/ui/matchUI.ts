@@ -118,8 +118,7 @@ export function formatMatchCard(
 /**
  * Inline keyboard with the «✅ Подтвердить» / «❌ Оспорить» buttons used for
  * confirming a reported match result. Single source of truth for labels and
- * callback_data — reused by `/my_match` and by the result-pending Telegram
- * notification.
+ * callback_data — reused by the result-pending Telegram notification.
  */
 export function getResultConfirmKeyboard(matchId: string): InlineKeyboard {
   return new InlineKeyboard()
