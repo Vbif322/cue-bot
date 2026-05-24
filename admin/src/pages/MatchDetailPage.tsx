@@ -16,6 +16,7 @@ export default function MatchDetailPage() {
   const [p1Focused, setP1Focused] = useState(false);
   const [p2Focused, setP2Focused] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [reporterId, setReporterId] = useState<string | null>(null);
 
   const { data: match, isLoading } = useQuery({
     queryKey: ['match', id],
@@ -39,6 +40,10 @@ export default function MatchDetailPage() {
   useEffect(() => {
     setSelectedTableId(match?.tableId ?? null);
   }, [match?.tableId]);
+
+  useEffect(() => {
+    setReporterId(match?.player1Id ?? null);
+  }, [match?.player1Id, match?.id]);
 
   // Map of tables currently held by some OTHER in-progress match in this tournament.
   const busyByTable = useMemo(() => {
@@ -93,7 +98,7 @@ export default function MatchDetailPage() {
   const reportMutation = useMutation({
     mutationFn: () =>
       matchesApi.report(id!, {
-        reporterId: match!.player1Id!,
+        reporterId: reporterId!,
         player1Score: p1Score,
         player2Score: p2Score,
       }),
@@ -228,43 +233,60 @@ export default function MatchDetailPage() {
           match.player1Id &&
           match.player2Id && (
             <ActionCard title="Внести результат">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-1">
-                    {match.player1Name ?? match.player1Username}
-                  </p>
-                  <input
-                    type="number"
-                    min={0}
-                    value={p1Focused && p1Score === 0 ? '' : p1Score}
-                    onFocus={() => setP1Focused(true)}
-                    onBlur={() => setP1Focused(false)}
-                    onChange={(e) => setP1Score(Number(e.target.value) || 0)}
-                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
-                  />
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">От лица</p>
+                  <select
+                    value={reporterId ?? ''}
+                    onChange={(e) => setReporterId(e.target.value || null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  >
+                    <option value={match.player1Id}>
+                      {match.player1Name ?? match.player1Username}
+                    </option>
+                    <option value={match.player2Id}>
+                      {match.player2Name ?? match.player2Username}
+                    </option>
+                  </select>
                 </div>
-                <span className="text-gray-400 pb-1">:</span>
-                <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-1">
-                    {match.player2Name ?? match.player2Username}
-                  </p>
-                  <input
-                    type="number"
-                    min={0}
-                    value={p2Focused && p2Score === 0 ? '' : p2Score}
-                    onFocus={() => setP2Focused(true)}
-                    onBlur={() => setP2Focused(false)}
-                    onChange={(e) => setP2Score(Number(e.target.value) || 0)}
-                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
-                  />
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 mb-1">
+                      {match.player1Name ?? match.player1Username}
+                    </p>
+                    <input
+                      type="number"
+                      min={0}
+                      value={p1Focused && p1Score === 0 ? '' : p1Score}
+                      onFocus={() => setP1Focused(true)}
+                      onBlur={() => setP1Focused(false)}
+                      onChange={(e) => setP1Score(Number(e.target.value) || 0)}
+                      className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                    />
+                  </div>
+                  <span className="text-gray-400 pb-1">:</span>
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 mb-1">
+                      {match.player2Name ?? match.player2Username}
+                    </p>
+                    <input
+                      type="number"
+                      min={0}
+                      value={p2Focused && p2Score === 0 ? '' : p2Score}
+                      onFocus={() => setP2Focused(true)}
+                      onBlur={() => setP2Focused(false)}
+                      onChange={(e) => setP2Score(Number(e.target.value) || 0)}
+                      className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={() => reportMutation.mutate()}
+                    disabled={reportMutation.isPending || !reporterId}
+                    className="ml-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Подать
+                  </button>
                 </div>
-                <button
-                  onClick={() => reportMutation.mutate()}
-                  disabled={reportMutation.isPending}
-                  className="ml-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  Подать
-                </button>
               </div>
             </ActionCard>
           )}

@@ -116,6 +116,18 @@ export function formatMatchCard(
 }
 
 /**
+ * Inline keyboard with the «✅ Подтвердить» / «❌ Оспорить» buttons used for
+ * confirming a reported match result. Single source of truth for labels and
+ * callback_data — reused by `/my_match` and by the result-pending Telegram
+ * notification.
+ */
+export function getResultConfirmKeyboard(matchId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('✅ Подтвердить', `match:confirm:${matchId}`)
+    .text('❌ Оспорить', `match:dispute:${matchId}`);
+}
+
+/**
  * Get keyboard for match based on user role and match status
  */
 export function getMatchKeyboard(
@@ -147,7 +159,6 @@ export function getMatchKeyboard(
   // Pending confirmation - show confirm/dispute for opponent
   if (match.status === 'pending_confirmation' && isParticipant) {
     if (match.reportedBy !== userId) {
-      // This is the opponent who needs to confirm
       keyboard
         .text('✅ Подтвердить', `match:confirm:${match.id}`)
         .text('❌ Оспорить', `match:dispute:${match.id}`)
