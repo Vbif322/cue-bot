@@ -5,18 +5,15 @@ import type { BotContext } from './types.js';
 
 const userCommands: BotCommand[] = [
   { command: 'start', description: 'Начать работу с ботом' },
-  { command: 'cancel', description: 'Отменить текущее действие' },
   { command: 'tournaments', description: 'Список турниров' },
-  { command: 'tournament', description: 'Информация о турнире' },
   { command: 'my_tournaments', description: 'Мои турниры' },
-  { command: 'my_match', description: 'Мой текущий матч'},
   { command: 'my_matches', description: 'Все мои активные матчи' },
   { command: 'referee_matches', description: 'Матчи турниров, где я судья' },
-  { command: 'bracket', description: 'Сетка турнира' },
 ];
 
 const adminCommands: BotCommand[] = [
   ...userCommands,
+  { command: 'cancel', description: 'Отменить wizard' },
   { command: 'create_tournament', description: 'Создать турнир' },
   { command: 'delete_tournament', description: 'Удалить турнир' },
   { command: 'set_admin', description: 'Назначить администратора' },
