@@ -40,7 +40,7 @@ export async function createMatches(
         nextMatchPosition: match.nextMatchPosition ?? null,
         losersNextMatchPosition: match.losersNextMatchPosition ?? null,
         status: isWalkover ? 'completed' : 'scheduled',
-        winnerId: isWalkover ? match.walkoverWinnerId ?? null : null,
+        winnerId: isWalkover ? (match.walkoverWinnerId ?? null) : null,
         isTechnicalResult: isWalkover,
         technicalReason: isWalkover ? 'walkover' : null,
         completedAt: isWalkover ? new Date() : null,
@@ -393,15 +393,11 @@ export async function confirmResult(
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
-  if (!match) return { success: false, error: 'Матч не найден' };
+  if (!match) {
+    return { success: false, error: 'Матч не найден' };
+  }
   if (match.status !== 'pending_confirmation') {
     return { success: false, error: 'Матч не ожидает подтверждения' };
-  }
-  if (match.reportedBy === confirmerId) {
-    return {
-      success: false,
-      error: 'Вы не можете подтвердить свой собственный результат',
-    };
   }
   if (match.player1Id !== confirmerId && match.player2Id !== confirmerId) {
     return { success: false, error: 'Вы не являетесь участником этого матча' };
