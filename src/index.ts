@@ -11,6 +11,7 @@ import {
   matchCommands,
   helpCommands,
   profileCommands,
+  menuHandlers,
 } from './bot/handlers/index.js';
 import { sendOnboarding } from './bot/handlers/helpCommand.js';
 import {
@@ -20,6 +21,7 @@ import {
   setUserCommands,
 } from './bot/commands.js';
 import { getUserRefereeTournaments } from './bot/permissions.js';
+import { buildMainMenuKeyboard } from './bot/ui/mainMenu.js';
 import { createAdminServer } from './admin/server/index.js';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -30,6 +32,7 @@ import { loginTokens } from './db/schema.js';
 
 bot.use(authMiddleware);
 bot.use(wizardGuardMiddleware);
+bot.use(menuHandlers);
 bot.use(roleCommands);
 bot.use(tournamentCommands);
 bot.use(registrationCommands);
@@ -53,7 +56,10 @@ bot.command('start', async (ctx) => {
   }
 
   const name = ctx.dbUser.name ?? ctx.dbUser.username;
-  await sendOnboarding(ctx, `Привет, ${name}!`);
+  await ctx.reply(`Привет, ${name}!`, {
+    reply_markup: buildMainMenuKeyboard(),
+  });
+  await sendOnboarding(ctx);
 });
 
 bot.command('dashboard', async (ctx) => {
