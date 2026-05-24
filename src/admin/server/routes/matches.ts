@@ -13,6 +13,7 @@ import {
   confirmResult,
   disputeResult,
   setTechnicalResult,
+  setMatchTable,
 } from '@/services/matchService.js';
 
 import { requireAdmin } from '../middleware.js';
@@ -124,6 +125,21 @@ export function createMatchesRouter(botApi: Api) {
         reason,
         admin.id as UUID,
         botApi,
+      );
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ ok: true });
+    },
+  );
+
+  // Assign / change / remove table (admin override)
+  router.put(
+    '/:id/table',
+    zValidator('json', z.object({ tableId: z.uuid().nullable() })),
+    async (c) => {
+      const { tableId } = c.req.valid('json');
+      const result = await setMatchTable(
+        c.req.param('id') as UUID,
+        tableId as UUID | null,
       );
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
