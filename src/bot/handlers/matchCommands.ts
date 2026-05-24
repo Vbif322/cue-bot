@@ -44,8 +44,11 @@ export const matchCommands = new Composer<BotContext>();
 
 // === КОМАНДЫ ===
 
-// /my_matches - все активные матчи игрока
-matchCommands.command('my_matches', async (ctx) => {
+/**
+ * Send the user their active matches grouped by tournament. Shared between
+ * the /my_matches command and the reply-keyboard "🎱 Мои матчи" handler.
+ */
+export async function showMyMatches(ctx: BotContext): Promise<void> {
   const userId = ctx.dbUser.id as UUID;
   const activeMatches = await getPlayerActiveMatches(userId);
 
@@ -97,7 +100,10 @@ matchCommands.command('my_matches', async (ctx) => {
     parse_mode: 'Markdown',
     reply_markup: keyboard,
   });
-});
+}
+
+// /my_matches - все активные матчи игрока
+matchCommands.command('my_matches', (ctx) => showMyMatches(ctx));
 
 // /referee_matches - активные матчи турниров, где пользователь судья
 matchCommands.command('referee_matches', async (ctx) => {
