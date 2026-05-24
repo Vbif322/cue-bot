@@ -1,10 +1,16 @@
-import { and, eq, inArray, isNull, or, asc } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, asc } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { matches, tournaments, users, tables } from '@/db/schema.js';
+import {
+  matches,
+  tournaments,
+  users,
+  tables,
+  tournamentTables,
+} from '@/db/schema.js';
 import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
 
 import { completeTournament, getTournament } from './tournamentService.js';
@@ -315,6 +321,63 @@ export async function assignTableAndStart(
   }
 
   return true;
+}
+
+/**
+ * Admin override: set / change / clear a match's table. Bypasses the
+ * scheduled+empty gate used by assignTableAndStart and does not touch
+ * status, startedAt, or trigger notifications. If another in-progress
+ * match currently holds the requested table, it is freed in the same
+ * transaction so two matches can't end up sharing a tableId.
+ */
+export async function setMatchTable(
+  matchId: UUID,
+  tableId: UUID | null,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const [match] = await db
+    .select({ tournamentId: matches.tournamentId })
+    .from(matches)
+    .where(eq(matches.id, matchId));
+
+  if (!match) return { success: false, error: 'Матч не найден' };
+
+  if (tableId !== null) {
+    const [link] = await db
+      .select({ tableId: tournamentTables.tableId })
+      .from(tournamentTables)
+      .where(
+        and(
+          eq(tournamentTables.tournamentId, match.tournamentId),
+          eq(tournamentTables.tableId, tableId),
+        ),
+      );
+
+    if (!link) {
+      return { success: false, error: 'Стол не принадлежит турниру' };
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    if (tableId !== null) {
+      await tx
+        .update(matches)
+        .set({ tableId: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(matches.tableId, tableId),
+            eq(matches.status, 'in_progress'),
+            ne(matches.id, matchId),
+          ),
+        );
+    }
+
+    await tx
+      .update(matches)
+      .set({ tableId, updatedAt: new Date() })
+      .where(eq(matches.id, matchId));
+  });
+
+  return { success: true };
 }
 
 /**
