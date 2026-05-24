@@ -9,7 +9,9 @@ import {
   registrationCommands,
   adminParticipantCommands,
   matchCommands,
+  helpCommands,
 } from './bot/handlers/index.js';
+import { sendOnboarding } from './bot/handlers/helpCommand.js';
 import { setupCommands, setAdminCommands } from './bot/commands.js';
 import { createAdminServer } from './admin/server/index.js';
 import { serve } from '@hono/node-server';
@@ -26,17 +28,15 @@ bot.use(tournamentCommands);
 bot.use(registrationCommands);
 bot.use(matchCommands);
 bot.use(adminParticipantCommands);
+bot.use(helpCommands);
 
 bot.command('start', async (ctx) => {
   if (ctx.dbUser.role === 'admin') {
     await setAdminCommands(bot, ctx.from!.id);
   }
 
-  await ctx.reply(
-    `Привет, ${ctx.dbUser.name ?? ctx.dbUser.username}!` +
-      '\n\n' +
-      'Нажмите / чтобы увидеть доступные команды',
-  );
+  const name = ctx.dbUser.name ?? ctx.dbUser.username;
+  await sendOnboarding(ctx, `Привет, ${name}!`);
 });
 
 bot.command('dashboard', async (ctx) => {

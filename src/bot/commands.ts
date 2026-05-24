@@ -5,6 +5,7 @@ import type { BotContext } from './types.js';
 
 const userCommands: BotCommand[] = [
   { command: 'start', description: 'Начать работу с ботом' },
+  { command: 'help', description: 'Как пользоваться ботом' },
   { command: 'tournaments', description: 'Список турниров' },
   { command: 'my_tournaments', description: 'Мои турниры' },
   { command: 'my_matches', description: 'Все мои активные матчи' },

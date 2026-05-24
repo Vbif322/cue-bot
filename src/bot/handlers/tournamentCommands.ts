@@ -60,12 +60,12 @@ tournamentCommands.command('cancel', async (ctx) => {
 });
 
 /**
- * /tournaments - List all tournaments
+ * Send the current tournaments list to the user. Shared between the
+ * `/tournaments` command and onboarding entry points (/start, /help button).
  */
-tournamentCommands.command('tournaments', async (ctx) => {
+export async function showTournamentsList(ctx: BotContext): Promise<void> {
   const admin = isAdmin(ctx);
 
-  // Get all tournaments
   const allTournaments = await getTournaments({
     limit: 10,
     includesDrafts: true,
@@ -76,7 +76,6 @@ tournamentCommands.command('tournaments', async (ctx) => {
     return;
   }
 
-  // Filter tournaments for regular users (hide drafts)
   const visibleTournaments = admin
     ? allTournaments
     : allTournaments.filter((t) => t.status !== 'draft');
@@ -86,7 +85,6 @@ tournamentCommands.command('tournaments', async (ctx) => {
     return;
   }
 
-  // Get tournament info with participation status
   const tournamentsInfo = await Promise.all(
     visibleTournaments.map((t) => getTournamentInfo(t, ctx.dbUser.id)),
   );
@@ -95,13 +93,11 @@ tournamentCommands.command('tournaments', async (ctx) => {
     (tournament) => tournament.status !== 'completed',
   );
 
-  // Build message
   let message = 'Список турниров:\n\n';
   for (const info of currentTournaments) {
     message += buildTournamentListItem(info, admin);
   }
 
-  // Build keyboard
   const keyboard = buildTournamentListKeyboard(currentTournaments);
 
   if (keyboard.inline_keyboard.length > 0) {
@@ -112,7 +108,12 @@ tournamentCommands.command('tournaments', async (ctx) => {
   } else {
     await ctx.reply(message, { parse_mode: 'Markdown' });
   }
-});
+}
+
+/**
+ * /tournaments - List all tournaments
+ */
+tournamentCommands.command('tournaments', (ctx) => showTournamentsList(ctx));
 
 /**
  * /delete_tournament [id] - Delete a tournament
