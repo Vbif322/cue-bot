@@ -4,3 +4,4 @@ export { registrationCommands } from './registrationCommands.js';
 export { matchCommands } from './matchCommands.js';
 export { adminParticipantCommands } from './adminParticipantCommands.js';
 export { helpCommands } from './helpCommand.js';
+export { profileCommands } from './profileCommand.js';

@@ -10,9 +10,16 @@ import {
   adminParticipantCommands,
   matchCommands,
   helpCommands,
+  profileCommands,
 } from './bot/handlers/index.js';
 import { sendOnboarding } from './bot/handlers/helpCommand.js';
-import { setupCommands, setAdminCommands } from './bot/commands.js';
+import {
+  setupCommands,
+  setAdminCommands,
+  setRefereeCommands,
+  setUserCommands,
+} from './bot/commands.js';
+import { getUserRefereeTournaments } from './bot/permissions.js';
 import { createAdminServer } from './admin/server/index.js';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -29,10 +36,20 @@ bot.use(registrationCommands);
 bot.use(matchCommands);
 bot.use(adminParticipantCommands);
 bot.use(helpCommands);
+bot.use(profileCommands);
 
 bot.command('start', async (ctx) => {
+  const chatId = ctx.from!.id;
+
   if (ctx.dbUser.role === 'admin') {
-    await setAdminCommands(bot, ctx.from!.id);
+    await setAdminCommands(bot, chatId);
+  } else {
+    const refereeTournamentIds = await getUserRefereeTournaments(ctx.dbUser.id);
+    if (refereeTournamentIds.length > 0) {
+      await setRefereeCommands(bot, chatId);
+    } else {
+      await setUserCommands(bot, chatId);
+    }
   }
 
   const name = ctx.dbUser.name ?? ctx.dbUser.username;

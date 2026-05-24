@@ -9,11 +9,16 @@ const userCommands: BotCommand[] = [
   { command: 'tournaments', description: 'Список турниров' },
   { command: 'my_tournaments', description: 'Мои турниры' },
   { command: 'my_matches', description: 'Все мои активные матчи' },
+  { command: 'me', description: 'Профиль и статистика' },
+];
+
+const refereeCommands: BotCommand[] = [
+  ...userCommands,
   { command: 'referee_matches', description: 'Матчи турниров, где я судья' },
 ];
 
 const adminCommands: BotCommand[] = [
-  ...userCommands,
+  ...refereeCommands,
   { command: 'cancel', description: 'Отменить wizard' },
   { command: 'create_tournament', description: 'Создать турнир' },
   { command: 'delete_tournament', description: 'Удалить турнир' },
@@ -57,4 +62,13 @@ export async function setUserCommands(
   });
 }
 
-export { userCommands, adminCommands };
+export async function setRefereeCommands(
+  bot: Bot<BotContext>,
+  chatId: number,
+): Promise<void> {
+  await bot.api.setMyCommands(refereeCommands, {
+    scope: { type: 'chat', chat_id: chatId },
+  });
+}
+
+export { userCommands, refereeCommands, adminCommands };
