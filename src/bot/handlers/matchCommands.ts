@@ -90,8 +90,13 @@ export async function showMyMatches(ctx: BotContext): Promise<void> {
       const emoji = getMatchStatusEmoji(m.status);
       text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
 
-      const opponent = m.player1Id === userId ? p2 : p1;
-      keyboard.text(`${opponent}`, `match:view:${m.id}`).row();
+      const isPlayer1 = m.player1Id === userId;
+      const opponentPlain = formatPlayerName(
+        (isPlayer1 ? m.player2Username : m.player1Username) ?? null,
+        (isPlayer1 ? m.player2Name : m.player1Name) ?? null,
+        { markdown: false },
+      );
+      keyboard.text(opponentPlain, `match:view:${m.id}`).row();
     }
     text += '\n';
   }
@@ -150,9 +155,19 @@ matchCommands.command('referee_matches', async (ctx) => {
         m.player2Username ?? null,
         m.player2Name ?? null,
       );
+      const p1Plain = formatPlayerName(
+        m.player1Username ?? null,
+        m.player1Name ?? null,
+        { markdown: false },
+      );
+      const p2Plain = formatPlayerName(
+        m.player2Username ?? null,
+        m.player2Name ?? null,
+        { markdown: false },
+      );
       const emoji = getMatchStatusEmoji(m.status);
       text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
-      keyboard.text(`${p1} vs ${p2}`, `match:view:${m.id}`).row();
+      keyboard.text(`${p1Plain} vs ${p2Plain}`, `match:view:${m.id}`).row();
       totalMatches++;
     }
     text += '\n';
@@ -551,17 +566,27 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
     match.player2Username ?? null,
     match.player2Name ?? null,
   );
+  const player1Plain = formatPlayerName(
+    match.player1Username ?? null,
+    match.player1Name ?? null,
+    { markdown: false },
+  );
+  const player2Plain = formatPlayerName(
+    match.player2Username ?? null,
+    match.player2Name ?? null,
+    { markdown: false },
+  );
 
   const keyboard = new InlineKeyboard();
 
   if (match.player1Id) {
     keyboard
-      .text(`✅ Победа ${player1}`, `match:tech_win:${matchId}:1:walkover`)
+      .text(`✅ Победа ${player1Plain}`, `match:tech_win:${matchId}:1:walkover`)
       .row();
   }
   if (match.player2Id) {
     keyboard
-      .text(`✅ Победа ${player2}`, `match:tech_win:${matchId}:2:walkover`)
+      .text(`✅ Победа ${player2Plain}`, `match:tech_win:${matchId}:2:walkover`)
       .row();
   }
   keyboard.text(
