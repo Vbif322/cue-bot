@@ -44,56 +44,11 @@ export const matchCommands = new Composer<BotContext>();
 
 // === КОМАНДЫ ===
 
-// /my_match - текущий матч игрока
-matchCommands.command('my_match', async (ctx) => {
-  const userId = ctx.dbUser.id;
-
-  const activeMatches = await getPlayerActiveMatches(userId);
-
-  if (activeMatches.length === 0) {
-    await ctx.reply(
-      'У вас нет активных матчей.\n\n' +
-        'Если вы зарегистрированы на турнир, дождитесь его начала или своего матча в сетке.',
-    );
-    return;
-  }
-
-  // Show first active match
-  const match = activeMatches[0];
-  if (!match) {
-    await ctx.reply('Матч не найден');
-    return;
-  }
-
-  const tournament = await db.query.tournaments.findFirst({
-    where: eq(tournaments.id, match.tournamentId),
-  });
-
-  if (!tournament) {
-    await ctx.reply('Турнир не найден');
-    return;
-  }
-
-  const text = formatMatchCard(match, tournament);
-  const canManage = await canManageTournament(ctx, match.tournamentId);
-  const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
-
-  await ctx.reply(text, {
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
-
-  // If there are more matches, show them
-  if (activeMatches.length > 1) {
-    await ctx.reply(
-      `У вас ещё ${activeMatches.length - 1} активных матчей.\n` +
-        `Используйте /my_matches для просмотра всех.`,
-    );
-  }
-});
-
-// /my_matches - все активные матчи игрока
-matchCommands.command('my_matches', async (ctx) => {
+/**
+ * Send the user their active matches grouped by tournament. Shared between
+ * the /my_matches command and the reply-keyboard "🎱 Мои матчи" handler.
+ */
+export async function showMyMatches(ctx: BotContext): Promise<void> {
   const userId = ctx.dbUser.id as UUID;
   const activeMatches = await getPlayerActiveMatches(userId);
 
@@ -135,8 +90,13 @@ matchCommands.command('my_matches', async (ctx) => {
       const emoji = getMatchStatusEmoji(m.status);
       text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
 
-      const opponent = m.player1Id === userId ? p2 : p1;
-      keyboard.text(`${opponent}`, `match:view:${m.id}`).row();
+      const isPlayer1 = m.player1Id === userId;
+      const opponentPlain = formatPlayerName(
+        (isPlayer1 ? m.player2Username : m.player1Username) ?? null,
+        (isPlayer1 ? m.player2Name : m.player1Name) ?? null,
+        { markdown: false },
+      );
+      keyboard.text(opponentPlain, `match:view:${m.id}`).row();
     }
     text += '\n';
   }
@@ -145,7 +105,10 @@ matchCommands.command('my_matches', async (ctx) => {
     parse_mode: 'Markdown',
     reply_markup: keyboard,
   });
-});
+}
+
+// /my_matches - все активные матчи игрока
+matchCommands.command('my_matches', (ctx) => showMyMatches(ctx));
 
 // /referee_matches - активные матчи турниров, где пользователь судья
 matchCommands.command('referee_matches', async (ctx) => {
@@ -192,9 +155,19 @@ matchCommands.command('referee_matches', async (ctx) => {
         m.player2Username ?? null,
         m.player2Name ?? null,
       );
+      const p1Plain = formatPlayerName(
+        m.player1Username ?? null,
+        m.player1Name ?? null,
+        { markdown: false },
+      );
+      const p2Plain = formatPlayerName(
+        m.player2Username ?? null,
+        m.player2Name ?? null,
+        { markdown: false },
+      );
       const emoji = getMatchStatusEmoji(m.status);
       text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
-      keyboard.text(`${p1} vs ${p2}`, `match:view:${m.id}`).row();
+      keyboard.text(`${p1Plain} vs ${p2Plain}`, `match:view:${m.id}`).row();
       totalMatches++;
     }
     text += '\n';
@@ -209,39 +182,6 @@ matchCommands.command('referee_matches', async (ctx) => {
     parse_mode: 'Markdown',
     reply_markup: keyboard,
   });
-});
-
-// /bracket [id] - показать сетку турнира
-matchCommands.command('bracket', async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
-  let tournamentId = args?.[0]?.trim() as UUID | undefined;
-
-  if (!tournamentId) {
-    // Show list of active tournaments
-    const activeTournaments = await db.query.tournaments.findMany({
-      where: eq(tournaments.status, 'in_progress'),
-      orderBy: (t, { desc }) => [desc(t.createdAt)],
-      limit: 10,
-    });
-
-    if (activeTournaments.length === 0) {
-      await ctx.reply('Нет активных турниров с сеткой.');
-      return;
-    }
-
-    const keyboard = new InlineKeyboard();
-    for (const t of activeTournaments) {
-      keyboard.text(`📊 ${t.name}`, `bracket:view:${t.id}`).row();
-    }
-
-    await ctx.reply('Выберите турнир для просмотра сетки:', {
-      reply_markup: keyboard,
-    });
-    return;
-  }
-
-  // Show bracket for specific tournament
-  await showBracket(ctx, tournamentId);
 });
 
 // === CALLBACK HANDLERS ===
@@ -589,24 +529,12 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
   }
 });
 
-// Ожидание (заглушка)
+// Информационный индикатор «ожидание подтверждения соперника»
 matchCommands.callbackQuery(/^match:waiting:(.+)$/, async (ctx) => {
-  // await ctx.answerCallbackQuery({
-  //   text: "Ожидаем подтверждения от соперника",
-  //   show_alert: false,
-  // });
-  const userId = ctx.dbUser.id as UUID;
-  const matchId = ctx.match![1]! as UUID;
-
-  const updatedMatch = await getMatch(matchId);
-  if (!updatedMatch) {
-    await ctx.answerCallbackQuery({
-      text: 'Матч не найден',
-      show_alert: true,
-    });
-    return;
-  }
-  await notifyResultPending(ctx.api, updatedMatch, userId);
+  await ctx.answerCallbackQuery({
+    text: 'Ожидаем подтверждения соперника...',
+    show_alert: true,
+  });
 });
 
 // Технический результат - меню
@@ -638,17 +566,27 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
     match.player2Username ?? null,
     match.player2Name ?? null,
   );
+  const player1Plain = formatPlayerName(
+    match.player1Username ?? null,
+    match.player1Name ?? null,
+    { markdown: false },
+  );
+  const player2Plain = formatPlayerName(
+    match.player2Username ?? null,
+    match.player2Name ?? null,
+    { markdown: false },
+  );
 
   const keyboard = new InlineKeyboard();
 
   if (match.player1Id) {
     keyboard
-      .text(`✅ Победа ${player1}`, `match:tech_win:${matchId}:1:walkover`)
+      .text(`✅ Победа ${player1Plain}`, `match:tech_win:${matchId}:1:walkover`)
       .row();
   }
   if (match.player2Id) {
     keyboard
-      .text(`✅ Победа ${player2}`, `match:tech_win:${matchId}:2:walkover`)
+      .text(`✅ Победа ${player2Plain}`, `match:tech_win:${matchId}:2:walkover`)
       .row();
   }
   keyboard.text(

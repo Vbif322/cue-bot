@@ -24,7 +24,7 @@ export default function CreateTournamentModal({
     rules: '',
     format: 'single_elimination' as const,
     maxParticipants: 16,
-    winScore: 3,
+    winScore: 2,
     startDate: '',
     venueId: '',
   });

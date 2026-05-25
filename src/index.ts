@@ -9,8 +9,19 @@ import {
   registrationCommands,
   adminParticipantCommands,
   matchCommands,
+  helpCommands,
+  profileCommands,
+  menuHandlers,
 } from './bot/handlers/index.js';
-import { setupCommands, setAdminCommands } from './bot/commands.js';
+import { sendOnboarding } from './bot/handlers/helpCommand.js';
+import {
+  setupCommands,
+  setAdminCommands,
+  setRefereeCommands,
+  setUserCommands,
+} from './bot/commands.js';
+import { getUserRefereeTournaments } from './bot/permissions.js';
+import { buildMainMenuKeyboard } from './bot/ui/mainMenu.js';
 import { createAdminServer } from './admin/server/index.js';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -21,22 +32,34 @@ import { loginTokens } from './db/schema.js';
 
 bot.use(authMiddleware);
 bot.use(wizardGuardMiddleware);
+bot.use(menuHandlers);
 bot.use(roleCommands);
 bot.use(tournamentCommands);
 bot.use(registrationCommands);
 bot.use(matchCommands);
 bot.use(adminParticipantCommands);
+bot.use(helpCommands);
+bot.use(profileCommands);
 
 bot.command('start', async (ctx) => {
+  const chatId = ctx.from!.id;
+
   if (ctx.dbUser.role === 'admin') {
-    await setAdminCommands(bot, ctx.from!.id);
+    await setAdminCommands(bot, chatId);
+  } else {
+    const refereeTournamentIds = await getUserRefereeTournaments(ctx.dbUser.id);
+    if (refereeTournamentIds.length > 0) {
+      await setRefereeCommands(bot, chatId);
+    } else {
+      await setUserCommands(bot, chatId);
+    }
   }
 
-  await ctx.reply(
-    `Привет, ${ctx.dbUser.name ?? ctx.dbUser.username}!` +
-      '\n\n' +
-      'Нажмите / чтобы увидеть доступные команды',
-  );
+  const name = ctx.dbUser.name ?? ctx.dbUser.username;
+  await ctx.reply(`Привет, ${name}!`, {
+    reply_markup: buildMainMenuKeyboard(),
+  });
+  await sendOnboarding(ctx);
 });
 
 bot.command('dashboard', async (ctx) => {

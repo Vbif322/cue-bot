@@ -6,7 +6,8 @@ import { db } from '@/db/db.js';
 import { users, tournaments, tournamentReferees } from '@/db/schema.js';
 
 import { adminOnly } from '../guards.js';
-import { adminCommands, userCommands } from '../commands.js';
+import { adminCommands, refereeCommands, userCommands } from '../commands.js';
+import { getUserRefereeTournaments } from '../permissions.js';
 import type { BotContext } from '../types.js';
 
 export const roleCommands = new Composer<BotContext>();
@@ -199,6 +200,19 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
     userId: targetUser.id,
   });
 
+  // Promote target's menu to referee-level (admins already have everything)
+  if (targetUser.telegram_id && targetUser.role !== 'admin') {
+    const targetChatId = parseInt(targetUser.telegram_id);
+    await ctx.api.setMyCommands(refereeCommands, {
+      scope: { type: 'chat', chat_id: targetChatId },
+    });
+    await ctx.api.sendMessage(
+      targetChatId,
+      `Вы назначены судьёй на турнир «${tournament.name}». ` +
+        'В меню появилась команда /referee_matches.',
+    );
+  }
+
   await ctx.reply(
     `${targetUser.username} назначен судьей турнира "${tournament.name}".`,
   );
@@ -251,6 +265,19 @@ roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
         eq(tournamentReferees.userId, targetUser.id),
       ),
     );
+
+  // If user has no remaining referee tournaments, downgrade their menu
+  if (targetUser.telegram_id && targetUser.role !== 'admin') {
+    const remaining = await getUserRefereeTournaments(targetUser.id);
+    if (remaining.length === 0) {
+      await ctx.api.setMyCommands(userCommands, {
+        scope: {
+          type: 'chat',
+          chat_id: parseInt(targetUser.telegram_id),
+        },
+      });
+    }
+  }
 
   await ctx.reply(
     `${targetUser.username} больше не судья турнира "${tournament.name}".`,

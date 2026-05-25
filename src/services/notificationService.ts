@@ -1,11 +1,12 @@
 import { eq, and } from 'drizzle-orm';
-import type { Api } from 'grammy';
+import type { Api, InlineKeyboard } from 'grammy';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import { notifications, users, tournaments, matches } from '@/db/schema.js';
 import type { INotification } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
+import { getResultConfirmKeyboard } from '@/bot/ui/matchUI.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 
 type NotificationType = (typeof notifications.$inferInsert)['type'];
@@ -46,6 +47,7 @@ export async function createNotification(data: {
 export async function sendNotification(
   api: Api,
   notificationId: UUID,
+  keyboard?: InlineKeyboard,
 ): Promise<boolean> {
   const notification = await db.query.notifications.findFirst({
     where: eq(notifications.id, notificationId),
@@ -69,7 +71,10 @@ export async function sendNotification(
       await api.sendMessage(
         user.telegram_id,
         `*${notification.title}*\n\n${notification.message}`,
-        { parse_mode: 'Markdown' },
+        {
+          parse_mode: 'Markdown',
+          ...(keyboard ? { reply_markup: keyboard } : {}),
+        },
       );
     }
 
@@ -98,10 +103,11 @@ export async function createAndSendNotification(
     tournamentId?: UUID;
     matchId?: UUID;
   },
+  keyboard?: InlineKeyboard,
 ): Promise<boolean> {
   const notificationId = await createNotification(data);
 
-  return sendNotification(api, notificationId);
+  return sendNotification(api, notificationId, keyboard);
 }
 
 /**
@@ -199,7 +205,7 @@ export async function notifyResultPending(
     match.player1Id === reportedByUserId ? match.player2Id : match.player1Id;
 
   if (!opponentId) return;
-
+  // TODO Писать в чью пользу счет
   const reporterName =
     match.player1Id === reportedByUserId
       ? match.player1Username
@@ -208,17 +214,20 @@ export async function notifyResultPending(
       : match.player2Username
         ? `@${escapeMarkdown(match.player2Username)}`
         : match.player2Name || 'Соперник';
-  await createAndSendNotification(api, {
-    userId: opponentId,
-    type: 'result_confirmation_request',
-    title: 'Подтвердите результат матча',
-    message:
-      `${reporterName} внёс результат: ${match.player1Score}:${match.player2Score}\n\n` +
-      `Подтвердите или оспорьте результат.\n` +
-      `Используйте /my\\_match для просмотра`,
-    tournamentId: match.tournamentId,
-    matchId: match.id,
-  });
+  await createAndSendNotification(
+    api,
+    {
+      userId: opponentId,
+      type: 'result_confirmation_request',
+      title: 'Подтвердите результат матча',
+      message:
+        `${reporterName} внёс результат: ${match.player1Score}:${match.player2Score}\n\n` +
+        `Подтвердите или оспорьте результат.`,
+      tournamentId: match.tournamentId,
+      matchId: match.id,
+    },
+    getResultConfirmKeyboard(match.id),
+  );
 }
 
 /**

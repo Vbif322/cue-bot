@@ -205,6 +205,12 @@ export const matchesApi = {
       method: 'POST',
       body: JSON.stringify({ winnerId, reason }),
     }),
+
+  setTable: (id: string, tableId: string | null) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/table`, {
+      method: 'PUT',
+      body: JSON.stringify({ tableId }),
+    }),
 };
 
 // ── Users ────────────────────────────────────────────────────────────────────

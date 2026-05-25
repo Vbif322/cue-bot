@@ -5,18 +5,21 @@ import type { BotContext } from './types.js';
 
 const userCommands: BotCommand[] = [
   { command: 'start', description: 'Начать работу с ботом' },
-  { command: 'cancel', description: 'Отменить текущее действие' },
+  { command: 'help', description: 'Как пользоваться ботом' },
   { command: 'tournaments', description: 'Список турниров' },
-  { command: 'tournament', description: 'Информация о турнире' },
   { command: 'my_tournaments', description: 'Мои турниры' },
-  { command: 'my_match', description: 'Мой текущий матч'},
   { command: 'my_matches', description: 'Все мои активные матчи' },
+  { command: 'me', description: 'Профиль и статистика' },
+];
+
+const refereeCommands: BotCommand[] = [
+  ...userCommands,
   { command: 'referee_matches', description: 'Матчи турниров, где я судья' },
-  { command: 'bracket', description: 'Сетка турнира' },
 ];
 
 const adminCommands: BotCommand[] = [
-  ...userCommands,
+  ...refereeCommands,
+  { command: 'cancel', description: 'Отменить wizard' },
   { command: 'create_tournament', description: 'Создать турнир' },
   { command: 'delete_tournament', description: 'Удалить турнир' },
   { command: 'set_admin', description: 'Назначить администратора' },
@@ -59,4 +62,13 @@ export async function setUserCommands(
   });
 }
 
-export { userCommands, adminCommands };
+export async function setRefereeCommands(
+  bot: Bot<BotContext>,
+  chatId: number,
+): Promise<void> {
+  await bot.api.setMyCommands(refereeCommands, {
+    scope: { type: 'chat', chat_id: chatId },
+  });
+}
+
+export { userCommands, refereeCommands, adminCommands };

@@ -10,15 +10,22 @@ import type { Tournament } from '../@types/tournament.js';
 import type { MatchWithPlayers } from '../@types/match.js';
 
 /**
- * Format player name for display in a Telegram **Markdown** message.
- * Returned string is Markdown-safe — do NOT pass it through escapeMarkdown
- * again (double-escape).
+ * Format player name for display.
+ *
+ * By default returns a Markdown-safe string (username is escaped via
+ * `escapeMarkdown`) — do NOT pass it through `escapeMarkdown` again.
+ *
+ * Pass `{ markdown: false }` for plain-text contexts like inline button
+ * labels, where Telegram does not parse Markdown and a backslash would
+ * otherwise be shown literally.
  */
 export function formatPlayerName(
   username: string | null,
   name: string | null,
+  options: { markdown?: boolean } = {},
 ): string {
-  if (username) return `@${escapeMarkdown(username)}`;
+  const { markdown = true } = options;
+  if (username) return `@${markdown ? escapeMarkdown(username) : username}`;
   if (name) return name;
   return 'Участник';
 }
@@ -116,6 +123,17 @@ export function formatMatchCard(
 }
 
 /**
+ * Inline keyboard with the «✅ Подтвердить» / «❌ Оспорить» buttons used for
+ * confirming a reported match result. Single source of truth for labels and
+ * callback_data — reused by the result-pending Telegram notification.
+ */
+export function getResultConfirmKeyboard(matchId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('✅ Подтвердить', `match:confirm:${matchId}`)
+    .text('❌ Оспорить', `match:dispute:${matchId}`);
+}
+
+/**
  * Get keyboard for match based on user role and match status
  */
 export function getMatchKeyboard(
@@ -147,7 +165,6 @@ export function getMatchKeyboard(
   // Pending confirmation - show confirm/dispute for opponent
   if (match.status === 'pending_confirmation' && isParticipant) {
     if (match.reportedBy !== userId) {
-      // This is the opponent who needs to confirm
       keyboard
         .text('✅ Подтвердить', `match:confirm:${match.id}`)
         .text('❌ Оспорить', `match:dispute:${match.id}`)

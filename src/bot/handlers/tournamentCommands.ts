@@ -26,7 +26,6 @@ import {
   buildTournamentKeyboard,
   buildTournamentListItem,
   buildTournamentListKeyboard,
-  buildTournamentSelectionKeyboard,
 } from '../ui/tournamentUI.js';
 import { getMatchStatusEmoji } from '../ui/matchUI.js';
 import { tournamentCreationFlow } from '../wizards/tournamentCreation/tournamentCreation.module.js';
@@ -61,12 +60,12 @@ tournamentCommands.command('cancel', async (ctx) => {
 });
 
 /**
- * /tournaments - List all tournaments
+ * Send the current tournaments list to the user. Shared between the
+ * `/tournaments` command and onboarding entry points (/start, /help button).
  */
-tournamentCommands.command('tournaments', async (ctx) => {
+export async function showTournamentsList(ctx: BotContext): Promise<void> {
   const admin = isAdmin(ctx);
 
-  // Get all tournaments
   const allTournaments = await getTournaments({
     limit: 10,
     includesDrafts: true,
@@ -77,7 +76,6 @@ tournamentCommands.command('tournaments', async (ctx) => {
     return;
   }
 
-  // Filter tournaments for regular users (hide drafts)
   const visibleTournaments = admin
     ? allTournaments
     : allTournaments.filter((t) => t.status !== 'draft');
@@ -87,7 +85,6 @@ tournamentCommands.command('tournaments', async (ctx) => {
     return;
   }
 
-  // Get tournament info with participation status
   const tournamentsInfo = await Promise.all(
     visibleTournaments.map((t) => getTournamentInfo(t, ctx.dbUser.id)),
   );
@@ -96,13 +93,11 @@ tournamentCommands.command('tournaments', async (ctx) => {
     (tournament) => tournament.status !== 'completed',
   );
 
-  // Build message
   let message = 'Список турниров:\n\n';
   for (const info of currentTournaments) {
     message += buildTournamentListItem(info, admin);
   }
 
-  // Build keyboard
   const keyboard = buildTournamentListKeyboard(currentTournaments);
 
   if (keyboard.inline_keyboard.length > 0) {
@@ -113,39 +108,12 @@ tournamentCommands.command('tournaments', async (ctx) => {
   } else {
     await ctx.reply(message, { parse_mode: 'Markdown' });
   }
-});
+}
 
 /**
- * /tournament [id] - Show tournament details
+ * /tournaments - List all tournaments
  */
-tournamentCommands.command('tournament', async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
-  const admin = isAdmin(ctx);
-
-  // If no ID provided, show selection menu
-  if (!args || args.length === 0 || args[0]?.trim() === '') {
-    const allTournaments = await db.query.tournaments.findMany({
-      orderBy: (t, { desc }) => [desc(t.createdAt)],
-      limit: 10,
-    });
-
-    const visibleTournaments = admin
-      ? allTournaments
-      : allTournaments.filter((t) => t.status !== 'draft');
-
-    if (visibleTournaments.length === 0) {
-      await ctx.reply('Турниров пока нет.');
-      return;
-    }
-
-    const keyboard = buildTournamentSelectionKeyboard(visibleTournaments);
-    await ctx.reply('Выберите турнир:', { reply_markup: keyboard });
-    return;
-  }
-
-  // Show tournament details
-  await showTournamentDetails(ctx, args[0]! as UUID);
-});
+tournamentCommands.command('tournaments', (ctx) => showTournamentsList(ctx));
 
 /**
  * /delete_tournament [id] - Delete a tournament
