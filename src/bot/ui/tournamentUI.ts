@@ -166,6 +166,11 @@ export function buildTournamentKeyboard(
     }
   }
 
+  // Bracket button — visible to everyone for in-progress and completed tournaments
+  if (info.status === 'in_progress' || info.status === 'completed') {
+    keyboard.text('📊 Сетка турнира', `bracket:view:${info.id}`).row();
+  }
+
   // Admin buttons
   if (isAdmin) {
     if (info.status === 'draft') {
@@ -187,9 +192,6 @@ export function buildTournamentKeyboard(
       keyboard
         .text('👥 Управление участниками', `adm:pending_list:${info.id}`)
         .row();
-    }
-    if (info.status === 'in_progress') {
-      keyboard.text('📊 Сетка турнира', `bracket:view:${info.id}`).row();
     }
   }
 
@@ -213,19 +215,5 @@ export function buildTournamentListKeyboard(
     }
   }
 
-  return keyboard;
-}
-
-/**
- * Build keyboard for tournament selection
- */
-export function buildTournamentSelectionKeyboard(
-  tournaments: { id: string; name: string }[],
-  callbackPrefix: string = 'tournament_info',
-): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  for (const t of tournaments) {
-    keyboard.text(`📋 ${t.name}`, `${callbackPrefix}:${t.id}`).row();
-  }
   return keyboard;
 }

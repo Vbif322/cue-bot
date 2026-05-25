@@ -74,8 +74,23 @@ async function main() {
 
   const adminUserId = createdUsers[0]!.id;
 
-  // 2. Create tournament
-  console.log('\n2. Creating tournament...');
+  // 2. Upsert test venue
+  console.log('\n2. Creating test venue...');
+  let venue = await db.query.venues.findFirst({
+    where: eq(schema.venues.name, 'Test Venue'),
+  });
+  if (!venue) {
+    const [created] = await db
+      .insert(schema.venues)
+      .values({ name: 'Test Venue', address: 'Test Address' })
+      .returning();
+    venue = created;
+  }
+  if (!venue) throw new Error('Failed to create venue');
+  console.log(`   Venue: "${venue.name}" (${venue.id})`);
+
+  // 3. Create tournament
+  console.log('\n3. Creating tournament...');
   const [tournament] = await db
     .insert(schema.tournaments)
     .values({
@@ -86,6 +101,7 @@ async function main() {
       maxParticipants: 16,
       winScore: 3,
       createdBy: adminUserId,
+      venueId: venue.id,
       status: 'registration_closed',
       confirmedParticipants: 16,
     })
@@ -94,8 +110,8 @@ async function main() {
   if (!tournament) throw new Error('Failed to create tournament');
   console.log(`   Created: "${tournament.name}" (${tournament.id})`);
 
-  // 3. Add all 16 users as confirmed participants
-  console.log('\n3. Adding participants...');
+  // 4. Add all 16 users as confirmed participants
+  console.log('\n4. Adding participants...');
   for (const user of createdUsers) {
     await db
       .insert(schema.tournamentParticipants)
@@ -108,8 +124,8 @@ async function main() {
   }
   console.log(`   Added ${createdUsers.length} participants`);
 
-  // 4. Assign random seeds
-  console.log('\n4. Assigning seeds...');
+  // 5. Assign random seeds
+  console.log('\n5. Assigning seeds...');
   const participants = await db
     .select({
       userId: schema.tournamentParticipants.userId,
@@ -146,8 +162,8 @@ async function main() {
   }
   console.log('   Seeds assigned');
 
-  // 5. Generate bracket and create matches
-  console.log('\n5. Generating bracket and creating matches...');
+  // 6. Generate bracket and create matches
+  console.log('\n6. Generating bracket and creating matches...');
   const participantsForBracket = shuffled.map((p, i) => ({
     userId: p.userId,
     username: p.username,
@@ -159,8 +175,8 @@ async function main() {
   await createMatches(tournament.id, bracket);
   console.log(`   Created ${bracket.length} matches`);
 
-  // 6. Set tournament status to in_progress
-  console.log('\n6. Starting tournament...');
+  // 7. Set tournament status to in_progress
+  console.log('\n7. Starting tournament...');
   await db
     .update(schema.tournaments)
     .set({ status: 'in_progress', updatedAt: new Date() })

@@ -13,7 +13,9 @@ import {
   confirmResult,
   disputeResult,
   setTechnicalResult,
+  setMatchTable,
 } from '@/services/matchService.js';
+import { notifyResultPending } from '@/services/notificationService.js';
 
 import { requireAdmin } from '../middleware.js';
 
@@ -63,13 +65,24 @@ export function createMatchesRouter(botApi: Api) {
     ),
     async (c) => {
       const { reporterId, player1Score, player2Score } = c.req.valid('json');
+      const matchId = c.req.param('id') as UUID;
       const result = await reportResult(
-        c.req.param('id') as UUID,
+        matchId,
         reporterId as UUID,
         player1Score,
         player2Score,
       );
       if (!result.success) return c.json({ error: result.error }, 400);
+
+      try {
+        const updated = await getMatch(matchId);
+        if (updated) {
+          await notifyResultPending(botApi, updated, reporterId as UUID);
+        }
+      } catch (error) {
+        console.error('Failed to send result pending notification:', error);
+      }
+
       return c.json({ ok: true });
     },
   );
@@ -124,6 +137,21 @@ export function createMatchesRouter(botApi: Api) {
         reason,
         admin.id as UUID,
         botApi,
+      );
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ ok: true });
+    },
+  );
+
+  // Assign / change / remove table (admin override)
+  router.put(
+    '/:id/table',
+    zValidator('json', z.object({ tableId: z.uuid().nullable() })),
+    async (c) => {
+      const { tableId } = c.req.valid('json');
+      const result = await setMatchTable(
+        c.req.param('id') as UUID,
+        tableId as UUID | null,
       );
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });

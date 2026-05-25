@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { tournamentsApi } from '../lib/api.ts';
 import { TournamentStatusBadge } from '../components/StatusBadge.tsx';
 import type { TournamentStatus, ITournamentFormat } from '../lib/api.ts';
@@ -15,6 +15,7 @@ const FORMAT_LABELS: Record<ITournamentFormat, string> = {
 
 export default function TournamentsPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [filter, setFilter] = useState<TournamentStatus | 'all'>('all');
   const [showCreate, setShowCreate] = useState(false);
 
@@ -84,15 +85,13 @@ export default function TournamentsPage() {
             {filtered?.map((t) => (
               <div
                 key={t.id}
-                className="bg-white rounded-xl border border-gray-200 p-4"
+                onClick={() => navigate(`/tournaments/${t.id}`)}
+                className="bg-white rounded-xl border border-gray-200 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-start justify-between mb-2">
-                  <Link
-                    to={`/tournaments/${t.id}`}
-                    className="font-medium text-blue-600 hover:text-blue-800 text-sm leading-snug"
-                  >
+                  <span className="font-medium text-blue-600 text-sm leading-snug">
                     {t.name}
-                  </Link>
+                  </span>
                   <TournamentStatusBadge status={t.status} />
                 </div>
                 <dl className="space-y-1 text-sm">
@@ -115,16 +114,11 @@ export default function TournamentsPage() {
                     </dd>
                   </div>
                 </dl>
-                <div className="flex gap-3 mt-3 pt-3 border-t border-gray-100">
-                  <Link
-                    to={`/tournaments/${t.id}`}
-                    className="text-blue-500 text-xs"
-                  >
-                    Детали
-                  </Link>
-                  {(t.status === 'draft' || t.status === 'cancelled') && (
+                {(t.status === 'draft' || t.status === 'cancelled') && (
+                  <div className="flex gap-3 mt-3 pt-3 border-t border-gray-100">
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         if (confirm(`Удалить турнир "${t.name}"?`))
                           deleteMutation.mutate(t.id);
                       }}
@@ -132,8 +126,8 @@ export default function TournamentsPage() {
                     >
                       Удалить
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -173,14 +167,15 @@ export default function TournamentsPage() {
                   </tr>
                 )}
                 {filtered?.map((t) => (
-                  <tr key={t.id} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={t.id}
+                    onClick={() => navigate(`/tournaments/${t.id}`)}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                  >
                     <td className="px-4 py-3">
-                      <Link
-                        to={`/tournaments/${t.id}`}
-                        className="font-medium text-blue-600 hover:text-blue-800"
-                      >
+                      <span className="font-medium text-blue-600">
                         {t.name}
-                      </Link>
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {FORMAT_LABELS[t.format]}
@@ -197,15 +192,10 @@ export default function TournamentsPage() {
                         : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link
-                        to={`/tournaments/${t.id}`}
-                        className="text-gray-500 hover:text-gray-700 text-xs mr-3"
-                      >
-                        Детали
-                      </Link>
                       {(t.status === 'draft' || t.status === 'cancelled') && (
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             if (confirm(`Удалить турнир "${t.name}"?`))
                               deleteMutation.mutate(t.id);
                           }}
