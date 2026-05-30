@@ -55,36 +55,47 @@ cue-bot/
 │   ├── admin/
 │   │   └── server/
 │   │       ├── routes/                  # Hono-маршруты admin API
+│   │       ├── apiTypes.ts              # общие API-типы сервера
 │   │       ├── auth.ts                  # логика входа в admin-панель
-│   │       ├── middleware.ts            # JWT-проверка и загрузка adminUser
-│   │       └── apiTypes.ts              # общие API-типы сервера
+│   │       ├── formats.ts               # форматы турнира и их локализация
+│   │       ├── index.ts                 # сборка Hono-приложения admin API
+│   │       └── middleware.ts            # JWT-проверка и загрузка adminUser
 │   ├── bot/
 │   │   ├── @types/                      # типы для bot/UI/API read-моделей
 │   │   ├── handlers/                    # команды и callback-обработчики Grammy
-│   │   ├── middleware/                  # auth middleware для Telegram-бота
+│   │   ├── middleware/                  # auth + wizardGuard middleware для бота
 │   │   ├── ui/                          # форматирование сообщений и клавиатуры
 │   │   ├── wizards/
-│   │   │   ├── tournamentCreation.flow.ts
-│   │   │   ├── tournamentCreation.keyboards.ts
-│   │   │   ├── tournamentCreation.renderer.ts
-│   │   │   ├── tournamentCreation.stateStore.ts
-│   │   │   └── tournamentCreation.module.ts
+│   │   │   ├── tournamentCreation/
+│   │   │   │   ├── tournamentCreation.const.ts
+│   │   │   │   ├── tournamentCreation.d.ts
+│   │   │   │   ├── tournamentCreation.flow.ts
+│   │   │   │   ├── tournamentCreation.keyboards.ts
+│   │   │   │   ├── tournamentCreation.module.ts
+│   │   │   │   ├── tournamentCreation.renderer.ts
+│   │   │   │   └── tournamentCreation.stateStore.ts
+│   │   │   └── wizardRegistry.ts        # реестр и диспетчер wizard-ов
 │   │   ├── commands.ts
-│   │   ├── guards.ts
 │   │   ├── instance.ts
-│   │   └── permissions.ts
+│   │   ├── permissions.ts
+│   │   └── types.ts                     # BotContext / SessionData
 │   ├── db/
 │   │   ├── schema/                      # схемы таблиц Drizzle по файлам
 │   │   ├── db.ts
-│   │   └── schema.ts                    # реэкспорт схем и типов
+│   │   ├── schema.ts                    # реэкспорт схем и типов
+│   │   └── schemaHelpers.ts             # общие колонки и обёртка схемы
 │   ├── services/
 │   │   ├── bracketGenerator.ts
 │   │   ├── matchService.ts
 │   │   ├── notificationService.ts
+│   │   ├── participantService.ts
+│   │   ├── randomBracketAdvancement.ts  # placeholder продвижения по сетке
 │   │   ├── tableService.ts
-│   │   ├── timeoutService.ts
+│   │   ├── timeoutService.ts            # placeholder (авто-таймауты вне scope)
 │   │   ├── tournamentService.ts
 │   │   ├── tournamentStartService.ts
+│   │   ├── userService.ts
+│   │   ├── userStatsService.ts
 │   │   └── venueService.ts
 │   ├── utils/
 │   │   ├── constants.ts
@@ -98,11 +109,14 @@ cue-bot/
 │   │   └── pages/
 │   ├── package.json
 │   └── vite.config.ts
+├── scripts/                            # сиды и вспомогательные скрипты
 ├── TECHNICAL_DOCUMENTATION.md
 ├── CHANGELOG.md
 ├── BUSINESS_REQUIREMENTS.md
+├── README.md
 ├── drizzle.config.ts
 ├── eslint.config.js
+├── nodemon.json
 ├── package.json
 └── tsconfig.json
 ```
@@ -116,7 +130,7 @@ cue-bot/
    Входящие Telegram-сообщения и callback query обрабатываются в `src/bot/handlers/*`. HTTP-запросы админки обслуживаются через Hono-маршруты в `src/admin/server/routes/*`.
 
 3. **Middleware / Guards**
-   Бот использует `authMiddleware`, admin API использует `requireAdmin`. Проверка ролей вынесена в guards/permissions.
+   Бот использует `authMiddleware` и `wizardGuardMiddleware`, admin API использует `requireAdmin`. Проверка ролей вынесена в `permissions.ts`.
 
 4. **Service Layer**
    Основная бизнес-логика сосредоточена в `src/services/*`.
@@ -130,8 +144,11 @@ cue-bot/
 | --------------------- | ----------------------------------------------- |
 | `npm run dev`         | запуск Telegram-бота и HTTP API через `nodemon` |
 | `npm run dev:admin`   | запуск Vite dev server для admin SPA            |
-| `npm run build`       | сборка серверной части TypeScript               |
+| `npm run dev:all`     | поднять БД и запустить api + web + drizzle studio |
+| `npm run build`       | сборка серверной части (`tsc && tsc-alias`)     |
+| `npm run start`       | запуск собранного бота из `build/`              |
 | `npm run build:admin` | сборка admin SPA                                |
+| `npm run db:up` / `db:down` | запуск / остановка Docker-контейнера PostgreSQL |
 | `npm run lint`        | запуск ESLint                                   |
 | `npm run lint:fix`    | автопочинка ESLint-замечаний                    |
 | `npm run format`      | форматирование через Prettier                   |
@@ -170,6 +187,7 @@ erDiagram
     users ||--o{ tournamentReferees : referees
     users ||--o{ disqualifications : gets
     users ||--o{ notifications : receives
+    users ||--o{ matchCorrections : corrects
 
     venues ||--o{ tables : contains
     venues ||--o{ tournaments : hosts
@@ -180,11 +198,13 @@ erDiagram
     tournaments ||--o{ matches : generates
     tournaments ||--o{ notifications : relates
     tournaments ||--o{ disqualifications : has
+    tournaments ||--o{ matchCorrections : has
 
     tables ||--o{ tournamentTables : assigned
     tables ||--o{ matches : hosts
 
     matches ||--o{ notifications : relates
+    matches ||--o{ matchCorrections : tracked
 ```
 
 ### Описание таблиц
@@ -260,19 +280,37 @@ erDiagram
 
 Матчи турнира.
 
+- `round` / `position`: координаты матча в сетке
+- `player1Id` / `player2Id`: участники матча (nullable до заполнения сетки)
+- `player1Score` / `player2Score`: счет матча
+- `player1IsWalkover` / `player2IsWalkover`: признак прохода без игры (bye)
 - `status`: `scheduled` | `in_progress` | `pending_confirmation` | `completed` | `cancelled`
 - `bracketType`: `winners` | `losers` | `grand_final`
-- `nextMatchId`: ссылка на следующий матч в сетке
+- `nextMatchId` / `nextMatchPosition`: ссылка на следующий матч и слот (`player1` / `player2`)
+- `losersNextMatchPosition`: позиция в нижней сетке для double elimination
 - `tableId`: стол, на котором идет матч
 - `reportedBy` / `confirmedBy`: участники двухфазного подтверждения результата
 - `isTechnicalResult`: признак технического исхода
 - `technicalReason`: причина технического результата
+- `isCorrected` / `correctionReason`: признак и причина ручной корректировки результата
+
+#### matchCorrections
+
+История ручных корректировок результатов матчей.
+
+- `matchId`: исправленный матч
+- `tournamentId`: турнир матча
+- `correctedBy`: кто внес исправление
+- `reason`: причина корректировки
+- `previousPlayer1Score` / `previousPlayer2Score` / `previousWinnerId`: значения до исправления
+- `newPlayer1Score` / `newPlayer2Score` / `newWinnerId`: значения после исправления
+- `affectedMatchIds`: массив матчей ниже по сетке, сброшенных как следствие смены победителя
 
 #### notifications
 
 Уведомления, сохраняемые перед отправкой через Telegram.
 
-- `type`: `registration_confirmed`, `bracket_formed`, `match_reminder`, `result_confirmation_request`, `result_confirmed`, `tournament_results`, `new_registration`, `participant_limit_reached`, `result_dispute`, `match_result_pending`, `disqualification`
+- `type`: `registration_confirmed`, `registration_rejected`, `bracket_formed`, `match_reminder`, `result_confirmation_request`, `result_confirmed`, `tournament_results`, `new_registration`, `participant_limit_reached`, `result_dispute`, `match_result_pending`, `disqualification`
 - `isSent`: было ли сообщение реально отправлено в Telegram
 - `isRead`: было ли уведомление отмечено как прочитанное
 - уведомление может ссылаться на турнир и/или матч
@@ -387,11 +425,11 @@ draft
 ### 6. Проведение матча
 
 ```text
-/my_match -> карточка матча
+/my_matches -> карточка матча
   -> match:start:{id}
     -> status = in_progress
   -> match:report:{id}
-    -> выбор счета
+    -> выбор счета (match:score:{id}:{p1}:{p2})
     -> status = pending_confirmation
   -> match:confirm:{id}
     -> status = completed
@@ -402,12 +440,12 @@ draft
 
 ### 7. Технический результат
 
-Администратор или назначенный судья может установить технический результат через `match:tech:{id}`.
+Администратор или назначенный судья может установить технический результат:
 
-- выбирается победитель
-- указывается причина
-- матч завершается без двухфазного подтверждения
-- далее вызывается `advanceWinner()`
+- `match:tech:{id}` — открыть меню выбора победителя
+- `match:tech_win:{id}:{playerIndex}:{reason}` — установить победителя (`playerIndex` = `1` | `2`)
+- победителю засчитывается счет `winScore:0`
+- матч завершается без двухфазного подтверждения, далее вызывается `advanceWinner()`
 
 ### 8. Завершение турнира
 
@@ -432,14 +470,23 @@ draft
 
 ### Команды для пользователей
 
-| Команда                   | Назначение                |
-| ------------------------- | ------------------------- |
-| `/start`                  | регистрация и приветствие |
-| `/tournaments`            | список турниров           |
-| `/my_tournaments`         | турниры пользователя      |
-| `/my_match`               | текущий активный матч     |
-| `/bracket [tournamentId]` | просмотр сетки            |
-| `/tournament [id]`        | карточка турнира          |
+| Команда                   | Назначение                       |
+| ------------------------- | -------------------------------- |
+| `/start`                  | регистрация и приветствие        |
+| `/help`                   | как пользоваться ботом           |
+| `/tournaments`            | список турниров                  |
+| `/my_tournaments`         | турниры пользователя             |
+| `/my_matches`             | активные матчи пользователя      |
+| `/me`                     | профиль и статистика             |
+| `/tournament [id]`        | карточка турнира                 |
+
+### Команды для судей
+
+| Команда            | Назначение                             |
+| ------------------ | -------------------------------------- |
+| `/referee_matches` | матчи турниров, где пользователь судья |
+
+> Управление участниками (подтверждение / отклонение заявок) доступно админам не отдельной командой, а инлайн-кнопкой из карточки турнира (`adm:pending_list`).
 
 ### Команды для администраторов
 
@@ -451,6 +498,7 @@ draft
 | `/remove_admin`           | снять роль администратора                        |
 | `/assign_referee`         | назначить судью турнира                          |
 | `/remove_referee`         | снять судью турнира                              |
+| `/dashboard`              | получить одноразовую ссылку на admin-панель      |
 | `/cancel`                 | отменить текущий wizard создания                 |
 
 ### Callback Query паттерны
@@ -459,7 +507,6 @@ draft
 
 - `reg:join:{tournamentId}`
 - `reg:cancel:{tournamentId}`
-- `reg:view:{tournamentId}`
 - `reg:full:{tournamentId}`
 
 #### Управление турниром
@@ -473,16 +520,24 @@ draft
 - `tournament_delete:{id}`
 - `tournament_delete_cancel`
 
+#### Управление участниками (админ)
+
+- `adm:pending_list:{tournamentId}` — открыть список заявок
+- `adm:c:{key}` — подтвердить заявку
+- `adm:r:{key}` — отклонить заявку
+- `adm:rm:{key}` — снять подтверждённого участника
+
 #### Wizard создания турнира
 
-- `venue:{venueId}`
-- `discipline:{value}`
-- `format:{value}`
-- `participants:{n}`
-- `winscore:{n}`
-- `tables_toggle:{tableId}`
-- `tables_done`
-- `tables_skip`
+- `tc:venue:{venueId}`
+- `tc:discipline:{value}`
+- `tc:format:{value}`
+- `tc:participants:{n}`
+- `tc:winscore:{n}`
+- `tc:tables_toggle:{tableId}`
+- `tc:tables_all`
+- `tc:tables_done`
+- `tc:tables_skip`
 
 #### Матчи
 
@@ -492,12 +547,18 @@ draft
 - `match:score:{id}:{p1}:{p2}`
 - `match:confirm:{id}`
 - `match:dispute:{id}`
-- `match:tech:{id}`
-- `match:tech_win:{id}:{winnerId}:{reason}`
+- `match:waiting:{id}` — индикатор ожидания подтверждения соперника
+- `match:tech:{id}` — меню технического результата
+- `match:tech_win:{id}:{playerIndex}:{reason}` (`playerIndex` = `1` | `2`)
 
 #### Сетка
 
 - `bracket:view:{tournamentId}`
+
+#### Главное меню
+
+- `menu:tournaments` — открыть список турниров (кнопка онбординга)
+- прочие пункты меню (`🎱 Мои матчи`, `📋 Турниры`, `👤 Профиль`) — reply-keyboard кнопки, обрабатываемые через `hears`, а не callback
 
 ### Admin API (Hono)
 
@@ -519,7 +580,10 @@ draft
 - `GET /api/tournaments/:id/tables`
 - `GET /api/tournaments/:id/participants`
 - `POST /api/tournaments/:id/participants`
+- `PATCH /api/tournaments/:id/participants/:userId` (confirm / reject)
 - `DELETE /api/tournaments/:id/participants/:userId`
+- `PATCH /api/tournaments/:id/participants/:userId/seed`
+- `POST /api/tournaments/:id/participants/seeds/randomize`
 - `GET /api/tournaments/:id/stats`
 
 #### Матчи
@@ -532,6 +596,10 @@ draft
 - `POST /api/matches/:id/confirm`
 - `POST /api/matches/:id/dispute`
 - `POST /api/matches/:id/technical`
+- `POST /api/matches/:id/correct/preview` (dry-run корректировки)
+- `POST /api/matches/:id/correct` (корректировка результата с откатом сетки)
+- `POST /api/matches/:id/advance` (повторное продвижение победителя)
+- `PUT /api/matches/:id/table` (назначить / сменить / снять стол)
 
 #### Пользователи
 
@@ -589,6 +657,54 @@ draft
 - `createVenue`, `updateVenue`, `deleteVenue` используются admin API
 - тип `ApiVenue` теперь живет в bot/shared type-слое, а не в admin-only типах
 
+### participantService
+
+Сервис работы с участниками турнира.
+
+- `confirmParticipant(tournamentId, userId)` переводит заявку в `confirmed`
+- `rejectParticipant(tournamentId, userId)` отклоняет заявку
+- `deleteParticipant(tournamentId, userId)` удаляет участника
+- `setParticipantSeed()` и `randomizeSeeds()` управляют посевом перед стартом
+
+### userService
+
+Сервис работы с пользователями и ролями.
+
+- поиск пользователя по `telegram_id` / `username`
+- выдача и снятие роли `admin`
+- назначение и снятие судейства (`tournamentReferees`)
+
+### userStatsService
+
+Статистика игрока для команды `/me` и профиля.
+
+- `getUserMatchStats(userId)` — сыгранные матчи, победы, поражения, win-rate
+- `getUserCompletedTournaments(userId, limit)` — история последних турниров с признаком победителя
+
+### participantService
+
+Сервис работы с участниками турнира.
+
+- `confirmParticipant(tournamentId, userId)` переводит заявку в `confirmed`
+- `rejectParticipant(tournamentId, userId)` отклоняет заявку
+- `deleteParticipant(tournamentId, userId)` удаляет участника
+- `setParticipantSeed()` и `randomizeSeeds()` управляют посевом перед стартом
+
+### userService
+
+Сервис работы с пользователями и ролями.
+
+- поиск пользователя по `telegram_id` / `username`
+- выдача и снятие роли `admin`
+- назначение и снятие судейства (`tournamentReferees`)
+
+### userStatsService
+
+Статистика игрока для команды `/me` и профиля.
+
+- `getUserMatchStats(userId)` — сыгранные матчи, победы, поражения, win-rate
+- `getUserCompletedTournaments(userId, limit)` — история последних турниров с признаком победителя
+
 ### matchService
 
 Сервис матча и прохода по сетке.
@@ -599,7 +715,10 @@ draft
 - `confirmResult(id, confirmerId)` завершает матч и вызывает `advanceWinner()`
 - `disputeResult(id, userId)` сбрасывает промежуточный результат
 - `setTechnicalResult(id, winnerId, reason, setById)` выставляет техническую победу
-- `onTableFreed()` и `assignTableAndStart()` управляют использованием столов
+- `onTableFreed()`, `assignTableAndStart()` и `setMatchTable()` управляют использованием столов
+- `previewCorrection(id, p1, p2)` — dry-run: валидирует корректировку и считает число затронутых матчей
+- `correctMatchResult(id, p1, p2, reason, correctedBy)` исправляет результат завершенного матча; при смене победителя откатывает зависимые матчи в `scheduled` и пере-продвигает нового победителя, фиксируя запись в `matchCorrections`
+- `resyncAdvancement(id)` — идемпотентное восстановление: повторно продвигает победителя, если откат после корректировки не прошел
 
 ### tournamentStartService
 
@@ -619,9 +738,9 @@ draft
 Генератор сетки.
 
 - поддерживает `single_elimination`, `double_elimination`, `round_robin`
-- использует типизированные `UUID` для слотов игроков
-- для круговой системы bye-слоты больше не маскируются под пользователя, а описываются отдельным `ParticipantSlot`
-- предоставляет `getBracketStats()` и `getRoundName()` для bot/admin UI
+- использует типизированные `UUID` для слотов игроков (`null` — пустой слот)
+- bye-слоты не маскируются под пользователя, а помечаются флагами `player1IsWalkover` / `player2IsWalkover`; матчи с автопроходом сразу создаются в статусе `completed`
+- предоставляет `getBracketStats()`, `getRoundName()`, `calculateRounds()` и `getNextPowerOfTwo()` для bot/admin UI
 
 ### notificationService
 
@@ -701,7 +820,8 @@ draft
 
 ## Особенности реализации
 
-- **Модульный wizard**: старый `tournamentCreationWizard.ts` удален, логика разбита на `flow`, `renderer`, `keyboards`, `stateStore` и `module`
+- **Модульный wizard**: логика создания турнира вынесена в каталог `wizards/tournamentCreation/` (`flow`, `renderer`, `keyboards`, `stateStore`, `module`, `const`), а активные wizard-сессии диспетчеризуются через `wizardRegistry.ts`
+- **Корректировка результатов**: завершенный матч можно пересчитать (`correctMatchResult`); при смене победителя зависимые матчи откатываются, а история пишется в `matchCorrections`
 - **In-memory state**: сессии создания турнира пока хранятся в `Map`; при перезапуске процесса незавершенные wizard-сессии теряются
 - **Type-safe UUID**: UUID типизированы на уровне схем Drizzle, сервисов и Hono-маршрутов
 - **Venue-first модель турнира**: турнир теперь не может существовать без площадки, а выбор столов ограничен ее контекстом
