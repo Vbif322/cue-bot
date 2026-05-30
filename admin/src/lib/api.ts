@@ -211,6 +211,39 @@ export const matchesApi = {
       method: 'PUT',
       body: JSON.stringify({ tableId }),
     }),
+
+  previewCorrection: (
+    id: string,
+    data: { player1Score: number; player2Score: number },
+  ) =>
+    apiFetch<{
+      valid: boolean;
+      error?: string;
+      winnerChanged: boolean;
+      affectedCount: number;
+      willReshuffle: boolean;
+      tournamentWillReopen: boolean;
+    }>(`/api/matches/${id}/correct/preview`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  correct: (
+    id: string,
+    data: { player1Score: number; player2Score: number; reason: string },
+  ) =>
+    apiFetch<{
+      ok: boolean;
+      affectedCount: number;
+      winnerChanged: boolean;
+      warning?: string;
+    }>(`/api/matches/${id}/correct`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  advance: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/advance`, { method: 'POST' }),
 };
 
 // ── Users ────────────────────────────────────────────────────────────────────

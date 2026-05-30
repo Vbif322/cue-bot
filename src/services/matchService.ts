@@ -6,12 +6,23 @@ import type { UUID } from 'crypto';
 import { db } from '@/db/db.js';
 import {
   matches,
+  matchCorrections,
   tournaments,
   users,
   tables,
   tournamentTables,
 } from '@/db/schema.js';
 import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
+
+/** A drizzle executor — either the root `db` or an open transaction handle. */
+type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Visitor invoked for each downstream match that holds a player advanced from a corrected match. */
+type DownstreamVisitor = (
+  match: Match,
+  slot: 'player1' | 'player2',
+  viaPlayerId: UUID,
+) => void | Promise<void>;
 
 import { completeTournament, getTournament } from './tournamentService.js';
 import { notifyMatchStart } from './notificationService.js';
@@ -712,45 +723,56 @@ async function advanceWinnerRandom(
   }
 }
 
+/**
+ * Where the loser of a winners-bracket match drops into the losers bracket.
+ * Hardcoded to the 16-player double-elimination layout (mirrors the generator).
+ * Returns null when the loser is eliminated (winners round > 2). Single source
+ * of truth shared by advanceLoserToLosersBracket (forward) and the correction
+ * rollback (reverse), so the two can never drift.
+ */
+function loserTarget(
+  match: Match,
+): { position: number; slot: 'player1Id' | 'player2Id' } | null {
+  if (match.round > 2 || match.bracketType !== 'winners') return null;
+
+  if (match.round === 1) {
+    return {
+      position: 9 + Math.floor((match.position - 1) / 2),
+      slot: match.position % 2 === 1 ? 'player1Id' : 'player2Id',
+    };
+  }
+  return { position: 17 + (match.position - 13), slot: 'player2Id' };
+}
+
 async function advanceLoserToLosersBracket(
   match: Match,
   loserId: UUID,
   botApi?: Api,
 ): Promise<void> {
-  if (match.round > 2 || match.bracketType !== 'winners') return;
-
-  let targetPosition: number;
-  let targetSlot: 'player1Id' | 'player2Id';
-
-  if (match.round === 1) {
-    targetPosition = 9 + Math.floor((match.position - 1) / 2);
-    targetSlot = match.position % 2 === 1 ? 'player1Id' : 'player2Id';
-  } else {
-    targetPosition = 17 + (match.position - 13);
-    targetSlot = 'player2Id';
-  }
+  const target = loserTarget(match);
+  if (!target) return;
 
   const losersMatch = await db.query.matches.findFirst({
     where: and(
       eq(matches.tournamentId, match.tournamentId),
-      eq(matches.position, targetPosition),
+      eq(matches.position, target.position),
     ),
   });
 
   if (!losersMatch) {
     console.error(
-      `Losers match not found at position ${targetPosition} for tournament ${match.tournamentId}`,
+      `Losers match not found at position ${target.position} for tournament ${match.tournamentId}`,
     );
     return;
   }
 
   await db
     .update(matches)
-    .set({ [targetSlot]: loserId, updatedAt: new Date() })
+    .set({ [target.slot]: loserId, updatedAt: new Date() })
     .where(eq(matches.id, losersMatch.id));
 
   const filledSlot: 'player1' | 'player2' =
-    targetSlot === 'player1Id' ? 'player1' : 'player2';
+    target.slot === 'player1Id' ? 'player1' : 'player2';
   await maybeAutoResolveWalkover(losersMatch.id, filledSlot, loserId, botApi);
 }
 
@@ -875,4 +897,400 @@ export async function startMatch(
   } catch (error) {
     return { success: false, error: JSON.stringify(error) };
   }
+}
+
+// ── Result correction (admin) ────────────────────────────────────────────────
+
+/**
+ * Validate a corrected score using the same rule as reportResult: exactly one
+ * player must reach winScore, and not both. Returns an error string or null.
+ */
+function validateCorrectionScores(
+  player1Score: number,
+  player2Score: number,
+  winScore: number,
+): string | null {
+  if (player1Score !== winScore && player2Score !== winScore) {
+    return `Один из игроков должен набрать ${winScore} побед`;
+  }
+  if (player1Score === winScore && player2Score === winScore) {
+    return 'Оба игрока не могут выиграть';
+  }
+  return null;
+}
+
+/** Find which slot of a random-format pool currently holds the given player. */
+async function findPlayerSlotInPool(
+  exec: Executor,
+  tournamentId: UUID,
+  pool: { bracketType: 'winners' | 'losers'; round: number },
+  playerId: UUID,
+): Promise<{ match: Match; slot: 'player1' | 'player2' } | null> {
+  const candidates = await exec.query.matches.findMany({
+    where: and(
+      eq(matches.tournamentId, tournamentId),
+      eq(matches.bracketType, pool.bracketType),
+      eq(matches.round, pool.round),
+    ),
+  });
+  for (const m of candidates) {
+    if (m.player1Id === playerId) return { match: m, slot: 'player1' };
+    if (m.player2Id === playerId) return { match: m, slot: 'player2' };
+  }
+  return null;
+}
+
+/**
+ * Walk the downstream closure of a completed match: for every match that holds
+ * a player advanced from `match` (its winner via nextMatchId / random pool, and
+ * — in double-elimination — its loser via the losers bracket), recurse first
+ * (so the row is still intact when read), then invoke `visit`. Read-only on its
+ * own; the visitor decides what to do. Shared by previewCorrection (count) and
+ * correctMatchResult (reset), so the two can never diverge.
+ */
+async function walkDownstream(
+  exec: Executor,
+  match: Match,
+  tournament: { format: string },
+  visit: DownstreamVisitor,
+): Promise<void> {
+  if (!match.winnerId) return;
+
+  const loserId =
+    match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
+
+  const placements: Array<{
+    match: Match;
+    slot: 'player1' | 'player2';
+    player: UUID;
+  }> = [];
+
+  if (tournament.format === 'double_elimination_random') {
+    const winnerPool = getRandomTargetPool(match, true);
+    if (winnerPool) {
+      const found = await findPlayerSlotInPool(
+        exec,
+        match.tournamentId,
+        winnerPool,
+        match.winnerId,
+      );
+      if (found) {
+        placements.push({
+          match: found.match,
+          slot: found.slot,
+          player: match.winnerId,
+        });
+      }
+    }
+    if (match.bracketType === 'winners' && loserId) {
+      const loserPool = getRandomTargetPool(match, false);
+      if (loserPool) {
+        const found = await findPlayerSlotInPool(
+          exec,
+          match.tournamentId,
+          loserPool,
+          loserId,
+        );
+        if (found) {
+          placements.push({
+            match: found.match,
+            slot: found.slot,
+            player: loserId,
+          });
+        }
+      }
+    }
+  } else {
+    if (match.nextMatchId) {
+      const slot: 'player1' | 'player2' =
+        match.nextMatchPosition === 'player1' ||
+        match.nextMatchPosition === 'player2'
+          ? match.nextMatchPosition
+          : match.position % 2 === 1
+            ? 'player1'
+            : 'player2';
+      const next = await exec.query.matches.findFirst({
+        where: eq(matches.id, match.nextMatchId),
+      });
+      const nextSlotId =
+        slot === 'player1' ? next?.player1Id : next?.player2Id;
+      if (next && nextSlotId === match.winnerId) {
+        placements.push({ match: next, slot, player: match.winnerId });
+      }
+    }
+
+    if (
+      tournament.format === 'double_elimination' &&
+      match.bracketType === 'winners' &&
+      loserId
+    ) {
+      const target = loserTarget(match);
+      if (target) {
+        const losersMatch = await exec.query.matches.findFirst({
+          where: and(
+            eq(matches.tournamentId, match.tournamentId),
+            eq(matches.position, target.position),
+          ),
+        });
+        const slot: 'player1' | 'player2' =
+          target.slot === 'player1Id' ? 'player1' : 'player2';
+        const slotId =
+          slot === 'player1' ? losersMatch?.player1Id : losersMatch?.player2Id;
+        if (losersMatch && slotId === loserId) {
+          placements.push({ match: losersMatch, slot, player: loserId });
+        }
+      }
+    }
+  }
+
+  for (const p of placements) {
+    if (p.match.status === 'completed' && p.match.winnerId) {
+      await walkDownstream(exec, p.match, tournament, visit);
+    }
+    await visit(p.match, p.slot, p.player);
+  }
+}
+
+/**
+ * Reset a downstream match whose participant changed: clear only the slot fed
+ * from upstream (the sibling-fed player is preserved), wipe the result, and put
+ * it back to `scheduled` for a replay. Structural walkover flags are left intact
+ * so re-advance can re-resolve byes.
+ */
+async function resetDownstream(
+  exec: Executor,
+  match: Match,
+  slot: 'player1' | 'player2',
+  affected: UUID[],
+): Promise<void> {
+  const slotCol = slot === 'player1' ? 'player1Id' : 'player2Id';
+  await exec
+    .update(matches)
+    .set({
+      [slotCol]: null,
+      status: 'scheduled',
+      winnerId: null,
+      player1Score: null,
+      player2Score: null,
+      reportedBy: null,
+      confirmedBy: null,
+      isTechnicalResult: false,
+      technicalReason: null,
+      startedAt: null,
+      completedAt: null,
+      tableId: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(matches.id, match.id));
+  affected.push(match.id);
+}
+
+export type CorrectionPreview = {
+  valid: boolean;
+  error?: string;
+  winnerChanged: boolean;
+  affectedCount: number;
+  willReshuffle: boolean;
+  tournamentWillReopen: boolean;
+};
+
+/**
+ * Read-only dry run: validate a proposed correction and count how many
+ * downstream matches would be reset, without writing anything.
+ */
+export async function previewCorrection(
+  matchId: UUID,
+  newPlayer1Score: number,
+  newPlayer2Score: number,
+): Promise<CorrectionPreview> {
+  const empty = {
+    winnerChanged: false,
+    affectedCount: 0,
+    willReshuffle: false,
+    tournamentWillReopen: false,
+  };
+
+  const match = await getMatch(matchId);
+  if (!match) return { valid: false, error: 'Матч не найден', ...empty };
+  if (match.status !== 'completed') {
+    return {
+      valid: false,
+      error: 'Корректировать можно только завершённый матч',
+      ...empty,
+    };
+  }
+  if (!match.player1Id || !match.player2Id) {
+    return { valid: false, error: 'У матча нет обоих игроков', ...empty };
+  }
+
+  const tournament = await getTournament(match.tournamentId);
+  if (!tournament) return { valid: false, error: 'Турнир не найден', ...empty };
+
+  const scoreError = validateCorrectionScores(
+    newPlayer1Score,
+    newPlayer2Score,
+    tournament.winScore,
+  );
+  if (scoreError) return { valid: false, error: scoreError, ...empty };
+
+  const newWinnerId =
+    newPlayer1Score > newPlayer2Score ? match.player1Id : match.player2Id;
+  const winnerChanged = newWinnerId !== match.winnerId;
+
+  let affectedCount = 0;
+  if (winnerChanged && tournament.format !== 'round_robin') {
+    const ids = new Set<UUID>();
+    await walkDownstream(db, match, tournament, (m) => {
+      ids.add(m.id);
+    });
+    affectedCount = ids.size;
+  }
+
+  return {
+    valid: true,
+    winnerChanged,
+    affectedCount,
+    willReshuffle:
+      tournament.format === 'double_elimination_random' && winnerChanged,
+    tournamentWillReopen:
+      winnerChanged &&
+      tournament.status === 'completed' &&
+      tournament.format !== 'round_robin',
+  };
+}
+
+/**
+ * Correct the score of a completed match. If the winner is unchanged this is a
+ * plain score edit. If the winner flips, every downstream match the old winner
+ * (and, in double-elimination, the old loser) advanced into is rolled back to
+ * `scheduled` for replay, and the new winner is re-advanced.
+ *
+ * The destructive rollback runs in a transaction; re-advancement reuses the
+ * existing advanceWinner after commit (its helpers close over the module-level
+ * db). A failed re-advance is recoverable via the admin /advance endpoint.
+ */
+export async function correctMatchResult(
+  matchId: UUID,
+  newPlayer1Score: number,
+  newPlayer2Score: number,
+  reason: string,
+  correctedBy: UUID,
+  botApi?: Api,
+): Promise<{
+  success: boolean;
+  error?: string;
+  affectedCount?: number;
+  winnerChanged?: boolean;
+  warning?: string;
+}> {
+  const match = await getMatch(matchId);
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status !== 'completed') {
+    return { success: false, error: 'Корректировать можно только завершённый матч' };
+  }
+  if (!match.player1Id || !match.player2Id) {
+    return { success: false, error: 'У матча нет обоих игроков' };
+  }
+
+  const tournament = await getTournament(match.tournamentId);
+  if (!tournament) return { success: false, error: 'Турнир не найден' };
+
+  const scoreError = validateCorrectionScores(
+    newPlayer1Score,
+    newPlayer2Score,
+    tournament.winScore,
+  );
+  if (scoreError) return { success: false, error: scoreError };
+
+  const newWinnerId =
+    newPlayer1Score > newPlayer2Score ? match.player1Id : match.player2Id;
+  const winnerChanged = newWinnerId !== match.winnerId;
+  const needsRollback = winnerChanged && tournament.format !== 'round_robin';
+  const affected: UUID[] = [];
+
+  await db.transaction(async (tx) => {
+    // Serialize concurrent corrections of the same match.
+    await tx
+      .select({ id: matches.id })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .for('update');
+
+    if (needsRollback) {
+      await walkDownstream(tx, match, tournament, (m, slot) =>
+        resetDownstream(tx, m, slot, affected),
+      );
+      if (tournament.status === 'completed') {
+        await tx
+          .update(tournaments)
+          .set({ status: 'in_progress', updatedAt: new Date() })
+          .where(eq(tournaments.id, tournament.id));
+      }
+    }
+
+    await tx
+      .update(matches)
+      .set({
+        player1Score: newPlayer1Score,
+        player2Score: newPlayer2Score,
+        winnerId: newWinnerId,
+        isCorrected: true,
+        correctionReason: reason,
+        isTechnicalResult: false,
+        technicalReason: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(matches.id, matchId));
+
+    await tx.insert(matchCorrections).values({
+      matchId,
+      tournamentId: match.tournamentId,
+      correctedBy,
+      reason,
+      previousPlayer1Score: match.player1Score,
+      previousPlayer2Score: match.player2Score,
+      previousWinnerId: match.winnerId,
+      newPlayer1Score,
+      newPlayer2Score,
+      newWinnerId,
+      affectedMatchIds: affected.length ? affected : null,
+    });
+  });
+
+  if (needsRollback) {
+    try {
+      await advanceWinner(matchId, botApi);
+    } catch (error) {
+      console.error(
+        `Failed to re-advance after correcting match ${matchId}:`,
+        error,
+      );
+      return {
+        success: true,
+        affectedCount: affected.length,
+        winnerChanged,
+        warning:
+          'Результат исправлен, но не удалось продвинуть победителя. Используйте «Пересинхронизировать».',
+      };
+    }
+  }
+
+  return { success: true, affectedCount: affected.length, winnerChanged };
+}
+
+/**
+ * Admin recovery: re-run advancement for a completed match. Idempotent — used
+ * to re-sync the bracket if a correction's post-commit re-advance failed.
+ */
+export async function resyncAdvancement(
+  matchId: UUID,
+  botApi?: Api,
+): Promise<{ success: boolean; error?: string }> {
+  const match = await getMatch(matchId);
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status !== 'completed' || !match.winnerId) {
+    return { success: false, error: 'Матч не завершён' };
+  }
+  await advanceWinner(matchId, botApi);
+  return { success: true };
 }

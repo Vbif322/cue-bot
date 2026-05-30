@@ -11,12 +11,14 @@ import { startTournamentFull } from '@/services/tournamentStartService.js';
 import {
   canStartTournament,
   getTournaments,
+  getUserTournaments,
   getTournament,
   updateTournamentStatus,
   deleteTournament,
   canDeleteTournament,
   closeRegistrationWithCount,
 } from '@/services/tournamentService.js';
+import type { TournamentStatus } from '@/bot/@types/tournament.js';
 
 import { adminOnly } from '../guards.js';
 import { isAdmin } from '../permissions.js';
@@ -24,9 +26,10 @@ import {
   getTournamentInfo,
   buildTournamentMessage,
   buildTournamentKeyboard,
-  buildTournamentListItem,
-  buildTournamentListKeyboard,
+  buildTournamentListItemCompact,
+  buildTournamentTabsKeyboard,
 } from '../ui/tournamentUI.js';
+import type { TournamentTab } from '../ui/tournamentUI.js';
 import { getMatchStatusEmoji } from '../ui/matchUI.js';
 import { tournamentCreationFlow } from '../wizards/tournamentCreation/tournamentCreation.module.js';
 import type { BotContext } from '../types.js';
@@ -59,54 +62,77 @@ tournamentCommands.command('cancel', async (ctx) => {
   }
 });
 
+/** Active (non-terminal) statuses shown under the «Текущие» tab. */
+const ACTIVE_STATUSES: TournamentStatus[] = [
+  'registration_open',
+  'registration_closed',
+  'in_progress',
+];
+
+const TAB_HEADERS: Record<TournamentTab, string> = {
+  current: 'Текущие турниры:\n\n',
+  archive: '🏁 Завершённые турниры:\n\n',
+  my: '👤 Мои турниры:\n\n',
+};
+
 /**
  * Send the current tournaments list to the user. Shared between the
  * `/tournaments` command and onboarding entry points (/start, /help button).
  */
 export async function showTournamentsList(ctx: BotContext): Promise<void> {
+  await renderTournamentsList(ctx, 'current', { edit: false });
+}
+
+/**
+ * Render the tabbed tournaments list. `edit: false` replies with a new message
+ * (menu / command entry); `edit: true` edits the callback message in place
+ * (tab switches). Each tab is capped at 10 rows — no pagination.
+ */
+async function renderTournamentsList(
+  ctx: BotContext,
+  tab: TournamentTab,
+  { edit }: { edit: boolean },
+): Promise<void> {
   const admin = isAdmin(ctx);
 
-  const allTournaments = await getTournaments({
-    limit: 10,
-    includesDrafts: true,
-  });
-
-  if (allTournaments.length === 0) {
-    await ctx.reply('Турниров пока нет.');
-    return;
-  }
-
-  const visibleTournaments = admin
-    ? allTournaments
-    : allTournaments.filter((t) => t.status !== 'draft');
-
-  if (visibleTournaments.length === 0) {
-    await ctx.reply('Турниров пока нет.');
-    return;
+  let rows;
+  if (tab === 'my') {
+    rows = await getUserTournaments(ctx.dbUser.id, { limit: 10 });
+  } else if (tab === 'archive') {
+    rows = await getTournaments({ limit: 10, statuses: ['completed'] });
+  } else {
+    const statuses = admin
+      ? [...ACTIVE_STATUSES, 'draft' as TournamentStatus]
+      : ACTIVE_STATUSES;
+    rows = await getTournaments({ limit: 10, statuses });
   }
 
   const tournamentsInfo = await Promise.all(
-    visibleTournaments.map((t) => getTournamentInfo(t, ctx.dbUser.id)),
+    rows.map((t) => getTournamentInfo(t, ctx.dbUser.id)),
   );
 
-  const currentTournaments = tournamentsInfo.filter(
-    (tournament) => tournament.status !== 'completed',
-  );
-
-  let message = 'Список турниров:\n\n';
-  for (const info of currentTournaments) {
-    message += buildTournamentListItem(info, admin);
+  let message = TAB_HEADERS[tab];
+  if (tournamentsInfo.length === 0) {
+    message += 'В этой категории турниров нет.';
+  } else {
+    for (const info of tournamentsInfo) {
+      message += buildTournamentListItemCompact(info, admin);
+    }
   }
 
-  const keyboard = buildTournamentListKeyboard(currentTournaments);
+  const keyboard = buildTournamentTabsKeyboard(tab, tournamentsInfo);
 
-  if (keyboard.inline_keyboard.length > 0) {
-    await ctx.reply(message, {
+  if (edit) {
+    await safeEditMessageText(ctx, {
+      text: message,
       parse_mode: 'Markdown',
       reply_markup: keyboard,
     });
   } else {
-    await ctx.reply(message, { parse_mode: 'Markdown' });
+    await ctx.reply(message, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
   }
 }
 
@@ -157,6 +183,16 @@ tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
 // ============================================================================
 // CALLBACK HANDLERS - Tournament Management
 // ============================================================================
+
+/**
+ * Switch tournament list tab (Текущие / Завершённые / Мои) — edits in place.
+ */
+tournamentCommands.callbackQuery(/^tlist:(current|archive|my)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await renderTournamentsList(ctx, ctx.match![1] as TournamentTab, {
+    edit: true,
+  });
+});
 
 /**
  * Show tournament info when selected from list

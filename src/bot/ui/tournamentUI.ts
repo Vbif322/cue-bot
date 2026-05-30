@@ -11,6 +11,9 @@ import {
 import { db } from '@/db/db.js';
 import { tournamentParticipants } from '@/db/schema.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
+import { escapeMarkdown } from '@/utils/messageHelpers.js';
+
+export type TournamentTab = 'current' | 'archive' | 'my';
 
 export interface TournamentInfo {
   id: string;
@@ -24,7 +27,7 @@ export interface TournamentInfo {
   winScore: number;
   description: string | null;
   participantsCount: number;
-  userParticipationStatus: "pending" | "confirmed" | null;
+  userParticipationStatus: 'pending' | 'confirmed' | null;
 }
 
 /**
@@ -51,7 +54,7 @@ export async function getParticipantsCount(
 export async function getUserParticipationStatus(
   tournamentId: UUID,
   userId: UUID,
-): Promise<"pending" | "confirmed" | null> {
+): Promise<'pending' | 'confirmed' | null> {
   const participation = await db.query.tournamentParticipants.findFirst({
     where: and(
       eq(tournamentParticipants.tournamentId, tournamentId),
@@ -125,20 +128,26 @@ export function buildTournamentMessage(
 }
 
 /**
- * Build tournament list item message
+ * Build a compact tournament list item. The tournament name is carried by the
+ * inline button (see buildTournamentTabsKeyboard), so the text stays short:
+ * a single meta line with status, participants and (optional) date.
+ *
+ * The name is run through escapeMarkdown — it is free-form admin input and
+ * could otherwise break the 'Markdown' parse_mode.
  */
-export function buildTournamentListItem(
+export function buildTournamentListItemCompact(
   info: TournamentInfo,
   isAdmin: boolean,
 ): string {
+  const status =
+    STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status;
+  const date = info.startDate
+    ? ` · ${DateTimeHelperInstance.formatDate(info.startDate)}`
+    : '';
+
   return (
-    `📋 *${info.name}*\n` +
-    `   Площадка: ${info.venueName ?? 'Не указана'}\n` +
-    `   Дисциплина: ${DISCIPLINE_LABELS[info.discipline] || info.discipline}\n` +
-    `   Формат: ${formatFormat(info.format)}\n` +
-    `   Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
-    `   Участников: ${info.participantsCount}/${info.maxParticipants}\n` +
-    `   Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +
+    `📋 *${escapeMarkdown(info.name)}*\n` +
+    `   ${status} · ${info.participantsCount}/${info.maxParticipants}${date}\n` +
     (isAdmin ? `   ID: \`${info.id}\`\n` : '') +
     '\n'
   );
@@ -184,7 +193,7 @@ export function buildTournamentKeyboard(
         .text('Закрыть регистрацию', `tournament_close_reg:${info.id}`)
         .row();
       keyboard
-        .text("👥 Управление участниками", `adm:pending_list:${info.id}`)
+        .text('👥 Управление участниками', `adm:pending_list:${info.id}`)
         .row();
     }
     if (info.status === 'registration_closed') {
@@ -199,20 +208,31 @@ export function buildTournamentKeyboard(
 }
 
 /**
- * Build keyboard for tournament list (with registration buttons)
+ * Build keyboard for the tabbed tournament list: a row of filter tabs (active
+ * one bracketed, since Telegram has no "selected button" state) followed by one
+ * button per tournament that opens its card, regardless of status. The quick
+ * «Участвовать» button is only added for `registration_open` tournaments.
  */
-export function buildTournamentListKeyboard(
+export function buildTournamentTabsKeyboard(
+  activeTab: TournamentTab,
   tournaments: TournamentInfo[],
 ): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
+  const mark = (label: string, tab: TournamentTab): string =>
+    activeTab === tab ? `· ${label} ·` : label;
+
+  const keyboard = new InlineKeyboard()
+    .text(mark('Текущие', 'current'), 'tlist:current')
+    .text(mark(' Завершённые', 'archive'), 'tlist:archive')
+    .row()
+    .text(mark('👤 Мои турниры', 'my'), 'tlist:my')
+    .row();
 
   for (const t of tournaments) {
+    keyboard.text(`📋 ${t.name}`, `tournament_info:${t.id}`);
     if (t.status === 'registration_open') {
-      keyboard
-        .text(`📋 ${t.name}`, `tournament_info:${t.id}`)
-        .text('Участвовать', `reg:join:${t.id}`)
-        .row();
+      keyboard.text('Участвовать', `reg:join:${t.id}`);
     }
+    keyboard.row();
   }
 
   return keyboard;

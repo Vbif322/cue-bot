@@ -134,7 +134,7 @@ export async function notifyMatchAssigned(
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player2Name}\n\n` +
-        `Используйте /my\\_match для просмотра деталей.`,
+        `Используйте /my\\_matches для просмотра деталей.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
     });
@@ -149,7 +149,7 @@ export async function notifyMatchAssigned(
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player1Name}\n\n` +
-        `Используйте /my\\_match для просмотра деталей.`,
+        `Используйте /my\\_matches для просмотра деталей.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
     });
