@@ -14,6 +14,9 @@ import {
   disputeResult,
   setTechnicalResult,
   setMatchTable,
+  previewCorrection,
+  correctMatchResult,
+  resyncAdvancement,
 } from '@/services/matchService.js';
 import { notifyResultPending } from '@/services/notificationService.js';
 
@@ -142,6 +145,66 @@ export function createMatchesRouter(botApi: Api) {
       return c.json({ ok: true });
     },
   );
+
+  // Preview a result correction (dry run — no writes)
+  router.post(
+    '/:id/correct/preview',
+    zValidator(
+      'json',
+      z.object({
+        player1Score: z.number().int().min(0),
+        player2Score: z.number().int().min(0),
+      }),
+    ),
+    async (c) => {
+      const { player1Score, player2Score } = c.req.valid('json');
+      const preview = await previewCorrection(
+        c.req.param('id') as UUID,
+        player1Score,
+        player2Score,
+      );
+      return c.json({ data: preview });
+    },
+  );
+
+  // Correct the result of a completed match (rolls back downstream matches)
+  router.post(
+    '/:id/correct',
+    zValidator(
+      'json',
+      z.object({
+        player1Score: z.number().int().min(0),
+        player2Score: z.number().int().min(0),
+        reason: z.string().min(1),
+      }),
+    ),
+    async (c) => {
+      const { player1Score, player2Score, reason } = c.req.valid('json');
+      const admin = c.get('adminUser');
+      const result = await correctMatchResult(
+        c.req.param('id') as UUID,
+        player1Score,
+        player2Score,
+        reason,
+        admin.id as UUID,
+        botApi,
+      );
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({
+        ok: true,
+        affectedCount: result.affectedCount ?? 0,
+        winnerChanged: result.winnerChanged ?? false,
+        warning: result.warning,
+      });
+    },
+  );
+
+  // Recovery: re-run advancement for a completed match (idempotent)
+  router.post('/:id/advance', async (c) => {
+    const result = await resyncAdvancement(c.req.param('id') as UUID, botApi);
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json({ ok: true });
+  });
 
   // Assign / change / remove table (admin override)
   router.put(

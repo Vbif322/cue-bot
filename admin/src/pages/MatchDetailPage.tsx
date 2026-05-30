@@ -17,6 +17,15 @@ export default function MatchDetailPage() {
   const [p2Focused, setP2Focused] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [reporterId, setReporterId] = useState<string | null>(null);
+  const [corrP1, setCorrP1] = useState(0);
+  const [corrP2, setCorrP2] = useState(0);
+  const [corrP1Focused, setCorrP1Focused] = useState(false);
+  const [corrP2Focused, setCorrP2Focused] = useState(false);
+  const [corrReason, setCorrReason] = useState('');
+  const [corrPreview, setCorrPreview] = useState<Awaited<
+    ReturnType<typeof matchesApi.previewCorrection>
+  > | null>(null);
+  const [corrSuccess, setCorrSuccess] = useState('');
 
   const { data: match, isLoading } = useQuery({
     queryKey: ['match', id],
@@ -44,6 +53,12 @@ export default function MatchDetailPage() {
   useEffect(() => {
     setReporterId(match?.player1Id ?? null);
   }, [match?.player1Id, match?.id]);
+
+  useEffect(() => {
+    setCorrP1(match?.player1Score ?? 0);
+    setCorrP2(match?.player2Score ?? 0);
+    setCorrPreview(null);
+  }, [match?.player1Score, match?.player2Score, match?.id]);
 
   // Map of tables currently held by some OTHER in-progress match in this tournament.
   const busyByTable = useMemo(() => {
@@ -130,6 +145,47 @@ export default function MatchDetailPage() {
     onError: (e: Error) => setError(e.message),
   });
 
+  const previewMutation = useMutation({
+    mutationFn: () =>
+      matchesApi.previewCorrection(id!, {
+        player1Score: corrP1,
+        player2Score: corrP2,
+      }),
+    onSuccess: (data) => {
+      if (!data.valid) {
+        setError(data.error ?? 'Некорректный счёт');
+        setCorrPreview(null);
+        return;
+      }
+      setError('');
+      setCorrSuccess('');
+      setCorrPreview(data);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const correctMutation = useMutation({
+    mutationFn: () =>
+      matchesApi.correct(id!, {
+        player1Score: corrP1,
+        player2Score: corrP2,
+        reason: corrReason,
+      }),
+    onSuccess: (data) => {
+      invalidate();
+      setCorrPreview(null);
+      setCorrReason('');
+      setCorrSuccess(
+        data.winnerChanged
+          ? `Результат исправлен. Сброшено матчей: ${data.affectedCount}.${
+              data.warning ? ` ${data.warning}` : ''
+            }`
+          : 'Счёт исправлен.',
+      );
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   if (isLoading || !match) {
     return <div className="text-gray-500 text-sm">Загрузка...</div>;
   }
@@ -167,6 +223,12 @@ export default function MatchDetailPage() {
           {match.isTechnicalResult && (
             <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
               Технический результат: {match.technicalReason}
+            </span>
+          )}
+          {match.isCorrected && (
+            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+              Результат скорректирован
+              {match.correctionReason ? `: ${match.correctionReason}` : ''}
             </span>
           )}
         </div>
@@ -400,6 +462,116 @@ export default function MatchDetailPage() {
             })()
           )}
         </ActionCard>
+
+        {/* Correct completed result */}
+        {match.status === 'completed' && match.player1Id && match.player2Id && (
+          <ActionCard title="Скорректировать результат">
+            <div className="space-y-3">
+              <div className="p-3 bg-orange-50 text-orange-700 text-sm rounded-lg border border-orange-200">
+                Изменение счёта может сбросить пары последующих матчей — их
+                нужно будет переиграть.
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">
+                    {match.player1Name ?? match.player1Username}
+                  </p>
+                  <input
+                    type="number"
+                    min={0}
+                    value={corrP1Focused && corrP1 === 0 ? '' : corrP1}
+                    onFocus={() => setCorrP1Focused(true)}
+                    onBlur={() => setCorrP1Focused(false)}
+                    onChange={(e) => {
+                      setCorrP1(Number(e.target.value) || 0);
+                      setCorrPreview(null);
+                    }}
+                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                  />
+                </div>
+                <span className="text-gray-400 pb-1">:</span>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">
+                    {match.player2Name ?? match.player2Username}
+                  </p>
+                  <input
+                    type="number"
+                    min={0}
+                    value={corrP2Focused && corrP2 === 0 ? '' : corrP2}
+                    onFocus={() => setCorrP2Focused(true)}
+                    onBlur={() => setCorrP2Focused(false)}
+                    onChange={(e) => {
+                      setCorrP2(Number(e.target.value) || 0);
+                      setCorrPreview(null);
+                    }}
+                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                  />
+                </div>
+              </div>
+              <input
+                value={corrReason}
+                onChange={(e) => setCorrReason(e.target.value)}
+                placeholder="Причина исправления"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+
+              {corrPreview ? (
+                <div className="space-y-2">
+                  <div className="p-3 bg-amber-50 text-amber-800 text-sm rounded-lg border border-amber-200 space-y-1">
+                    {corrPreview.winnerChanged ? (
+                      <p>
+                        Победитель изменится. Будет сброшено матчей:{' '}
+                        <b>{corrPreview.affectedCount}</b> — их нужно
+                        переиграть.
+                      </p>
+                    ) : (
+                      <p>Победитель не меняется — изменится только счёт.</p>
+                    )}
+                    {corrPreview.tournamentWillReopen && (
+                      <p>Турнир будет возобновлён.</p>
+                    )}
+                    {corrPreview.willReshuffle && (
+                      <p>
+                        Внимание: в формате со случайной сеткой пары последующих
+                        матчей будут перетасованы заново.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => correctMutation.mutate()}
+                      disabled={correctMutation.isPending}
+                      className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      Подтвердить
+                    </button>
+                    <button
+                      onClick={() => setCorrPreview(null)}
+                      disabled={correctMutation.isPending}
+                      className="px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => previewMutation.mutate()}
+                  disabled={previewMutation.isPending || !corrReason}
+                  className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                >
+                  Исправить результат
+                </button>
+              )}
+
+              {corrSuccess && (
+                <div className="p-3 bg-green-50 text-green-700 text-sm rounded-lg border border-green-200">
+                  {corrSuccess}
+                </div>
+              )}
+            </div>
+          </ActionCard>
+        )}
       </div>
     </div>
   );

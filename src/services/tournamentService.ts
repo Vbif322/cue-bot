@@ -398,19 +398,59 @@ export async function randomizeSeeds(tournamentId: UUID): Promise<void> {
 }
 
 /**
- * Get tournaments with optional filtering
+ * Get tournaments with optional filtering.
+ *
+ * `statuses` (when provided) restricts the result to those statuses at the DB
+ * level. It takes precedence over `includesDrafts`. Capped at `limit` (default
+ * 10) — there is no pagination, so callers relying on the cap should be aware
+ * older rows beyond the limit are not returned.
  */
 export async function getTournaments(options?: {
   limit?: number;
   includesDrafts?: boolean;
+  statuses?: TournamentStatus[];
 }): Promise<TournamentReadModel[]> {
-  const { limit = 10, includesDrafts = true } = options || {};
+  const { limit = 10, includesDrafts = true, statuses } = options || {};
+
+  const where = statuses
+    ? inArray(tournaments.status, statuses)
+    : includesDrafts
+      ? undefined
+      : sql`${tournaments.status} <> 'draft'`;
 
   return db
     .select(tournamentReadColumns)
     .from(tournaments)
     .leftJoin(venues, eq(tournaments.venueId, venues.id))
-    .where(includesDrafts ? undefined : sql`${tournaments.status} <> 'draft'`)
+    .where(where)
+    .orderBy(desc(tournaments.createdAt))
+    .limit(limit);
+}
+
+/**
+ * Get tournaments the user is registered in (participant status pending or
+ * confirmed), most recent first. Capped at `limit` (default 10).
+ */
+export async function getUserTournaments(
+  userId: UUID,
+  options?: { limit?: number },
+): Promise<TournamentReadModel[]> {
+  const { limit = 10 } = options || {};
+
+  return db
+    .select(tournamentReadColumns)
+    .from(tournaments)
+    .leftJoin(venues, eq(tournaments.venueId, venues.id))
+    .innerJoin(
+      tournamentParticipants,
+      eq(tournamentParticipants.tournamentId, tournaments.id),
+    )
+    .where(
+      and(
+        eq(tournamentParticipants.userId, userId),
+        inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+      ),
+    )
     .orderBy(desc(tournaments.createdAt))
     .limit(limit);
 }

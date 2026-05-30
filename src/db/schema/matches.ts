@@ -56,6 +56,8 @@ export const matches = prodSchema.table('matches', {
     .references(() => users.id),
   isTechnicalResult: boolean('is_technical_result').notNull().default(false),
   technicalReason: text('technical_reason'),
+  isCorrected: boolean('is_corrected').notNull().default(false),
+  correctionReason: text('correction_reason'),
   nextMatchId: uuid('next_match_id').$type<UUID>(),
   nextMatchPosition: varchar('next_match_position', { length: 10 }),
   bracketType: varchar({ length: 20 }).default('winners'),
