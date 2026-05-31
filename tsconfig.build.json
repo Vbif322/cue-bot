@@ -1,0 +1,11 @@
+{
+  // Build config: compiles src/ to build/ with emit on.
+  // The editor / type-check config is tsconfig.json (covers src + test, no emit).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "build", "test"]
+}

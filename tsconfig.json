@@ -2,7 +2,9 @@
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // File Layout
-    "rootDir": "./src",
+    // NB: this config is for the editor / type-check (covers src + test, no emit).
+    // The actual build uses tsconfig.build.json (rootDir ./src, emit on).
+    "noEmit": true,
     "outDir": "./build",
     "paths": {
       "@/*": ["./src/*"]
@@ -13,7 +15,7 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "target": "ES2017",
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
     // For nodejs:
     "lib": ["esnext"],
 
@@ -44,6 +46,6 @@
 
     "skipLibCheck": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "test/**/*"],
   "exclude": ["node_modules", "build"]
 }

@@ -92,7 +92,7 @@ export async function canStartTournament(
   return { canStart: true, participantsCount: count };
 }
 
-function validateSeeds(
+export function validateSeeds(
   participants: TournamentParticipant[],
   count: number,
 ): string | null {
