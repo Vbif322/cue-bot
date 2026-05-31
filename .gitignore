@@ -4,5 +4,6 @@
 /drizzle
 /build
 /temp
+/coverage
 
 .env

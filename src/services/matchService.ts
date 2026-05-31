@@ -730,7 +730,7 @@ async function advanceWinnerRandom(
  * of truth shared by advanceLoserToLosersBracket (forward) and the correction
  * rollback (reverse), so the two can never drift.
  */
-function loserTarget(
+export function loserTarget(
   match: Match,
 ): { position: number; slot: 'player1Id' | 'player2Id' } | null {
   if (match.round > 2 || match.bracketType !== 'winners') return null;
@@ -905,7 +905,7 @@ export async function startMatch(
  * Validate a corrected score using the same rule as reportResult: exactly one
  * player must reach winScore, and not both. Returns an error string or null.
  */
-function validateCorrectionScores(
+export function validateCorrectionScores(
   player1Score: number,
   player2Score: number,
   winScore: number,

@@ -18,10 +18,15 @@
     "format": "prettier --write .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:coverage": "vitest run --coverage --project unit",
     "dev": "nodemon",
     "dev:admin": "npm run dev --prefix admin",
     "dev:all": "npm run db:up && concurrently -k -n api,web,db -c blue,magenta,green \"nodemon\" \"node admin/node_modules/vite/bin/vite.js --config admin/vite.config.ts admin --host\" \"tsx node_modules/drizzle-kit/bin.cjs studio\"",
-    "build": "tsc && tsc-alias",
+    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "start": "node --env-file=.env build/index.js",
     "build:admin": "npm run build --prefix admin",
     "db:up": "docker start drizzle-postgres && until docker exec drizzle-postgres pg_isready -q; do sleep 0.2; done",
@@ -45,12 +50,14 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "^12.0.1",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/luxon": "^3.7.1",
     "@types/node": "^24.10.1",
     "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
     "@typescript-eslint/parser": "^8.57.2",
+    "@vitest/coverage-v8": "^4.1.7",
     "concurrently": "^9.2.1",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.4",
@@ -63,8 +70,11 @@
     "eslint-plugin-unused-imports": "^4.4.1",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.1",
+    "testcontainers": "^12.0.1",
     "ts-node": "^10.9.2",
     "tsc-alias": "^1.8.16",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.7"
   }
 }
