@@ -5,7 +5,9 @@ import { MENU_BUTTONS, buildMainMenuKeyboard } from '@/bot/ui/mainMenu.js';
 describe('buildMainMenuKeyboard', () => {
   it('contains the three menu buttons in order', () => {
     const kb = buildMainMenuKeyboard();
-    const texts = kb.keyboard.flat().map((b) => b.text);
+    const texts = (kb.keyboard as Array<Array<{ text: string }>>)
+      .flat()
+      .map((b) => b.text);
     expect(texts).toEqual([
       MENU_BUTTONS.matches,
       MENU_BUTTONS.tournaments,
