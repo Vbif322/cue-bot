@@ -1,5 +1,5 @@
 import { db } from '@/db/db.js';
-import { users, venues } from '@/db/schema.js';
+import { tournaments, users, venues } from '@/db/schema.js';
 
 /**
  * Test-data factories. Phase 0b ships the two leaf entities needed to validate
@@ -24,6 +24,31 @@ export async function createVenue(
   const [row] = await db
     .insert(venues)
     .values({ name: `Venue ${uniq()}`, address: 'Test address', ...overrides })
+    .returning();
+  return row!;
+}
+
+/**
+ * Insert a tournament. A venue and creator are auto-created when not supplied
+ * (both are NOT NULL foreign keys). Defaults to a public single-elimination
+ * snooker draft; override `visibility`/`status`/etc. as needed.
+ */
+export async function createTournament(
+  overrides: Partial<typeof tournaments.$inferInsert> = {},
+) {
+  const venueId = overrides.venueId ?? (await createVenue()).id;
+  const createdBy = overrides.createdBy ?? (await createUser()).id;
+
+  const [row] = await db
+    .insert(tournaments)
+    .values({
+      name: `Tournament ${uniq()}`,
+      discipline: 'snooker',
+      format: 'single_elimination',
+      ...overrides,
+      venueId,
+      createdBy,
+    })
     .returning();
   return row!;
 }

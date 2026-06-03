@@ -21,7 +21,7 @@ import {
 import type { TournamentStatus } from '@/bot/@types/tournament.js';
 
 import { adminOnly } from '../guards.js';
-import { isAdmin } from '../permissions.js';
+import { canViewTournament, isAdmin } from '../permissions.js';
 import {
   getTournamentInfo,
   buildTournamentMessage,
@@ -102,12 +102,16 @@ async function renderTournamentsList(
   if (tab === 'my') {
     rows = await getUserTournaments(ctx.dbUser.id, { limit: 10 });
   } else if (tab === 'archive') {
-    rows = await getTournaments({ limit: 10, statuses: ['completed'] });
+    rows = await getTournaments({
+      limit: 10,
+      statuses: ['completed'],
+      includePrivate: admin,
+    });
   } else {
     const statuses = admin
       ? [...ACTIVE_STATUSES, 'draft' as TournamentStatus]
       : ACTIVE_STATUSES;
-    rows = await getTournaments({ limit: 10, statuses });
+    rows = await getTournaments({ limit: 10, statuses, includePrivate: admin });
   }
 
   const tournamentsInfo = await Promise.all(
@@ -475,6 +479,14 @@ tournamentCommands.callbackQuery(
 // CALLBACK HANDLERS - Tournament Creation Wizard
 // ============================================================================
 
+tournamentCommands.callbackQuery(/^tc:visibility:(.+)$/, async (ctx) => {
+  await tournamentCreationFlow.handleVisibilitySelection(ctx, ctx.match![1]!);
+});
+
+tournamentCommands.callbackQuery(/^tc:schedule:(.+)$/, async (ctx) => {
+  await tournamentCreationFlow.handleScheduleModeSelection(ctx, ctx.match![1]!);
+});
+
 tournamentCommands.callbackQuery(/^tc:discipline:(.+)$/, async (ctx) => {
   await tournamentCreationFlow.handleDisciplineSelection(ctx, ctx.match![1]!);
 });
@@ -561,7 +573,9 @@ async function showTournamentDetails(
 ): Promise<void> {
   const tournament = await getTournament(tournamentId);
 
-  if (!tournament) {
+  // Same response for "missing" and "forbidden" so a private tournament's
+  // existence is not leaked to users without access.
+  if (!tournament || !(await canViewTournament(ctx, tournament))) {
     const errorMsg = 'Турнир не найден.';
     if (editMessage) {
       await ctx.answerCallbackQuery({ text: errorMsg, show_alert: true });

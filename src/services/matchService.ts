@@ -899,6 +899,32 @@ export async function startMatch(
   }
 }
 
+/**
+ * Set or clear a match's scheduled date/time (per-match scheduling). Does not
+ * touch the match status — scheduling is independent of starting the match.
+ * Pass `null` to clear the schedule.
+ */
+export async function setMatchSchedule(
+  matchId: UUID,
+  scheduledAt: Date | null,
+): Promise<{ success: boolean; error?: string; match?: Match }> {
+  try {
+    const updatedMatch = await db
+      .update(matches)
+      .set({ scheduledAt, updatedAt: new Date() })
+      .where(eq(matches.id, matchId))
+      .returning();
+
+    if (!updatedMatch[0]) {
+      return { success: false, error: 'Матч не найден' };
+    }
+
+    return { success: true, match: updatedMatch[0] };
+  } catch (error) {
+    return { success: false, error: JSON.stringify(error) };
+  }
+}
+
 // ── Result correction (admin) ────────────────────────────────────────────────
 
 /**

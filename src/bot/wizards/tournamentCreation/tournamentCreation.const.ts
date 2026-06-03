@@ -1,6 +1,8 @@
 export const CREATION_STEPS = [
   'name',
   'date',
+  'visibility',
+  'scheduleMode',
   'venue',
   'discipline',
   'format',

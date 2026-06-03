@@ -5,6 +5,8 @@ import {
   disciplines,
   formats,
   maxParticipants,
+  scheduleModes,
+  visibilities,
   winScores,
 } from '@/db/schema/tournaments.js';
 
@@ -24,6 +26,22 @@ describe('TournamentCreationKeyboards', () => {
       { text: 'Hall A', data: 'tc:venue:v1' },
       { text: 'Hall B', data: 'tc:venue:v2' },
     ]);
+  });
+
+  it('buildVisibilityKeyboard: one button per visibility with tc:visibility:<v>', () => {
+    const btns = buttons(kbds.buildVisibilityKeyboard());
+    expect(btns.map((b) => b.data)).toEqual(
+      visibilities.map((v) => `tc:visibility:${v}`),
+    );
+    expect(btns.map((b) => b.text)).toEqual(['Открытый', 'Закрытый']);
+  });
+
+  it('buildScheduleModeKeyboard: one button per mode with tc:schedule:<m>', () => {
+    const btns = buttons(kbds.buildScheduleModeKeyboard());
+    expect(btns.map((b) => b.data)).toEqual(
+      scheduleModes.map((m) => `tc:schedule:${m}`),
+    );
+    expect(btns.map((b) => b.text)).toEqual(['Один день', 'По матчам']);
   });
 
   it('buildDisciplineKeyboard: one button per discipline', () => {

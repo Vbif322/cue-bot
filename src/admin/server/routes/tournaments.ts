@@ -45,7 +45,11 @@ export function createTournamentsRouter(botApi: Api) {
   router.use('/*', requireAdmin);
 
   router.get('/', async (c) => {
-    const list = await getTournaments({ limit: 100, includesDrafts: true });
+    const list = await getTournaments({
+      limit: 100,
+      includesDrafts: true,
+      includePrivate: true,
+    });
     return c.json({ data: list });
   });
 

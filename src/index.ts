@@ -7,12 +7,18 @@ import {
   roleCommands,
   tournamentCommands,
   registrationCommands,
+  inviteCommands,
   adminParticipantCommands,
   matchCommands,
   helpCommands,
   profileCommands,
   menuHandlers,
 } from './bot/handlers/index.js';
+import {
+  joinViaInvite,
+  parseStartPayload,
+} from './bot/handlers/inviteCommands.js';
+import { getTournamentByInviteCode } from './services/tournamentService.js';
 import { sendOnboarding } from './bot/handlers/helpCommand.js';
 import {
   setupCommands,
@@ -34,6 +40,7 @@ bot.use(authMiddleware);
 bot.use(wizardGuardMiddleware);
 bot.use(menuHandlers);
 bot.use(roleCommands);
+bot.use(inviteCommands);
 bot.use(tournamentCommands);
 bot.use(registrationCommands);
 bot.use(matchCommands);
@@ -59,6 +66,19 @@ bot.command('start', async (ctx) => {
   await ctx.reply(`Привет, ${name}!`, {
     reply_markup: buildMainMenuKeyboard(),
   });
+
+  // Deep-link invite: /start join_<code>
+  const payload = parseStartPayload(ctx.match);
+  if (payload?.kind === 'join') {
+    const tournament = await getTournamentByInviteCode(payload.code);
+    if (tournament) {
+      await joinViaInvite(ctx, tournament);
+      return;
+    }
+    await ctx.reply('Приглашение недействительно или турнир не найден.');
+    return;
+  }
+
   await sendOnboarding(ctx);
 });
 
