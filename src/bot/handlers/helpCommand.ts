@@ -31,5 +31,5 @@ helpCommands.command('help', (ctx) => sendOnboarding(ctx));
 
 helpCommands.callbackQuery('menu:tournaments', async (ctx) => {
   await ctx.answerCallbackQuery();
-  await showTournamentsList(ctx);
+  await showTournamentsList(ctx, true);
 });
