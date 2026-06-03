@@ -204,6 +204,8 @@ export function buildTournamentKeyboard(
     }
   }
 
+  keyboard.text('К списку турниров', 'menu:tournaments').row();
+
   return keyboard;
 }
 
@@ -229,9 +231,6 @@ export function buildTournamentTabsKeyboard(
 
   for (const t of tournaments) {
     keyboard.text(`📋 ${t.name}`, `tournament_info:${t.id}`);
-    if (t.status === 'registration_open') {
-      keyboard.text('Участвовать', `reg:join:${t.id}`);
-    }
     keyboard.row();
   }
 

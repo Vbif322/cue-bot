@@ -79,8 +79,11 @@ const TAB_HEADERS: Record<TournamentTab, string> = {
  * Send the current tournaments list to the user. Shared between the
  * `/tournaments` command and onboarding entry points (/start, /help button).
  */
-export async function showTournamentsList(ctx: BotContext): Promise<void> {
-  await renderTournamentsList(ctx, 'current', { edit: false });
+export async function showTournamentsList(
+  ctx: BotContext,
+  edit = false,
+): Promise<void> {
+  await renderTournamentsList(ctx, 'current', { edit });
 }
 
 /**
