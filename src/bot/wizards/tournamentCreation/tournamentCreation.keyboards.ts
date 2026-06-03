@@ -4,9 +4,16 @@ import {
   disciplines,
   maxParticipants,
   formats,
+  scheduleModes,
+  visibilities,
   winScores,
 } from '@/db/schema/tournaments.js';
-import { formatDiscipline, formatFormat } from '@/utils/constants.js';
+import {
+  formatDiscipline,
+  formatFormat,
+  formatScheduleMode,
+  formatVisibility,
+} from '@/utils/constants.js';
 
 import type { Venue } from '../../@types/venue.js';
 import type { Table } from '../../@types/table.js';
@@ -17,6 +24,8 @@ export interface ITournamentCreationKeyboards {
   buildVenuesKeyboard(
     venues: Array<Pick<Venue, 'id' | 'name'>>,
   ): InlineKeyboard;
+  buildVisibilityKeyboard(): InlineKeyboard;
+  buildScheduleModeKeyboard(): InlineKeyboard;
   buildDisciplineKeyboard(): InlineKeyboard;
   buildFormatKeyboard(): InlineKeyboard;
   buildParticipantsKeyboard(): InlineKeyboard;
@@ -50,6 +59,38 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
 
     for (const venue of venues) {
       keyboard.text(venue.name, `tc:venue:${venue.id}`).row();
+    }
+
+    return keyboard;
+  }
+
+  /**
+   * Создает клавиатуру для выбора видимости турнира
+   *
+   * @returns {InlineKeyboard} Клавиатура с вариантами видимости и коллбеком 'tc:visibility:<visibility>' для каждой кнопки
+   */
+  buildVisibilityKeyboard(): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+
+    for (const visibility of visibilities) {
+      keyboard
+        .text(formatVisibility(visibility), `tc:visibility:${visibility}`)
+        .row();
+    }
+
+    return keyboard;
+  }
+
+  /**
+   * Создает клавиатуру для выбора режима расписания турнира
+   *
+   * @returns {InlineKeyboard} Клавиатура с вариантами режима и коллбеком 'tc:schedule:<mode>' для каждой кнопки
+   */
+  buildScheduleModeKeyboard(): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+
+    for (const mode of scheduleModes) {
+      keyboard.text(formatScheduleMode(mode), `tc:schedule:${mode}`).row();
     }
 
     return keyboard;

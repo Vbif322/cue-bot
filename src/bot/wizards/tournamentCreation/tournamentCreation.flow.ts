@@ -4,6 +4,8 @@ import {
   disciplines,
   maxParticipants,
   formats,
+  scheduleModes,
+  visibilities,
   winScores,
 } from '@/db/schema.js';
 import { getVenue, getVenues } from '@/services/venueService.js';
@@ -14,6 +16,8 @@ import type {
   ITournamentDiscipline,
   ITournamentMaxParticipants,
   ITournamentFormat,
+  ITournamentScheduleMode,
+  ITournamentVisibility,
   ITournamentWinScore,
 } from '@/db/schema.js';
 
@@ -39,6 +43,16 @@ export interface ITournamentCreationFlow {
   handleNameInput(ctx: BotContext, name: string): Promise<boolean>;
 
   handleStartDateInput(ctx: BotContext, startDate: string): Promise<boolean>;
+
+  handleVisibilitySelection(
+    ctx: BotContext,
+    visibility: string,
+  ): Promise<boolean>;
+
+  handleScheduleModeSelection(
+    ctx: BotContext,
+    scheduleMode: string,
+  ): Promise<boolean>;
 
   handleVenueSelection(ctx: BotContext, venueId: UUID): Promise<boolean>;
 
@@ -197,7 +211,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     }
 
     const state = this.stateStore.update(userId, {
-      step: 'venue',
+      step: 'visibility',
       data: {
         tournament: {
           startDate: parsedDate.datetime,
@@ -206,10 +220,118 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     });
 
     if (
-      state.step !== 'venue' ||
+      state.step !== 'visibility' ||
       state.data.tournament?.startDate?.toISOString() !==
         parsedDate.datetime.toISOString()
     ) {
+      return false;
+    }
+
+    await this.renderer.showVisibilityStep(ctx, parsedDate.datetime);
+
+    return true;
+  }
+
+  /**
+   * Обрабатывает выбор видимости турнира пользователем
+   *
+   * Переводит процесс на шаг выбора площадки (загружает площадки).
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {string} visibility Выбранная видимость турнира
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleVisibilitySelection(
+    ctx: BotContext,
+    visibility: string,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'visibility',
+    );
+
+    if (!hasStep) return false;
+
+    if (!this.isVisibility(visibility)) {
+      await this.renderer.showInvalidVisibility(ctx);
+
+      return true;
+    }
+
+    const state = this.stateStore.update(userId, {
+      step: 'scheduleMode',
+      data: {
+        tournament: {
+          visibility,
+        },
+      },
+    });
+
+    if (
+      state.step !== 'scheduleMode' ||
+      state.data.tournament?.visibility !== visibility
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showScheduleModeStep(ctx, visibility);
+
+    return true;
+  }
+
+  /**
+   * Обрабатывает выбор режима расписания турнира пользователем
+   *
+   * Переводит процесс на шаг выбора площадки (загружает площадки).
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {string} scheduleMode Выбранный режим расписания
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleScheduleModeSelection(
+    ctx: BotContext,
+    scheduleMode: string,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'scheduleMode',
+    );
+
+    if (!hasStep) return false;
+
+    if (!this.isScheduleMode(scheduleMode)) {
+      await this.renderer.showInvalidScheduleMode(ctx);
+
+      return true;
+    }
+
+    const state = this.stateStore.update(userId, {
+      step: 'venue',
+      data: {
+        tournament: {
+          scheduleMode,
+        },
+      },
+    });
+
+    if (
+      state.step !== 'venue' ||
+      state.data.tournament?.scheduleMode !== scheduleMode
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+
       return false;
     }
 
@@ -223,7 +345,9 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return false;
     }
 
-    await this.renderer.showVenueStep(ctx, parsedDate.datetime, venues);
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showVenueStep(ctx, scheduleMode, venues);
 
     return true;
   }
@@ -646,6 +770,8 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
         name: state.data.tournament.name,
         discipline: state.data.tournament.discipline,
         format: state.data.tournament.format,
+        visibility: state.data.tournament.visibility,
+        scheduleMode: state.data.tournament.scheduleMode,
         maxParticipants: state.data.tournament.maxParticipants,
         winScore: state.data.tournament.winScore,
         startDate: state.data.tournament.startDate ?? null,
@@ -699,6 +825,14 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     return Object.values<string>(formats).includes(value);
   }
 
+  private isVisibility(value: string): value is ITournamentVisibility {
+    return Object.values<string>(visibilities).includes(value);
+  }
+
+  private isScheduleMode(value: string): value is ITournamentScheduleMode {
+    return Object.values<string>(scheduleModes).includes(value);
+  }
+
   private isAllowedParticipantsCount(
     value: number,
   ): value is ITournamentMaxParticipants {
@@ -717,6 +851,8 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     const isValidTournament =
       data.tournament?.name !== undefined &&
+      data.tournament?.visibility !== undefined &&
+      data.tournament?.scheduleMode !== undefined &&
       data.tournament?.discipline !== undefined &&
       data.tournament?.format !== undefined &&
       data.tournament?.maxParticipants !== undefined &&

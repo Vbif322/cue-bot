@@ -29,6 +29,14 @@ export const disciplines = [
 
 export type ITournamentDiscipline = (typeof disciplines)[number];
 
+export const visibilities = ['public', 'private'] as const;
+
+export type ITournamentVisibility = (typeof visibilities)[number];
+
+export const scheduleModes = ['single_day', 'per_match'] as const;
+
+export type ITournamentScheduleMode = (typeof scheduleModes)[number];
+
 export const maxParticipants = [8, 16, 32, 64, 128] as const;
 
 export type ITournamentMaxParticipants = (typeof maxParticipants)[number];
@@ -54,6 +62,14 @@ export const tournaments = prodSchema.table('tournaments', {
     .$type<ITournamentStatus>()
     .notNull()
     .default('draft'),
+  visibility: varchar({ enum: visibilities })
+    .$type<ITournamentVisibility>()
+    .notNull()
+    .default('public'),
+  scheduleMode: varchar('schedule_mode', { enum: scheduleModes })
+    .$type<ITournamentScheduleMode>()
+    .notNull()
+    .default('single_day'),
   startDate: timestamp('start_date'),
   confirmedParticipants: integer('confirmed_participants'),
   maxParticipants: integer('max_participants')
@@ -65,6 +81,7 @@ export const tournaments = prodSchema.table('tournaments', {
     .notNull()
     .default(3),
   rules: text(),
+  inviteCode: varchar('invite_code', { length: 16 }).unique(),
   createdBy: uuid('created_by')
     .$type<UUID>()
     .notNull()
