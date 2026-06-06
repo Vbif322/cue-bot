@@ -197,11 +197,9 @@ export function getMatchKeyboard(
     match.status !== 'completed' &&
     match.status !== 'cancelled'
   ) {
-    keyboard.text('🗓 Назначить время', `match:schedule:${match.id}`).row();
+    keyboard.text('🗓 Назначить время', `msch:set:${match.id}`).row();
     if (match.scheduledAt) {
-      keyboard
-        .text('🗓 Сбросить время', `match:schedule_clear:${match.id}`)
-        .row();
+      keyboard.text('🗓 Сбросить время', `msch:clear:${match.id}`).row();
     }
   }
 

@@ -2,19 +2,9 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { tournamentsApi } from '../../lib/api.ts';
-import type {
-  ApiTournament,
-  ITournamentFormat,
-  TournamentStatus,
-} from '../../lib/api.ts';
+import type { ApiTournament, TournamentStatus } from '../../lib/api.ts';
 import { TournamentStatusBadge } from '../StatusBadge.tsx';
-
-export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
-  single_elimination: 'Single Elimination',
-  double_elimination: 'Double Elimination',
-  double_elimination_random: 'Double Elimination (random)',
-  round_robin: 'Round Robin',
-};
+import { FORMAT_LABELS } from '../../lib/tournamentLabels.ts';
 
 const NEXT_STATUS: Partial<Record<TournamentStatus, TournamentStatus>> = {
   draft: 'registration_open',

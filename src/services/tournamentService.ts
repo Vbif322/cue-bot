@@ -646,12 +646,12 @@ export async function confirmParticipant(
 ): Promise<boolean> {
   const result = await db
     .update(tournamentParticipants)
-    .set({ status: "confirmed" })
+    .set({ status: 'confirmed' })
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId as UUID),
         eq(tournamentParticipants.userId, userId as UUID),
-        eq(tournamentParticipants.status, "pending"),
+        eq(tournamentParticipants.status, 'pending'),
       ),
     )
     .returning({ userId: tournamentParticipants.userId });
@@ -685,12 +685,12 @@ export async function rejectParticipant(
 ): Promise<boolean> {
   const result = await db
     .update(tournamentParticipants)
-    .set({ status: "cancelled", seed: null })
+    .set({ status: 'cancelled', seed: null })
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId as UUID),
         eq(tournamentParticipants.userId, userId as UUID),
-        eq(tournamentParticipants.status, "pending"),
+        eq(tournamentParticipants.status, 'pending'),
       ),
     )
     .returning({ userId: tournamentParticipants.userId });

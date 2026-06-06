@@ -392,13 +392,19 @@ export async function setMatchTable(
 }
 
 /**
- * Called when a table is freed — assigns it to the next ready match
+ * Called when a table is freed — assigns it to the next ready match.
+ *
+ * No-op for per-match scheduling: there the organiser assigns each match's
+ * table/time manually, so freed tables are not auto-handed to the next match.
  */
 export async function onTableFreed(
   tournamentId: UUID,
   tableId: UUID,
   botApi: Api,
 ): Promise<void> {
+  const tournament = await getTournament(tournamentId);
+  if (tournament?.scheduleMode === 'per_match') return;
+
   const next = await getNextReadyMatch(tournamentId);
   if (!next) return;
   await assignTableAndStart(next.id, tableId, botApi);
