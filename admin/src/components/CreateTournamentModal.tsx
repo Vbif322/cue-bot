@@ -3,14 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { tournamentsApi, tablesApi, venuesApi } from '../lib/api.ts';
 import { formats } from '@server/apiTypes';
-import type { ITournamentFormat } from '../lib/api.ts';
-
-const FORMAT_OPTIONS: Record<ITournamentFormat, string> = {
-  single_elimination: 'Single Elimination',
-  double_elimination: 'Double Elimination',
-  double_elimination_random: 'Double Elimination (random)',
-  round_robin: 'Round Robin',
-};
+import type {
+  TournamentVisibility,
+  TournamentScheduleMode,
+} from '../lib/api.ts';
+import {
+  FORMAT_LABELS,
+  VISIBILITY_LABELS,
+  SCHEDULE_MODE_LABELS,
+} from '../lib/tournamentLabels.ts';
 
 export default function CreateTournamentModal({
   onClose,
@@ -23,6 +24,8 @@ export default function CreateTournamentModal({
     description: '',
     rules: '',
     format: 'single_elimination' as const,
+    visibility: 'public' as TournamentVisibility,
+    scheduleMode: 'single_day' as TournamentScheduleMode,
     maxParticipants: 16,
     winScore: 2,
     startDate: '',
@@ -160,10 +163,57 @@ export default function CreateTournamentModal({
             >
               {formats.map((f) => (
                 <option key={f} value={f}>
-                  {FORMAT_OPTIONS[f]}
+                  {FORMAT_LABELS[f]}
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Видимость
+              </label>
+              <select
+                value={form.visibility}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    visibility: e.target.value as TournamentVisibility,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {(Object.keys(VISIBILITY_LABELS) as TournamentVisibility[]).map((v) => (
+                  <option key={v} value={v}>
+                    {VISIBILITY_LABELS[v]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Режим расписания
+              </label>
+              <select
+                value={form.scheduleMode}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    scheduleMode: e.target.value as TournamentScheduleMode,
+                  })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {(Object.keys(SCHEDULE_MODE_LABELS) as TournamentScheduleMode[]).map(
+                  (m) => (
+                    <option key={m} value={m}>
+                      {SCHEDULE_MODE_LABELS[m]}
+                    </option>
+                  ),
+                )}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

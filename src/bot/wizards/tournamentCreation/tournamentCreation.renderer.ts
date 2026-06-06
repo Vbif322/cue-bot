@@ -1,4 +1,9 @@
-import { formatDiscipline, formatFormat } from '@/utils/constants.js';
+import {
+  formatDiscipline,
+  formatFormat,
+  formatScheduleMode,
+  formatVisibility,
+} from '@/utils/constants.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
 
@@ -16,34 +21,44 @@ import type { Table } from '../../@types/table.js';
 export interface ITournamentCreationRenderer {
   showNameStep(ctx: BotContext): Promise<void>; // Step 1
   showStartDateStep(ctx: BotContext, name: Tournament['name']): Promise<void>; // Step 2
-  showVenueStep(
+  showVisibilityStep(
     ctx: BotContext,
     startDate: Tournament['startDate'],
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
   ): Promise<void>; // Step 3
-  showDisciplineStep(ctx: BotContext, venueName: Venue['name']): Promise<void>; // Step 4
+  showScheduleModeStep(
+    ctx: BotContext,
+    visibility: Tournament['visibility'],
+  ): Promise<void>; // Step 4
+  showVenueStep(
+    ctx: BotContext,
+    scheduleMode: Tournament['scheduleMode'],
+    venues: Array<Pick<Venue, 'id' | 'name'>>,
+  ): Promise<void>; // Step 5
+  showDisciplineStep(ctx: BotContext, venueName: Venue['name']): Promise<void>; // Step 6
   showFormatStep(
     ctx: BotContext,
     discipline: Tournament['discipline'],
-  ): Promise<void>; // Step 5
+  ): Promise<void>; // Step 7
   showMaxParticipantsStep(
     ctx: BotContext,
     format: Tournament['format'],
-  ): Promise<void>; // Step 6
+  ): Promise<void>; // Step 8
   showWinScoreStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
-  ): Promise<void>; // Step 7
+  ): Promise<void>; // Step 9
   showTablesStep(
     ctx: BotContext,
     tables: Array<Pick<Table, 'id' | 'name'>>,
     selectedTableIds: string[],
     winScore?: Tournament['winScore'],
-  ): Promise<void>; // Step 8
+  ): Promise<void>; // Step 10
 
   showSessionExpired(ctx: BotContext): Promise<void>;
   showVenueNotFound(ctx: BotContext): Promise<void>;
   showInvalidDiscipline(ctx: BotContext): Promise<void>;
+  showInvalidVisibility(ctx: BotContext): Promise<void>;
+  showInvalidScheduleMode(ctx: BotContext): Promise<void>;
   showInvalidFormat(ctx: BotContext): Promise<void>;
   showVenueMissing(ctx: BotContext): Promise<void>;
   showInvalidTableSelection(ctx: BotContext): Promise<void>;
@@ -102,10 +117,9 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     await ctx.reply(message);
   }
 
-  async showVenueStep(
+  async showVisibilityStep(
     ctx: BotContext,
     startDate: Tournament['startDate'],
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
   ): Promise<void> {
     const resultMessage = `
     Установлена дата турнира: ${this.dateTimeHelper.formatDate(startDate)}
@@ -117,6 +131,51 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     const message = `
     Шаг 3 / ${STEPS_COUNT}
+    Выберите видимость турнира
+    `.trim();
+
+    await ctx.reply(message, {
+      reply_markup: this.keyboards.buildVisibilityKeyboard(),
+    });
+  }
+
+  async showScheduleModeStep(
+    ctx: BotContext,
+    visibility: Tournament['visibility'],
+  ): Promise<void> {
+    const resultMessage = `
+    Установлена видимость: ${formatVisibility(visibility)}
+    `;
+
+    await safeEditMessageText(ctx, {
+      text: resultMessage,
+    });
+
+    const message = `
+    Шаг 4 / ${STEPS_COUNT}
+    Выберите режим расписания матчей
+    `.trim();
+
+    await ctx.reply(message, {
+      reply_markup: this.keyboards.buildScheduleModeKeyboard(),
+    });
+  }
+
+  async showVenueStep(
+    ctx: BotContext,
+    scheduleMode: Tournament['scheduleMode'],
+    venues: Array<Pick<Venue, 'id' | 'name'>>,
+  ): Promise<void> {
+    const resultMessage = `
+    Установлен режим расписания: ${formatScheduleMode(scheduleMode)}
+    `;
+
+    await safeEditMessageText(ctx, {
+      text: resultMessage,
+    });
+
+    const message = `
+    Шаг 5 / ${STEPS_COUNT}
     Выберите площадку
     `.trim();
 
@@ -138,7 +197,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 4 / ${STEPS_COUNT}
+    Шаг 6 / ${STEPS_COUNT}
     Выберите дисциплину
     `.trim();
 
@@ -160,7 +219,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 5 / ${STEPS_COUNT}
+    Шаг 7 / ${STEPS_COUNT}
     Выберите формат турнира
     `.trim();
 
@@ -182,7 +241,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 6 / ${STEPS_COUNT}
+    Шаг 8 / ${STEPS_COUNT}
     Введите максимальное количество участников
     `.trim();
 
@@ -204,7 +263,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 7 / ${STEPS_COUNT}
+    Шаг 9 / ${STEPS_COUNT}
     Введите количество побед при которых игра будет завершена
     `.trim();
 
@@ -229,7 +288,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     if (tables.length === 0) {
       const message = `
-      Шаг 8 / ${STEPS_COUNT}
+      Шаг 10 / ${STEPS_COUNT}
       У выбранной площадки нет столов
       `.trim();
 
@@ -242,7 +301,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     }
 
     const message = `
-    Шаг 8 / ${STEPS_COUNT}
+    Шаг 10 / ${STEPS_COUNT}
     Выберите столы для турнира на этой площадке или пропустите шаг
     `.trim();
 
@@ -272,6 +331,20 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
   async showInvalidDiscipline(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
       text: `${getMatchStatusEmoji('cancelled')} Некорректная дисциплина`,
+      show_alert: true,
+    });
+  }
+
+  async showInvalidVisibility(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: `${getMatchStatusEmoji('cancelled')} Некорректная видимость турнира`,
+      show_alert: true,
+    });
+  }
+
+  async showInvalidScheduleMode(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: `${getMatchStatusEmoji('cancelled')} Некорректный режим расписания`,
       show_alert: true,
     });
   }
@@ -363,11 +436,17 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     const formattedFormat = formatFormat(tournament.format);
 
+    const formattedVisibility = formatVisibility(tournament.visibility);
+
+    const formattedScheduleMode = formatScheduleMode(tournament.scheduleMode);
+
     const message = `
     Данные турнира:
     - ID: ${tournament.id}
     - Название: ${tournament.name}
     - Статус: Черновик
+    - Видимость: ${formattedVisibility}
+    - Режим расписания: ${formattedScheduleMode}
     - Дата начала: ${formattedStartDate}
     - Площадка: ${venue.name}
     - Дисциплина: ${formattedDiscipline}

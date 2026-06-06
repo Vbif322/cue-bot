@@ -392,13 +392,19 @@ export async function setMatchTable(
 }
 
 /**
- * Called when a table is freed — assigns it to the next ready match
+ * Called when a table is freed — assigns it to the next ready match.
+ *
+ * No-op for per-match scheduling: there the organiser assigns each match's
+ * table/time manually, so freed tables are not auto-handed to the next match.
  */
 export async function onTableFreed(
   tournamentId: UUID,
   tableId: UUID,
   botApi: Api,
 ): Promise<void> {
+  const tournament = await getTournament(tournamentId);
+  if (tournament?.scheduleMode === 'per_match') return;
+
   const next = await getNextReadyMatch(tournamentId);
   if (!next) return;
   await assignTableAndStart(next.id, tableId, botApi);
@@ -730,7 +736,7 @@ async function advanceWinnerRandom(
  * of truth shared by advanceLoserToLosersBracket (forward) and the correction
  * rollback (reverse), so the two can never drift.
  */
-function loserTarget(
+export function loserTarget(
   match: Match,
 ): { position: number; slot: 'player1Id' | 'player2Id' } | null {
   if (match.round > 2 || match.bracketType !== 'winners') return null;
@@ -899,13 +905,39 @@ export async function startMatch(
   }
 }
 
+/**
+ * Set or clear a match's scheduled date/time (per-match scheduling). Does not
+ * touch the match status — scheduling is independent of starting the match.
+ * Pass `null` to clear the schedule.
+ */
+export async function setMatchSchedule(
+  matchId: UUID,
+  scheduledAt: Date | null,
+): Promise<{ success: boolean; error?: string; match?: Match }> {
+  try {
+    const updatedMatch = await db
+      .update(matches)
+      .set({ scheduledAt, updatedAt: new Date() })
+      .where(eq(matches.id, matchId))
+      .returning();
+
+    if (!updatedMatch[0]) {
+      return { success: false, error: 'Матч не найден' };
+    }
+
+    return { success: true, match: updatedMatch[0] };
+  } catch (error) {
+    return { success: false, error: JSON.stringify(error) };
+  }
+}
+
 // ── Result correction (admin) ────────────────────────────────────────────────
 
 /**
  * Validate a corrected score using the same rule as reportResult: exactly one
  * player must reach winScore, and not both. Returns an error string or null.
  */
-function validateCorrectionScores(
+export function validateCorrectionScores(
   player1Score: number,
   player2Score: number,
   winScore: number,

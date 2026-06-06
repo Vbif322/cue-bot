@@ -10,6 +10,7 @@ import {
 } from '@/utils/constants.js';
 import { db } from '@/db/db.js';
 import { tournamentParticipants } from '@/db/schema.js';
+import type { ParticipantStatus } from '@/db/schema.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 
@@ -21,6 +22,7 @@ export interface TournamentInfo {
   discipline: string;
   format: string;
   status: string;
+  visibility: string;
   venueName: string | null;
   maxParticipants: number;
   startDate: Date | null;
@@ -28,6 +30,8 @@ export interface TournamentInfo {
   description: string | null;
   participantsCount: number;
   userParticipationStatus: 'pending' | 'confirmed' | null;
+  /** Whether the current user has a pending invitation to this tournament. */
+  isInvited: boolean;
 }
 
 /**
@@ -49,12 +53,14 @@ export async function getParticipantsCount(
 }
 
 /**
- * Get user's participation status for a tournament ("pending" | "confirmed" | null)
+ * Get user's raw participation status for a tournament, including `invited`
+ * (and `cancelled`/`disqualified`). Returns null if there is no participant
+ * row. Used for access checks and the invitation UI.
  */
-export async function getUserParticipationStatus(
+export async function getUserParticipationStatusAny(
   tournamentId: UUID,
   userId: UUID,
-): Promise<'pending' | 'confirmed' | null> {
+): Promise<ParticipantStatus | null> {
   const participation = await db.query.tournamentParticipants.findFirst({
     where: and(
       eq(tournamentParticipants.tournamentId, tournamentId),
@@ -62,13 +68,21 @@ export async function getUserParticipationStatus(
     ),
   });
 
-  if (
-    participation?.status === 'confirmed' ||
-    participation?.status === 'pending'
-  ) {
-    return participation.status;
-  }
-  return null;
+  return participation?.status ?? null;
+}
+
+/**
+ * Get user's participation status for a tournament ("pending" | "confirmed" | null).
+ * Drives the registration card text/buttons — intentionally narrower than
+ * getUserParticipationStatusAny (no `invited`/`cancelled`).
+ */
+export async function getUserParticipationStatus(
+  tournamentId: UUID,
+  userId: UUID,
+): Promise<'pending' | 'confirmed' | null> {
+  const status = await getUserParticipationStatusAny(tournamentId, userId);
+
+  return status === 'confirmed' || status === 'pending' ? status : null;
 }
 
 /**
@@ -81,6 +95,7 @@ export async function getTournamentInfo(
     discipline: string;
     format: string;
     status: string;
+    visibility: string;
     venueName: string | null;
     maxParticipants: number;
     startDate: Date | null;
@@ -89,15 +104,19 @@ export async function getTournamentInfo(
   },
   userId: UUID,
 ): Promise<TournamentInfo> {
-  const [participantsCount, userParticipationStatus] = await Promise.all([
+  const [participantsCount, rawStatus] = await Promise.all([
     getParticipantsCount(tournament.id),
-    getUserParticipationStatus(tournament.id, userId),
+    getUserParticipationStatusAny(tournament.id, userId),
   ]);
+
+  const userParticipationStatus =
+    rawStatus === 'confirmed' || rawStatus === 'pending' ? rawStatus : null;
 
   return {
     ...tournament,
     participantsCount,
     userParticipationStatus,
+    isInvited: rawStatus === 'invited',
   };
 }
 
@@ -110,6 +129,7 @@ export function buildTournamentMessage(
 ): string {
   return (
     `📋 *${info.name}*\n\n` +
+    (info.visibility === 'private' ? '🔒 Закрытый турнир\n' : '') +
     `Площадка: ${info.venueName ?? 'Не указана'}\n` +
     `Дисциплина: ${DISCIPLINE_LABELS[info.discipline] || info.discipline}\n` +
     `Формат: ${formatFormat(info.format)}\n` +
@@ -118,11 +138,13 @@ export function buildTournamentMessage(
     `Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +
     `Игра до: ${info.winScore} побед\n` +
     (info.description ? `\nОписание: ${info.description}\n` : '') +
-    (info.userParticipationStatus === 'confirmed'
-      ? '\n✅ Вы зарегистрированы'
-      : info.userParticipationStatus === 'pending'
-        ? '\n⏳ Ожидает подтверждения'
-        : '') +
+    (info.isInvited
+      ? '\n📨 Вас пригласили в этот турнир'
+      : info.userParticipationStatus === 'confirmed'
+        ? '\n✅ Вы зарегистрированы'
+        : info.userParticipationStatus === 'pending'
+          ? '\n⏳ Ожидает подтверждения'
+          : '') +
     (isAdmin ? `\n\nID: \`${info.id}\`` : '')
   );
 }
@@ -144,9 +166,10 @@ export function buildTournamentListItemCompact(
   const date = info.startDate
     ? ` · ${DateTimeHelperInstance.formatDate(info.startDate)}`
     : '';
+  const lock = info.visibility === 'private' ? '🔒 ' : '';
 
   return (
-    `📋 *${escapeMarkdown(info.name)}*\n` +
+    `📋 *${lock}${escapeMarkdown(info.name)}*\n` +
     `   ${status} · ${info.participantsCount}/${info.maxParticipants}${date}\n` +
     (isAdmin ? `   ID: \`${info.id}\`\n` : '') +
     '\n'
@@ -162,8 +185,14 @@ export function buildTournamentKeyboard(
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
 
-  // User registration buttons
-  if (info.status === 'registration_open') {
+  // Pending invitation — accept/decline takes precedence over registration.
+  if (info.isInvited) {
+    keyboard
+      .text('✅ Принять приглашение', `inv:accept:${info.id}`)
+      .text('❌ Отклонить', `inv:decline:${info.id}`)
+      .row();
+  } else if (info.status === 'registration_open') {
+    // User registration buttons
     if (!info.userParticipationStatus) {
       if (info.participantsCount < info.maxParticipants) {
         keyboard.text('Участвовать', `reg:join:${info.id}`).row();
@@ -202,7 +231,21 @@ export function buildTournamentKeyboard(
         .text('👥 Управление участниками', `adm:pending_list:${info.id}`)
         .row();
     }
+
+    // Invitations are how players reach a private tournament (it is hidden
+    // from the public list). Offer them while the roster is still open.
+    if (
+      info.visibility === 'private' &&
+      (info.status === 'draft' ||
+        info.status === 'registration_open' ||
+        info.status === 'registration_closed')
+    ) {
+      keyboard.text('👤 Пригласить игрока', `inv:add:${info.id}`).row();
+      keyboard.text('🔗 Ссылка-приглашение', `inv:link:${info.id}`).row();
+    }
   }
+
+  keyboard.text('К списку турниров', 'menu:tournaments').row();
 
   return keyboard;
 }
@@ -228,10 +271,8 @@ export function buildTournamentTabsKeyboard(
     .row();
 
   for (const t of tournaments) {
-    keyboard.text(`📋 ${t.name}`, `tournament_info:${t.id}`);
-    if (t.status === 'registration_open') {
-      keyboard.text('Участвовать', `reg:join:${t.id}`);
-    }
+    const lock = t.visibility === 'private' ? '🔒 ' : '';
+    keyboard.text(`📋 ${lock}${t.name}`, `tournament_info:${t.id}`);
     keyboard.row();
   }
 

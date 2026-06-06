@@ -5,6 +5,7 @@ import type { UUID } from 'crypto';
 import { db } from '@/db/db.js';
 import { tournaments, users } from '@/db/schema.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
+import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import {
   getMatch,
   getPlayerActiveMatches,
@@ -13,6 +14,7 @@ import {
   confirmResult,
   disputeResult,
   setTechnicalResult,
+  setMatchSchedule,
   getMatchStats,
   startMatch,
 } from '@/services/matchService.js';
@@ -23,6 +25,7 @@ import {
 } from '@/services/bracketGenerator.js';
 import {
   notifyMatchStart,
+  notifyMatchScheduled,
   notifyResultPending,
   notifyResultConfirmed,
   notifyResultDisputed,
@@ -36,11 +39,19 @@ import {
 } from '../ui/matchUI.js';
 import {
   canManageTournament,
+  canViewTournament,
   getUserRefereeTournaments,
 } from '../permissions.js';
 import type { BotContext } from '../types.js';
 
 export const matchCommands = new Composer<BotContext>();
+
+/**
+ * In-memory: telegram user id → match awaiting a date/time text input.
+ * Set when an admin/referee presses «🗓 Назначить время»; consumed by the
+ * text handler below. Lost on restart (same caveat as the creation wizard).
+ */
+const matchScheduleState = new Map<number, { matchId: UUID }>();
 
 // === КОМАНДЫ ===
 
@@ -89,6 +100,9 @@ export async function showMyMatches(ctx: BotContext): Promise<void> {
       );
       const emoji = getMatchStatusEmoji(m.status);
       text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
+      if (m.scheduledAt) {
+        text += `     🗓 ${DateTimeHelperInstance.formatDate(m.scheduledAt)}\n`;
+      }
 
       const isPlayer1 = m.player1Id === userId;
       const opponentPlain = formatPlayerName(
@@ -208,7 +222,9 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
     where: eq(tournaments.id, match.tournamentId),
   });
 
-  if (!tournament) {
+  // Same response for "missing" and "forbidden" so a private tournament's
+  // match isn't revealed to users without access.
+  if (!tournament || !(await canViewTournament(ctx, tournament))) {
     await ctx.answerCallbackQuery({
       text: 'Турнир не найден',
       show_alert: true,
@@ -227,6 +243,122 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
     parse_mode: 'Markdown',
     reply_markup: keyboard,
   });
+});
+
+// Назначить дату/время матча (поматчевое расписание)
+matchCommands.callbackQuery(/^msch:set:(.+)$/, async (ctx) => {
+  const matchId = ctx.match![1]! as UUID;
+
+  const match = await getMatch(matchId);
+  if (!match) {
+    await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
+    return;
+  }
+
+  if (!(await canManageTournament(ctx, match.tournamentId))) {
+    await ctx.answerCallbackQuery({
+      text: 'Недостаточно прав',
+      show_alert: true,
+    });
+    return;
+  }
+
+  matchScheduleState.set(ctx.from!.id, { matchId });
+  await ctx.answerCallbackQuery();
+  await ctx.reply(
+    'Введите дату и время матча (например 21.06.2026 18:30).\n\n' +
+      'Чтобы оставить как есть — отправьте /cancel.',
+  );
+});
+
+// Сбросить назначенное время матча
+matchCommands.callbackQuery(/^msch:clear:(.+)$/, async (ctx) => {
+  const matchId = ctx.match![1]! as UUID;
+
+  const match = await getMatch(matchId);
+  if (!match) {
+    await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
+    return;
+  }
+
+  if (!(await canManageTournament(ctx, match.tournamentId))) {
+    await ctx.answerCallbackQuery({
+      text: 'Недостаточно прав',
+      show_alert: true,
+    });
+    return;
+  }
+
+  await setMatchSchedule(matchId, null);
+  await ctx.answerCallbackQuery({ text: 'Время сброшено' });
+
+  const updated = await getMatch(matchId);
+  const tournament = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, match.tournamentId),
+  });
+  if (updated && tournament) {
+    await safeEditMessageText(ctx, {
+      text: formatMatchCard(updated, tournament),
+      parse_mode: 'Markdown',
+      reply_markup: getMatchKeyboard(updated, ctx.dbUser.id, tournament, true),
+    });
+  }
+});
+
+// Ввод даты/времени для назначаемого матча
+matchCommands.on('message:text', async (ctx, next) => {
+  const userId = ctx.from?.id;
+  if (userId == null) return next();
+
+  const state = matchScheduleState.get(userId);
+  if (!state) return next();
+
+  const text = ctx.message.text.trim();
+  // Let commands (e.g. /cancel) run, and stop waiting for a date.
+  if (text.startsWith('/')) {
+    matchScheduleState.delete(userId);
+    return next();
+  }
+
+  const parsed = DateTimeHelperInstance.toDate(text);
+  if (!parsed.status) {
+    await ctx.reply(
+      'Не удалось распознать дату. Пример: 21.06.2026 18:30. Попробуйте ещё раз или /cancel.',
+    );
+    return; // keep state so the user can retry
+  }
+
+  matchScheduleState.delete(userId);
+
+  const result = await setMatchSchedule(state.matchId, parsed.datetime);
+  if (!result.success) {
+    await ctx.reply('Не удалось назначить время матча.');
+    return;
+  }
+
+  const match = await getMatch(state.matchId);
+  const tournament = match
+    ? await db.query.tournaments.findFirst({
+        where: eq(tournaments.id, match.tournamentId),
+      })
+    : null;
+
+  if (match && tournament) {
+    await notifyMatchScheduled(
+      ctx.api,
+      match,
+      tournament.name,
+      parsed.datetime,
+    );
+    await ctx.reply(formatMatchCard(match, tournament), {
+      parse_mode: 'Markdown',
+      reply_markup: getMatchKeyboard(match, ctx.dbUser.id, tournament, true),
+    });
+  } else {
+    await ctx.reply(
+      `Время матча назначено на ${DateTimeHelperInstance.formatDate(parsed.datetime)}.`,
+    );
+  }
 });
 
 // Начать матч
@@ -759,7 +891,9 @@ async function showBracket(
     where: eq(tournaments.id, tournamentId),
   });
 
-  if (!tournament) {
+  // Same response for "missing" and "forbidden" — don't leak a private
+  // tournament's bracket to users without access.
+  if (!tournament || !(await canViewTournament(ctx, tournament))) {
     const msg = 'Турнир не найден';
     if (isEdit) {
       await safeEditMessageText(ctx, { text: msg });

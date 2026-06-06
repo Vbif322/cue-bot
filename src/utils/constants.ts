@@ -23,6 +23,16 @@ export const STATUS_LABELS: Record<string, string> = {
   cancelled: 'Отменён',
 };
 
+export const VISIBILITY_LABELS: Record<string, string> = {
+  public: 'Открытый',
+  private: 'Закрытый',
+};
+
+export const SCHEDULE_MODE_LABELS: Record<string, string> = {
+  single_day: 'Один день',
+  per_match: 'По матчам',
+};
+
 export function formatDiscipline(discipline: string): string {
   return DISCIPLINE_LABELS[discipline] ?? discipline;
 }
@@ -33,4 +43,12 @@ export function formatFormat(format: string): string {
 
 export function formatStatus(status: string): string {
   return STATUS_LABELS[status] ?? status;
+}
+
+export function formatVisibility(visibility: string): string {
+  return VISIBILITY_LABELS[visibility] ?? visibility;
+}
+
+export function formatScheduleMode(scheduleMode: string): string {
+  return SCHEDULE_MODE_LABELS[scheduleMode] ?? scheduleMode;
 }

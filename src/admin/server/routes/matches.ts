@@ -14,11 +14,16 @@ import {
   disputeResult,
   setTechnicalResult,
   setMatchTable,
+  setMatchSchedule,
   previewCorrection,
   correctMatchResult,
   resyncAdvancement,
 } from '@/services/matchService.js';
-import { notifyResultPending } from '@/services/notificationService.js';
+import { getTournament } from '@/services/tournamentService.js';
+import {
+  notifyMatchScheduled,
+  notifyResultPending,
+} from '@/services/notificationService.js';
 
 import { requireAdmin } from '../middleware.js';
 
@@ -217,6 +222,37 @@ export function createMatchesRouter(botApi: Api) {
         tableId as UUID | null,
       );
       if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ ok: true });
+    },
+  );
+
+  // Assign / clear a match's scheduled date-time (per-match scheduling).
+  // `scheduledAt` is an ISO-8601 UTC string, or null to clear.
+  router.put(
+    '/:id/schedule',
+    zValidator(
+      'json',
+      z.object({ scheduledAt: z.string().datetime().nullable() }),
+    ),
+    async (c) => {
+      const id = c.req.param('id') as UUID;
+      const { scheduledAt } = c.req.valid('json');
+      const date = scheduledAt ? new Date(scheduledAt) : null;
+
+      const result = await setMatchSchedule(id, date);
+      if (!result.success) return c.json({ error: result.error }, 400);
+
+      // Notify players when a concrete time is set (not on clear).
+      if (date) {
+        const match = await getMatch(id);
+        if (match) {
+          const tournament = await getTournament(match.tournamentId);
+          if (tournament) {
+            await notifyMatchScheduled(botApi, match, tournament.name, date);
+          }
+        }
+      }
+
       return c.json({ ok: true });
     },
   );

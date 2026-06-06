@@ -1,6 +1,7 @@
 export { roleCommands } from './roleCommands.js';
 export { tournamentCommands } from './tournamentCommands.js';
 export { registrationCommands } from './registrationCommands.js';
+export { inviteCommands } from './inviteCommands.js';
 export { matchCommands } from './matchCommands.js';
 export { adminParticipantCommands } from './adminParticipantCommands.js';
 export { helpCommands } from './helpCommand.js';
