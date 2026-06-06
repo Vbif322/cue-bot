@@ -185,7 +185,8 @@ export async function notifyMatchScheduled(
       message:
         `Турнир: ${safeName}\n` +
         `Соперник: ${player2Name}\n` +
-        `Дата и время: ${when}`,
+        `Дата и время: ${when}\n\n` +
+        `Используйте /my\\_matches для просмотра деталей.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
     });
@@ -199,7 +200,8 @@ export async function notifyMatchScheduled(
       message:
         `Турнир: ${safeName}\n` +
         `Соперник: ${player1Name}\n` +
-        `Дата и время: ${when}`,
+        `Дата и время: ${when}\n\n` +
+        `Используйте /my\\_matches для просмотра деталей.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
     });

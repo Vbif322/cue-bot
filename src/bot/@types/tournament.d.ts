@@ -6,6 +6,8 @@ import type { Serialize } from './helpers.ts';
 
 export type TournamentStatus = (typeof tournaments.$inferSelect)['status'];
 export type TournamentFormat = (typeof tournaments.$inferSelect)['format'];
+export type TournamentVisibility = (typeof tournaments.$inferSelect)['visibility'];
+export type TournamentScheduleMode = (typeof tournaments.$inferSelect)['scheduleMode'];
 export type Tournament = typeof tournaments.$inferSelect;
 export type TournamentReadModel = Tournament & { venueName: string | null };
 

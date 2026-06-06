@@ -9,8 +9,11 @@ import { db } from '@/db/db.js';
 import {
   formats,
   maxParticipants,
+  scheduleModes,
+  statuses,
   tournamentParticipants,
   users,
+  visibilities,
   winScores,
   type ITournamentMaxParticipants,
   type ITournamentWinScore,
@@ -73,6 +76,8 @@ export function createTournamentsRouter(botApi: Api) {
         description: z.string().optional(),
         rules: z.string().optional(),
         format: z.enum(formats),
+        visibility: z.enum(visibilities).default('public'),
+        scheduleMode: z.enum(scheduleModes).default('single_day'),
         maxParticipants: z
           .number()
           .int()
@@ -101,6 +106,8 @@ export function createTournamentsRouter(botApi: Api) {
           rules: body.rules ?? null,
           discipline: 'snooker',
           format: body.format,
+          visibility: body.visibility,
+          scheduleMode: body.scheduleMode,
           maxParticipants: body.maxParticipants as ITournamentMaxParticipants,
           winScore: body.winScore as ITournamentWinScore,
           startDate: body.startDate ? new Date(body.startDate) : null,
@@ -129,14 +136,7 @@ export function createTournamentsRouter(botApi: Api) {
     zValidator(
       'json',
       z.object({
-        status: z.enum([
-          'draft',
-          'registration_open',
-          'registration_closed',
-          'in_progress',
-          'completed',
-          'cancelled',
-        ]),
+        status: z.enum(statuses),
       }),
     ),
     async (c) => {
@@ -274,7 +274,8 @@ export function createTournamentsRouter(botApi: Api) {
       ) {
         return c.json(
           {
-            error: 'Подтверждение участников доступно только во время регистрации',
+            error:
+              'Подтверждение участников доступно только во время регистрации',
           },
           400,
         );
@@ -283,12 +284,22 @@ export function createTournamentsRouter(botApi: Api) {
       if (action === 'confirm') {
         const updated = await confirmParticipant(tournamentId, userId);
         if (updated) {
-          await notifyRegistrationConfirmed(botApi, userId, tournamentId, tournament.name);
+          await notifyRegistrationConfirmed(
+            botApi,
+            userId,
+            tournamentId,
+            tournament.name,
+          );
         }
       } else {
         const updated = await rejectParticipant(tournamentId, userId);
         if (updated) {
-          await notifyRegistrationRejected(botApi, userId, tournamentId, tournament.name);
+          await notifyRegistrationRejected(
+            botApi,
+            userId,
+            tournamentId,
+            tournament.name,
+          );
         }
       }
 
@@ -307,10 +318,7 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.patch(
     '/:id/participants/:userId/seed',
-    zValidator(
-      'json',
-      z.object({ seed: z.number().int().min(1).nullable() }),
-    ),
+    zValidator('json', z.object({ seed: z.number().int().min(1).nullable() })),
     async (c) => {
       const tournamentId = c.req.param('id') as UUID;
       const userId = c.req.param('userId') as UUID;
@@ -333,7 +341,9 @@ export function createTournamentsRouter(botApi: Api) {
         await setParticipantSeed(tournamentId, userId, seed);
       } catch (err) {
         return c.json(
-          { error: err instanceof Error ? err.message : 'Ошибка установки сида' },
+          {
+            error: err instanceof Error ? err.message : 'Ошибка установки сида',
+          },
           400,
         );
       }

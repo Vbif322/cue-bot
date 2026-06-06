@@ -58,15 +58,20 @@ export async function startTournamentFull(
   // 5. Update tournament status to in_progress
   await startTournament(tournamentId);
 
-  // 6. Assign tables to first N ready matches
-  const tournamentTables = await getTournamentTables(tournamentId);
+  // 6. Assign tables to first N ready matches (auto-start with notification).
+  // Skipped for per-match scheduling: there the organiser assigns each match's
+  // date/time (and table) manually, so matches must not be auto-started here.
   const autoStartedMatchIds = new Set<string>();
 
-  for (const table of tournamentTables) {
-    const next = await getNextReadyMatch(tournamentId);
-    if (!next) break;
-    const ok = await assignTableAndStart(next.id, table.id, botApi);
-    if (ok) autoStartedMatchIds.add(next.id);
+  if (tournament.scheduleMode !== 'per_match') {
+    const tournamentTables = await getTournamentTables(tournamentId);
+
+    for (const table of tournamentTables) {
+      const next = await getNextReadyMatch(tournamentId);
+      if (!next) break;
+      const ok = await assignTableAndStart(next.id, table.id, botApi);
+      if (ok) autoStartedMatchIds.add(next.id);
+    }
   }
 
   // 7. Notify R1 participants not already notified via table auto-start

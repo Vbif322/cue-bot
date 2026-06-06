@@ -5,6 +5,8 @@ export type { UserRole, ApiUser } from '../../bot/@types/user.js';
 export type {
   TournamentStatus,
   TournamentFormat,
+  TournamentVisibility,
+  TournamentScheduleMode,
   ApiTournament,
   ApiTournamentParticipant,
 } from '../../bot/@types/tournament.js';
