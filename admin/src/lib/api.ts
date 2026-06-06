@@ -218,6 +218,12 @@ export const matchesApi = {
       body: JSON.stringify({ tableId }),
     }),
 
+  setSchedule: (id: string, scheduledAt: string | null) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify({ scheduledAt }),
+    }),
+
   previewCorrection: (
     id: string,
     data: { player1Score: number; player2Score: number },
