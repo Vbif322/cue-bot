@@ -4,6 +4,7 @@ import {
   FORMAT_LABELS,
   VISIBILITY_LABELS,
   SCHEDULE_MODE_LABELS,
+  formatParticipants,
 } from '../../lib/tournamentLabels.ts';
 
 export default function TournamentInfoTab({
@@ -33,10 +34,7 @@ export default function TournamentInfoTab({
           tournament.scheduleMode
         }
       />
-      <InfoRow
-        label="Участники"
-        value={`${tournament.confirmedParticipants ?? 0} / ${tournament.maxParticipants}`}
-      />
+      <InfoRow label="Участники" value={formatParticipants(tournament)} />
       <InfoRow label="Win score" value={String(tournament.winScore)} />
       {tournament.startDate && (
         <InfoRow
