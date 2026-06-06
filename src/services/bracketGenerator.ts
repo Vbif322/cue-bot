@@ -131,12 +131,13 @@ export function generateSingleEliminationBracket(
 
   for (let round = 2; round <= totalRounds; round++) {
     const matchesInRound = matchesInPrevRound / 2;
+    const roundStart = matchPosition; // first position of this round; matchPosition mutates in the inner loop
 
     for (let i = 0; i < matchesInRound; i++) {
       const isFinal = round === totalRounds;
       const nextMatchPos = isFinal
         ? undefined
-        : matchPosition + matchesInRound + Math.floor(i / 2);
+        : roundStart + matchesInRound + Math.floor(i / 2);
       const isTopHalf = i % 2 === 0;
 
       const matchData: BracketMatch = {
