@@ -1,4 +1,14 @@
-import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  sql,
+} from 'drizzle-orm';
+import { randomBytes } from 'crypto';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -13,6 +23,8 @@ import type {
   ITournamentDiscipline,
   ITournamentFormat,
   ITournamentMaxParticipants,
+  ITournamentScheduleMode,
+  ITournamentVisibility,
   ITournamentWinScore,
 } from '@/db/schema.js';
 import type {
@@ -37,6 +49,8 @@ export interface CreateTournamentDraftInput {
   description?: string | null;
   discipline: ITournamentDiscipline;
   format: ITournamentFormat;
+  visibility?: ITournamentVisibility;
+  scheduleMode?: ITournamentScheduleMode;
   startDate?: Date | null;
   maxParticipants: ITournamentMaxParticipants;
   winScore: ITournamentWinScore;
@@ -46,10 +60,56 @@ export interface CreateTournamentDraftInput {
   tableIds?: UUID[];
 }
 
+// Live participant counts, computed as scalar correlated subqueries so they stay
+// correct even where the outer query already joins tournamentParticipants (e.g.
+// getUserTournaments) — a GROUP BY aggregate would be skewed by that join.
+const confirmedParticipantsLive = sql<number>`(
+  select count(*)::int from ${tournamentParticipants}
+  where ${tournamentParticipants.tournamentId} = ${tournaments.id}
+    and ${tournamentParticipants.status} = 'confirmed'
+)`;
+const pendingParticipantsLive = sql<number>`(
+  select count(*)::int from ${tournamentParticipants}
+  where ${tournamentParticipants.tournamentId} = ${tournaments.id}
+    and ${tournamentParticipants.status} = 'pending'
+)`;
+
 const tournamentReadColumns = {
   ...getTableColumns(tournaments),
   venueName: venues.name,
+  confirmedCount: confirmedParticipantsLive,
+  pendingCount: pendingParticipantsLive,
 };
+
+export interface TournamentViewer {
+  isAdmin: boolean;
+  isReferee: boolean;
+  isParticipant: boolean;
+  isCreator: boolean;
+}
+
+/**
+ * Pure visibility predicate: can the given viewer see this tournament?
+ *
+ * Public tournaments are visible to everyone. A private (invite-only)
+ * tournament is visible only to admins, its referees, its participants
+ * (incl. invited) and its creator. Kept side-effect free so it can be unit
+ * tested; the DB lookups for the viewer flags live in the calling layer
+ * (see `canViewTournament` in bot/permissions).
+ */
+export function isTournamentVisibleTo(
+  tournament: { visibility: ITournamentVisibility },
+  viewer: TournamentViewer,
+): boolean {
+  if (tournament.visibility === 'public') return true;
+
+  return (
+    viewer.isAdmin ||
+    viewer.isReferee ||
+    viewer.isParticipant ||
+    viewer.isCreator
+  );
+}
 
 /**
  * Check if tournament can be started
@@ -92,7 +152,7 @@ export async function canStartTournament(
   return { canStart: true, participantsCount: count };
 }
 
-function validateSeeds(
+export function validateSeeds(
   participants: TournamentParticipant[],
   count: number,
 ): string | null {
@@ -210,6 +270,8 @@ export async function createTournamentDraft(
         description: input.description ?? null,
         discipline: input.discipline,
         format: input.format,
+        visibility: input.visibility ?? 'public',
+        scheduleMode: input.scheduleMode ?? 'single_day',
         status: 'draft',
         startDate: input.startDate ?? null,
         maxParticipants: input.maxParticipants,
@@ -267,6 +329,62 @@ export async function getTournament(
     .where(eq(tournaments.id, tournamentId));
 
   return rows ?? null;
+}
+
+/**
+ * Look up a tournament by its shareable invite code (the `join_<code>` deep
+ * link payload). Returns null for unknown codes.
+ */
+export async function getTournamentByInviteCode(
+  code: string,
+): Promise<TournamentReadModel | null> {
+  const [rows] = await db
+    .select(tournamentReadColumns)
+    .from(tournaments)
+    .leftJoin(venues, eq(tournaments.venueId, venues.id))
+    .where(eq(tournaments.inviteCode, code));
+
+  return rows ?? null;
+}
+
+/**
+ * Return the tournament's invite code, generating and persisting one on first
+ * use. Idempotent: repeated calls return the same code, and a concurrent
+ * generation is reconciled by re-reading the row.
+ *
+ * @throws {Error} If the tournament does not exist.
+ */
+export async function ensureInviteCode(tournamentId: UUID): Promise<string> {
+  const existing = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, tournamentId),
+    columns: { inviteCode: true },
+  });
+
+  if (!existing) throw new Error('Турнир не найден');
+  if (existing.inviteCode) return existing.inviteCode;
+
+  // 6 random bytes → 8 url-safe chars; collision probability is negligible.
+  const code = randomBytes(6).toString('base64url');
+
+  const [updated] = await db
+    .update(tournaments)
+    .set({ inviteCode: code })
+    .where(
+      and(eq(tournaments.id, tournamentId), isNull(tournaments.inviteCode)),
+    )
+    .returning({ inviteCode: tournaments.inviteCode });
+
+  if (updated?.inviteCode) return updated.inviteCode;
+
+  // Lost a race with a concurrent generation — re-read the persisted code.
+  const reread = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, tournamentId),
+    columns: { inviteCode: true },
+  });
+
+  if (reread?.inviteCode) return reread.inviteCode;
+
+  throw new Error('Не удалось сгенерировать код приглашения');
 }
 
 /**
@@ -409,14 +527,27 @@ export async function getTournaments(options?: {
   limit?: number;
   includesDrafts?: boolean;
   statuses?: TournamentStatus[];
+  includePrivate?: boolean;
 }): Promise<TournamentReadModel[]> {
-  const { limit = 10, includesDrafts = true, statuses } = options || {};
+  const {
+    limit = 10,
+    includesDrafts = true,
+    statuses,
+    includePrivate = false,
+  } = options || {};
 
-  const where = statuses
+  const statusWhere = statuses
     ? inArray(tournaments.status, statuses)
     : includesDrafts
       ? undefined
       : sql`${tournaments.status} <> 'draft'`;
+
+  // Private (invite-only) tournaments are hidden from general listings unless
+  // explicitly requested (admin views, dashboard). They surface for their
+  // participants via getUserTournaments instead.
+  const where = includePrivate
+    ? statusWhere
+    : and(statusWhere, eq(tournaments.visibility, 'public'));
 
   return db
     .select(tournamentReadColumns)
@@ -448,7 +579,11 @@ export async function getUserTournaments(
     .where(
       and(
         eq(tournamentParticipants.userId, userId),
-        inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+        inArray(tournamentParticipants.status, [
+          'pending',
+          'confirmed',
+          'invited',
+        ]),
       ),
     )
     .orderBy(desc(tournaments.createdAt))
@@ -527,12 +662,12 @@ export async function confirmParticipant(
 ): Promise<boolean> {
   const result = await db
     .update(tournamentParticipants)
-    .set({ status: "confirmed" })
+    .set({ status: 'confirmed' })
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId as UUID),
         eq(tournamentParticipants.userId, userId as UUID),
-        eq(tournamentParticipants.status, "pending"),
+        eq(tournamentParticipants.status, 'pending'),
       ),
     )
     .returning({ userId: tournamentParticipants.userId });
@@ -566,12 +701,12 @@ export async function rejectParticipant(
 ): Promise<boolean> {
   const result = await db
     .update(tournamentParticipants)
-    .set({ status: "cancelled", seed: null })
+    .set({ status: 'cancelled', seed: null })
     .where(
       and(
         eq(tournamentParticipants.tournamentId, tournamentId as UUID),
         eq(tournamentParticipants.userId, userId as UUID),
-        eq(tournamentParticipants.status, "pending"),
+        eq(tournamentParticipants.status, 'pending'),
       ),
     )
     .returning({ userId: tournamentParticipants.userId });

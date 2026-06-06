@@ -6,6 +6,7 @@ import {
   getNextPowerOfTwo,
 } from '../../services/bracketGenerator.js';
 import { escapeMarkdown } from '../../utils/messageHelpers.js';
+import { DateTimeHelperInstance } from '../../utils/dateTimeHelper.js';
 import type { Tournament } from '../@types/tournament.js';
 import type { MatchWithPlayers } from '../@types/match.js';
 
@@ -115,6 +116,10 @@ export function formatMatchCard(
       break;
   }
 
+  if (match.scheduledAt) {
+    text += `\n🗓 Назначено: ${DateTimeHelperInstance.formatDate(match.scheduledAt)}`;
+  }
+
   if (match.isTechnicalResult) {
     text += `\n⚠️ Технический результат: ${match.technicalReason || 'не указана причина'}`;
   }
@@ -183,6 +188,19 @@ export function getMatchKeyboard(
     match.status !== 'cancelled'
   ) {
     keyboard.text('⚙️ Тех. результат', `match:tech:${match.id}`).row();
+  }
+
+  // Per-match scheduling: admin/referee assigns this match's date & time.
+  if (
+    canManage &&
+    tournament.scheduleMode === 'per_match' &&
+    match.status !== 'completed' &&
+    match.status !== 'cancelled'
+  ) {
+    keyboard.text('🗓 Назначить время', `msch:set:${match.id}`).row();
+    if (match.scheduledAt) {
+      keyboard.text('🗓 Сбросить время', `msch:clear:${match.id}`).row();
+    }
   }
 
   // Back to bracket

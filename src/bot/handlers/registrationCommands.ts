@@ -202,7 +202,11 @@ registrationCommands.command('my_tournaments', async (ctx) => {
     .where(
       and(
         eq(tournamentParticipants.userId, userId),
-        inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+        inArray(tournamentParticipants.status, [
+          'pending',
+          'confirmed',
+          'invited',
+        ]),
       ),
     )
     .orderBy(tournaments.startDate);
@@ -219,9 +223,18 @@ registrationCommands.command('my_tournaments', async (ctx) => {
   const keyboard = new InlineKeyboard();
 
   for (const { tournament, participation } of participations) {
-    const statusEmoji = participation.status === 'confirmed' ? '✅' : '⏳';
+    const statusEmoji =
+      participation.status === 'confirmed'
+        ? '✅'
+        : participation.status === 'invited'
+          ? '📨'
+          : '⏳';
     const statusText =
-      participation.status === 'confirmed' ? 'Подтверждено' : 'На рассмотрении';
+      participation.status === 'confirmed'
+        ? 'Подтверждено'
+        : participation.status === 'invited'
+          ? 'Приглашение — откройте, чтобы принять'
+          : 'На рассмотрении';
 
     message +=
       `${statusEmoji} *${tournament.name}*\n` +

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { matchesApi } from '../../lib/api.ts';
 import { MatchStatusBadge } from '../StatusBadge.tsx';
+import { formatUtc } from '../../lib/datetime.ts';
 
 export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
   const { data: matches } = useQuery({
@@ -34,6 +35,11 @@ export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
                 {m.tableName && (
                   <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">
                     {m.tableName}
+                  </span>
+                )}
+                {m.scheduledAt && (
+                  <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                    🗓 {formatUtc(m.scheduledAt)}
                   </span>
                 )}
               </div>
@@ -82,6 +88,9 @@ export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
                 Стол
               </th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">
+                Дата
+              </th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">
                 Статус
               </th>
               <th className="px-4 py-3"></th>
@@ -110,6 +119,9 @@ export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
                 <td className="px-4 py-3 text-gray-500 text-xs">
                   {m.tableName ?? '—'}
                 </td>
+                <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                  {formatUtc(m.scheduledAt) || '—'}
+                </td>
                 <td className="px-4 py-3">
                   <MatchStatusBadge status={m.status} />
                 </td>
@@ -125,10 +137,7 @@ export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
             ))}
             {!matches?.length && (
               <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-6 text-center text-gray-400"
-                >
+                <td colSpan={8} className="px-4 py-6 text-center text-gray-400">
                   Матчи не созданы
                 </td>
               </tr>

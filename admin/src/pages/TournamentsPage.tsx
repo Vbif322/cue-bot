@@ -3,15 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { tournamentsApi } from '../lib/api.ts';
 import { TournamentStatusBadge } from '../components/StatusBadge.tsx';
-import type { TournamentStatus, ITournamentFormat } from '../lib/api.ts';
+import type { TournamentStatus } from '../lib/api.ts';
 import CreateTournamentModal from '../components/CreateTournamentModal.tsx';
-
-const FORMAT_LABELS: Record<ITournamentFormat, string> = {
-  single_elimination: 'Single Elim.',
-  double_elimination: 'Double Elim.',
-  double_elimination_random: 'Double Elim. (random)',
-  round_robin: 'Round Robin',
-};
+import {
+  FORMAT_LABELS_SHORT,
+  formatParticipants,
+} from '../lib/tournamentLabels.ts';
 
 export default function TournamentsPage() {
   const qc = useQueryClient();
@@ -97,13 +94,13 @@ export default function TournamentsPage() {
                 <dl className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <dt className="text-gray-500">Формат</dt>
-                    <dd className="text-gray-700">{FORMAT_LABELS[t.format]}</dd>
+                    <dd className="text-gray-700">
+                      {FORMAT_LABELS_SHORT[t.format]}
+                    </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt className="text-gray-500">Участники</dt>
-                    <dd className="text-gray-700">
-                      {t.confirmedParticipants ?? 0} / {t.maxParticipants}
-                    </dd>
+                    <dd className="text-gray-700">{formatParticipants(t)}</dd>
                   </div>
                   <div className="flex justify-between">
                     <dt className="text-gray-500">Дата начала</dt>
@@ -178,13 +175,13 @@ export default function TournamentsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-600">
-                      {FORMAT_LABELS[t.format]}
+                      {FORMAT_LABELS_SHORT[t.format]}
                     </td>
                     <td className="px-4 py-3">
                       <TournamentStatusBadge status={t.status} />
                     </td>
                     <td className="px-4 py-3 text-gray-600">
-                      {t.confirmedParticipants ?? 0} / {t.maxParticipants}
+                      {formatParticipants(t)}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {t.startDate

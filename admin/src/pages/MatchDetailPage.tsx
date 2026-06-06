@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { matchesApi, tournamentsApi } from '../lib/api.ts';
 import type { ApiTable, ApiMatch } from '../lib/api.ts';
 import { MatchStatusBadge } from '../components/StatusBadge.tsx';
+import { formatUtc, isoToUtcInput, utcInputToIso } from '../lib/datetime.ts';
 
 export default function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +17,7 @@ export default function MatchDetailPage() {
   const [p1Focused, setP1Focused] = useState(false);
   const [p2Focused, setP2Focused] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [scheduleInput, setScheduleInput] = useState('');
   const [reporterId, setReporterId] = useState<string | null>(null);
   const [corrP1, setCorrP1] = useState(0);
   const [corrP2, setCorrP2] = useState(0);
@@ -46,9 +48,19 @@ export default function MatchDetailPage() {
     enabled: !!match?.tournamentId,
   });
 
+  const { data: tournament } = useQuery({
+    queryKey: ['tournament', match?.tournamentId],
+    queryFn: () => tournamentsApi.get(match!.tournamentId),
+    enabled: !!match?.tournamentId,
+  });
+
   useEffect(() => {
     setSelectedTableId(match?.tableId ?? null);
   }, [match?.tableId]);
+
+  useEffect(() => {
+    setScheduleInput(isoToUtcInput(match?.scheduledAt ?? null));
+  }, [match?.scheduledAt]);
 
   useEffect(() => {
     setReporterId(match?.player1Id ?? null);
@@ -145,6 +157,13 @@ export default function MatchDetailPage() {
     onError: (e: Error) => setError(e.message),
   });
 
+  const setScheduleMutation = useMutation({
+    mutationFn: (scheduledAt: string | null) =>
+      matchesApi.setSchedule(id!, scheduledAt),
+    onSuccess: invalidate,
+    onError: (e: Error) => setError(e.message),
+  });
+
   const previewMutation = useMutation({
     mutationFn: () =>
       matchesApi.previewCorrection(id!, {
@@ -218,6 +237,11 @@ export default function MatchDetailPage() {
           {match.tableName && (
             <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-medium">
               {match.tableName}
+            </span>
+          )}
+          {match.scheduledAt && (
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-medium">
+              🗓 {formatUtc(match.scheduledAt)}
             </span>
           )}
           {match.isTechnicalResult && (
@@ -462,6 +486,45 @@ export default function MatchDetailPage() {
             })()
           )}
         </ActionCard>
+
+        {/* Per-match scheduling */}
+        {tournament?.scheduleMode === 'per_match' &&
+          match.status !== 'completed' &&
+          match.status !== 'cancelled' && (
+            <ActionCard title="Время матча">
+              <div className="space-y-2">
+                <input
+                  type="datetime-local"
+                  value={scheduleInput}
+                  onChange={(e) => setScheduleInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+                <p className="text-xs text-gray-400">
+                  Время указывается и отображается в UTC (как в боте).
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() =>
+                      setScheduleMutation.mutate(utcInputToIso(scheduleInput))
+                    }
+                    disabled={setScheduleMutation.isPending || !scheduleInput}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Назначить
+                  </button>
+                  {match.scheduledAt && (
+                    <button
+                      onClick={() => setScheduleMutation.mutate(null)}
+                      disabled={setScheduleMutation.isPending}
+                      className="px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Сбросить
+                    </button>
+                  )}
+                </div>
+              </div>
+            </ActionCard>
+          )}
 
         {/* Correct completed result */}
         {match.status === 'completed' && match.player1Id && match.player2Id && (

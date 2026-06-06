@@ -10,6 +10,7 @@ export const participantStatus = [
   'confirmed',
   'cancelled',
   'disqualified',
+  'invited',
 ] as const;
 
 export type ParticipantStatus = (typeof participantStatus)[number];

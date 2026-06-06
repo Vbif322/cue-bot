@@ -19,6 +19,7 @@ export const notificationTypes = [
   'result_dispute',
   'match_result_pending',
   'disqualification',
+  'tournament_invitation',
 ] as const;
 
 export type NotificationType = (typeof notificationTypes)[number];

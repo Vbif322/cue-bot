@@ -8,6 +8,7 @@ import type { INotification } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
 import { getResultConfirmKeyboard } from '@/bot/ui/matchUI.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
+import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 
 type NotificationType = (typeof notifications.$inferInsert)['type'];
 
@@ -149,6 +150,57 @@ export async function notifyMatchAssigned(
       message:
         `Турнир: ${tournamentName}\n` +
         `Ваш соперник: ${player1Name}\n\n` +
+        `Используйте /my\\_matches для просмотра деталей.`,
+      tournamentId: match.tournamentId,
+      matchId: match.id,
+    });
+  }
+}
+
+/**
+ * Notify both players that their match has been scheduled for a date/time.
+ * Reuses the `match_reminder` notification type. Players with an empty slot
+ * (TBD bracket position) are skipped — there is no one to notify yet.
+ */
+export async function notifyMatchScheduled(
+  api: Api,
+  match: MatchWithPlayers,
+  tournamentName: string,
+  scheduledAt: Date,
+): Promise<void> {
+  const when = DateTimeHelperInstance.formatDate(scheduledAt);
+  const safeName = escapeMarkdown(tournamentName);
+  const player1Name = match.player1Username
+    ? `@${escapeMarkdown(match.player1Username)}`
+    : match.player1Name || 'Участник';
+  const player2Name = match.player2Username
+    ? `@${escapeMarkdown(match.player2Username)}`
+    : match.player2Name || 'Участник';
+
+  if (match.player1Id) {
+    await createAndSendNotification(api, {
+      userId: match.player1Id,
+      type: 'match_reminder',
+      title: 'Матч назначен',
+      message:
+        `Турнир: ${safeName}\n` +
+        `Соперник: ${player2Name}\n` +
+        `Дата и время: ${when}\n\n` +
+        `Используйте /my\\_matches для просмотра деталей.`,
+      tournamentId: match.tournamentId,
+      matchId: match.id,
+    });
+  }
+
+  if (match.player2Id) {
+    await createAndSendNotification(api, {
+      userId: match.player2Id,
+      type: 'match_reminder',
+      title: 'Матч назначен',
+      message:
+        `Турнир: ${safeName}\n` +
+        `Соперник: ${player1Name}\n` +
+        `Дата и время: ${when}\n\n` +
         `Используйте /my\\_matches для просмотра деталей.`,
       tournamentId: match.tournamentId,
       matchId: match.id,

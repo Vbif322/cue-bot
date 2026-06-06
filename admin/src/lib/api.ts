@@ -9,6 +9,8 @@ import type {
   ApiVenue,
   StartTournamentResponse,
   TournamentStatus,
+  TournamentVisibility,
+  TournamentScheduleMode,
   ITournamentFormat,
 } from '@server/apiTypes';
 
@@ -22,6 +24,8 @@ export type {
   ApiVenue,
   StartTournamentResponse,
   TournamentStatus,
+  TournamentVisibility,
+  TournamentScheduleMode,
   ITournamentFormat,
 };
 
@@ -91,6 +95,8 @@ export const tournamentsApi = {
     description?: string;
     rules?: string;
     format: ITournamentFormat;
+    visibility?: TournamentVisibility;
+    scheduleMode?: TournamentScheduleMode;
     maxParticipants?: number;
     winScore?: number;
     startDate?: string;
@@ -210,6 +216,12 @@ export const matchesApi = {
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/table`, {
       method: 'PUT',
       body: JSON.stringify({ tableId }),
+    }),
+
+  setSchedule: (id: string, scheduledAt: string | null) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify({ scheduledAt }),
     }),
 
   previewCorrection: (
