@@ -101,6 +101,43 @@ function assertWinnersConnectivity(matches: BracketMatch[]): void {
   }
 }
 
+/**
+ * Assert a single-elimination winners bracket is structurally sound: the right
+ * match count, a single terminal final, and every downstream (round >= 2) match
+ * fed by exactly two upstream matches occupying distinct player slots — no
+ * collisions, no orphans. Stronger than connectivity, which only checks that
+ * links point at *some* existing position.
+ */
+function assertSingleElimTopology(
+  matches: BracketMatch[],
+  bracketSize: number,
+): void {
+  assertWinnersConnectivity(matches);
+
+  expect(matches).toHaveLength(bracketSize - 1);
+
+  const terminal = matches.filter((m) => m.nextMatchId === undefined);
+  expect(
+    terminal,
+    'exactly one match should be terminal (the final)',
+  ).toHaveLength(1);
+
+  for (const m of matches) {
+    const feeders = matches.filter((f) => f.nextMatchId === m.position);
+    if (m.round === 1) {
+      expect(
+        feeders,
+        `round-1 match at position ${m.position} should have no feeders`,
+      ).toHaveLength(0);
+    } else {
+      expect(
+        feeders.map((f) => f.nextMatchPosition).sort(),
+        `match at position ${m.position} should be fed by exactly two matches in distinct slots`,
+      ).toEqual(['player1', 'player2']);
+    }
+  }
+}
+
 describe('generateSingleEliminationBracket', () => {
   it('creates bracketSize-1 matches with a correct round 1 for 8 players', () => {
     const matches = generateSingleEliminationBracket(makeParticipants(8));
@@ -127,18 +164,19 @@ describe('generateSingleEliminationBracket', () => {
     assertWinnersConnectivity(generateSingleEliminationBracket(makeParticipants(4)));
   });
 
-  // KNOWN BUG (see TODO.md): for >=8 players the round>=2 nextMatchId formula
-  // uses the live `matchPosition` instead of the round's start position, so
-  // links are off by `i` (e.g. 8 players: pos 6 -> non-existent pos 8). When
-  // the generator is fixed, it.fails flips red — drop `.fails` then.
-  it.fails(
-    'KNOWN BUG: single-elim next-match linking is off-by-i for >=8 players',
-    () => {
-      assertWinnersConnectivity(
-        generateSingleEliminationBracket(makeParticipants(8)),
-      );
-    },
-  );
+  it('links every match with correct topology (8 players)', () => {
+    assertSingleElimTopology(
+      generateSingleEliminationBracket(makeParticipants(8)),
+      8,
+    );
+  });
+
+  it('links every match with correct topology (16 players)', () => {
+    assertSingleElimTopology(
+      generateSingleEliminationBracket(makeParticipants(16)),
+      16,
+    );
+  });
 });
 
 describe('generateDoubleEliminationBracket', () => {
