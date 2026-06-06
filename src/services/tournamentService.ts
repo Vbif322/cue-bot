@@ -60,9 +60,25 @@ export interface CreateTournamentDraftInput {
   tableIds?: UUID[];
 }
 
+// Live participant counts, computed as scalar correlated subqueries so they stay
+// correct even where the outer query already joins tournamentParticipants (e.g.
+// getUserTournaments) — a GROUP BY aggregate would be skewed by that join.
+const confirmedParticipantsLive = sql<number>`(
+  select count(*)::int from ${tournamentParticipants}
+  where ${tournamentParticipants.tournamentId} = ${tournaments.id}
+    and ${tournamentParticipants.status} = 'confirmed'
+)`;
+const pendingParticipantsLive = sql<number>`(
+  select count(*)::int from ${tournamentParticipants}
+  where ${tournamentParticipants.tournamentId} = ${tournaments.id}
+    and ${tournamentParticipants.status} = 'pending'
+)`;
+
 const tournamentReadColumns = {
   ...getTableColumns(tournaments),
   venueName: venues.name,
+  confirmedCount: confirmedParticipantsLive,
+  pendingCount: pendingParticipantsLive,
 };
 
 export interface TournamentViewer {

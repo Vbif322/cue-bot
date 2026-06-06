@@ -5,7 +5,10 @@ import { tournamentsApi } from '../lib/api.ts';
 import { TournamentStatusBadge } from '../components/StatusBadge.tsx';
 import type { TournamentStatus } from '../lib/api.ts';
 import CreateTournamentModal from '../components/CreateTournamentModal.tsx';
-import { FORMAT_LABELS_SHORT } from '../lib/tournamentLabels.ts';
+import {
+  FORMAT_LABELS_SHORT,
+  formatParticipants,
+} from '../lib/tournamentLabels.ts';
 
 export default function TournamentsPage() {
   const qc = useQueryClient();
@@ -97,9 +100,7 @@ export default function TournamentsPage() {
                   </div>
                   <div className="flex justify-between">
                     <dt className="text-gray-500">Участники</dt>
-                    <dd className="text-gray-700">
-                      {t.confirmedParticipants ?? 0} / {t.maxParticipants}
-                    </dd>
+                    <dd className="text-gray-700">{formatParticipants(t)}</dd>
                   </div>
                   <div className="flex justify-between">
                     <dt className="text-gray-500">Дата начала</dt>
@@ -180,7 +181,7 @@ export default function TournamentsPage() {
                       <TournamentStatusBadge status={t.status} />
                     </td>
                     <td className="px-4 py-3 text-gray-600">
-                      {t.confirmedParticipants ?? 0} / {t.maxParticipants}
+                      {formatParticipants(t)}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {t.startDate

@@ -9,11 +9,19 @@ export type TournamentFormat = (typeof tournaments.$inferSelect)['format'];
 export type TournamentVisibility = (typeof tournaments.$inferSelect)['visibility'];
 export type TournamentScheduleMode = (typeof tournaments.$inferSelect)['scheduleMode'];
 export type Tournament = typeof tournaments.$inferSelect;
-export type TournamentReadModel = Tournament & { venueName: string | null };
+export type TournamentReadModel = Tournament & {
+  venueName: string | null;
+  /** Live count of participants with status 'confirmed' (not the stored snapshot). */
+  confirmedCount: number;
+  /** Live count of participants with status 'pending'. */
+  pendingCount: number;
+};
 
 /** Serialized tournament row for JSON responses (timestamps → string), without updatedAt */
 export type ApiTournament = Omit<Serialize<Tournament>, 'updatedAt'> & {
   venueName: string | null;
+  confirmedCount: number;
+  pendingCount: number;
 };
 
 /** Bot-facing participant (no status) */
