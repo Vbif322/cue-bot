@@ -1,7 +1,7 @@
 // Re-exports from src/bot/@types/ — single source of truth for all shared types.
 // Server routes and React client both import from here via @server/apiTypes.
 
-export type { UserRole, ApiUser } from '../../bot/@types/user.js';
+export type { UserRole, ApiUser, ApiUserStats } from '../../bot/@types/user.js';
 export type {
   TournamentStatus,
   TournamentFormat,

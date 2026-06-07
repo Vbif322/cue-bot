@@ -6,7 +6,7 @@ import { db } from '@/db/db.js';
 import { notifications, users, tournaments, matches } from '@/db/schema.js';
 import type { INotification } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
-import { getResultConfirmKeyboard } from '@/bot/ui/matchUI.js';
+import { formatPlayerName, getResultConfirmKeyboard } from '@/bot/ui/matchUI.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 
@@ -119,12 +119,18 @@ export async function notifyMatchAssigned(
   match: MatchWithPlayers,
   tournamentName: string,
 ): Promise<void> {
-  const player1Name = match.player1Username
-    ? `@${escapeMarkdown(match.player1Username)}`
-    : match.player1Name || 'Участник';
-  const player2Name = match.player2Username
-    ? `@${escapeMarkdown(match.player2Username)}`
-    : match.player2Name || 'Участник';
+  const player1Name = formatPlayerName({
+    username: match.player1Username ?? null,
+    name: match.player1Name,
+    surname: match.player1Surname,
+    telegramId: match.player1TelegramId,
+  });
+  const player2Name = formatPlayerName({
+    username: match.player2Username ?? null,
+    name: match.player2Name,
+    surname: match.player2Surname,
+    telegramId: match.player2TelegramId,
+  });
 
   // Notify player 1
   if (match.player1Id) {
@@ -170,12 +176,18 @@ export async function notifyMatchScheduled(
 ): Promise<void> {
   const when = DateTimeHelperInstance.formatDate(scheduledAt);
   const safeName = escapeMarkdown(tournamentName);
-  const player1Name = match.player1Username
-    ? `@${escapeMarkdown(match.player1Username)}`
-    : match.player1Name || 'Участник';
-  const player2Name = match.player2Username
-    ? `@${escapeMarkdown(match.player2Username)}`
-    : match.player2Name || 'Участник';
+  const player1Name = formatPlayerName({
+    username: match.player1Username ?? null,
+    name: match.player1Name,
+    surname: match.player1Surname,
+    telegramId: match.player1TelegramId,
+  });
+  const player2Name = formatPlayerName({
+    username: match.player2Username ?? null,
+    name: match.player2Name,
+    surname: match.player2Surname,
+    telegramId: match.player2TelegramId,
+  });
 
   if (match.player1Id) {
     await createAndSendNotification(api, {
@@ -217,12 +229,18 @@ export async function notifyMatchStart(
   tournamentName: string,
   startedBy: string,
 ): Promise<void> {
-  const player1Name = match.player1Username
-    ? `@${escapeMarkdown(match.player1Username)}`
-    : match.player1Name || 'Участник';
-  const player2Name = match.player2Username
-    ? `@${escapeMarkdown(match.player2Username)}`
-    : match.player2Name || 'Участник';
+  const player1Name = formatPlayerName({
+    username: match.player1Username ?? null,
+    name: match.player1Name,
+    surname: match.player1Surname,
+    telegramId: match.player1TelegramId,
+  });
+  const player2Name = formatPlayerName({
+    username: match.player2Username ?? null,
+    name: match.player2Name,
+    surname: match.player2Surname,
+    telegramId: match.player2TelegramId,
+  });
 
   for (const playerId of [match.player1Id, match.player2Id]) {
     if (!playerId || playerId === startedBy) continue;
@@ -258,14 +276,21 @@ export async function notifyResultPending(
 
   if (!opponentId) return;
   // TODO Писать в чью пользу счет
-  const reporterName =
+  const reporterName = formatPlayerName(
     match.player1Id === reportedByUserId
-      ? match.player1Username
-        ? `@${escapeMarkdown(match.player1Username)}`
-        : match.player1Name || 'Соперник'
-      : match.player2Username
-        ? `@${escapeMarkdown(match.player2Username)}`
-        : match.player2Name || 'Соперник';
+      ? {
+          username: match.player1Username ?? null,
+          name: match.player1Name,
+          surname: match.player1Surname,
+          telegramId: match.player1TelegramId,
+        }
+      : {
+          username: match.player2Username ?? null,
+          name: match.player2Name,
+          surname: match.player2Surname,
+          telegramId: match.player2TelegramId,
+        },
+  );
   await createAndSendNotification(
     api,
     {
@@ -289,9 +314,12 @@ export async function notifyResultConfirmed(
   api: Api,
   match: MatchWithPlayers,
 ): Promise<void> {
-  const winnerName = match.winnerUsername
-    ? `@${escapeMarkdown(match.winnerUsername)}`
-    : match.winnerName || 'Победитель';
+  const winnerName = formatPlayerName({
+    username: match.winnerUsername ?? null,
+    name: match.winnerName,
+    surname: match.winnerSurname,
+    telegramId: match.winnerTelegramId,
+  });
 
   const message =
     `Результат матча подтверждён!\n\n` +
@@ -321,14 +349,21 @@ export async function notifyResultDisputed(
   match: MatchWithPlayers,
   disputedByUserId: UUID,
 ): Promise<void> {
-  const disputerName =
+  const disputerName = formatPlayerName(
     match.player1Id === disputedByUserId
-      ? match.player1Username
-        ? `@${escapeMarkdown(match.player1Username)}`
-        : match.player1Name || 'Игрок'
-      : match.player2Username
-        ? `@${escapeMarkdown(match.player2Username)}`
-        : match.player2Name || 'Игрок';
+      ? {
+          username: match.player1Username ?? null,
+          name: match.player1Name,
+          surname: match.player1Surname,
+          telegramId: match.player1TelegramId,
+        }
+      : {
+          username: match.player2Username ?? null,
+          name: match.player2Name,
+          surname: match.player2Surname,
+          telegramId: match.player2TelegramId,
+        },
+  );
 
   const message =
     `${disputerName} оспорил результат матча.\n\n` +
@@ -424,12 +459,18 @@ export async function sendMatchReminder(
   match: MatchWithPlayers,
   tournamentName: string,
 ): Promise<void> {
-  const player1Name = match.player1Username
-    ? `@${escapeMarkdown(match.player1Username)}`
-    : match.player1Name || 'Участник';
-  const player2Name = match.player2Username
-    ? `@${escapeMarkdown(match.player2Username)}`
-    : match.player2Name || 'Участник';
+  const player1Name = formatPlayerName({
+    username: match.player1Username ?? null,
+    name: match.player1Name,
+    surname: match.player1Surname,
+    telegramId: match.player1TelegramId,
+  });
+  const player2Name = formatPlayerName({
+    username: match.player2Username ?? null,
+    name: match.player2Name,
+    surname: match.player2Surname,
+    telegramId: match.player2TelegramId,
+  });
 
   for (const playerId of [match.player1Id, match.player2Id]) {
     if (!playerId) continue;

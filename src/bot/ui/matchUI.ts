@@ -5,30 +5,48 @@ import {
   calculateRounds,
   getNextPowerOfTwo,
 } from '../../services/bracketGenerator.js';
-import { escapeMarkdown } from '../../utils/messageHelpers.js';
+import { escapeMarkdown, formatFullName } from '../../utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '../../utils/dateTimeHelper.js';
 import type { Tournament } from '../@types/tournament.js';
 import type { MatchWithPlayers } from '../@types/match.js';
 
+export interface PlayerNameParts {
+  username: string | null;
+  name?: string | null | undefined;
+  surname?: string | null | undefined;
+  telegramId?: string | null | undefined;
+}
+
 /**
  * Format player name for display.
  *
- * By default returns a Markdown-safe string (username is escaped via
- * `escapeMarkdown`) — do NOT pass it through `escapeMarkdown` again.
+ * Shows «Имя Фамилия» (falling back to `@username`, then «Участник»). In
+ * Markdown contexts the name is rendered as a clickable link to the player's
+ * Telegram profile via `tg://user?id=<telegramId>` when the id is known;
+ * otherwise it degrades to a clickable `@username` mention or plain text.
+ *
+ * The returned string is Markdown-safe (escaped) — do NOT pass it through
+ * `escapeMarkdown` again.
  *
  * Pass `{ markdown: false }` for plain-text contexts like inline button
- * labels, where Telegram does not parse Markdown and a backslash would
- * otherwise be shown literally.
+ * labels (no Markdown parsing, no links). Pass `{ link: false }` to keep
+ * Markdown formatting but suppress the profile link.
  */
 export function formatPlayerName(
-  username: string | null,
-  name: string | null,
-  options: { markdown?: boolean } = {},
+  player: PlayerNameParts | null | undefined,
+  options: { markdown?: boolean; link?: boolean } = {},
 ): string {
-  const { markdown = true } = options;
-  if (username) return `@${markdown ? escapeMarkdown(username) : username}`;
-  if (name) return name;
-  return 'Участник';
+  const { markdown = true, link = true } = options;
+  const username = player?.username ?? null;
+  const fullName = formatFullName(player?.name, player?.surname);
+  const displayText = fullName ?? username ?? 'Участник';
+
+  if (!markdown) return displayText;
+  if (link && player?.telegramId) {
+    return `[${escapeMarkdown(displayText)}](tg://user?id=${player.telegramId})`;
+  }
+  if (!fullName && username) return `@${escapeMarkdown(username)}`;
+  return escapeMarkdown(displayText);
 }
 
 /**
@@ -58,14 +76,18 @@ export function formatMatchCard(
   match: MatchWithPlayers,
   tournament: Tournament,
 ): string {
-  const player1 = formatPlayerName(
-    match.player1Username ?? null,
-    match.player1Name ?? null,
-  );
-  const player2 = formatPlayerName(
-    match.player2Username ?? null,
-    match.player2Name ?? null,
-  );
+  const player1 = formatPlayerName({
+    username: match.player1Username ?? null,
+    name: match.player1Name,
+    surname: match.player1Surname,
+    telegramId: match.player1TelegramId,
+  });
+  const player2 = formatPlayerName({
+    username: match.player2Username ?? null,
+    name: match.player2Name,
+    surname: match.player2Surname,
+    telegramId: match.player2TelegramId,
+  });
 
   const rounds = calculateRounds(
     getNextPowerOfTwo(
@@ -90,10 +112,12 @@ export function formatMatchCard(
   }
 
   if (match.winnerId && match.status === 'completed') {
-    const winnerName = formatPlayerName(
-      match.winnerUsername ?? null,
-      match.winnerName ?? null,
-    );
+    const winnerName = formatPlayerName({
+      username: match.winnerUsername ?? null,
+      name: match.winnerName,
+      surname: match.winnerSurname,
+      telegramId: match.winnerTelegramId,
+    });
     text += `Победитель: ${winnerName}\n`;
   }
 

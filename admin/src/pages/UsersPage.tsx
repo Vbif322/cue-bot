@@ -1,20 +1,21 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { usersApi } from '../lib/api.ts';
 import { useMe } from '../lib/useAuth.ts';
 
 export default function UsersPage() {
-  const qc = useQueryClient();
+  const navigate = useNavigate();
   const { data: me } = useMe();
   const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: usersApi.list,
   });
 
-  const roleMutation = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: 'user' | 'admin' }) =>
-      usersApi.setRole(id, role),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
-  });
+  const displayName = (u: {
+    name: string | null;
+    surname: string | null;
+    username: string;
+  }) => [u.name, u.surname].filter(Boolean).join(' ') || u.username;
 
   return (
     <div>
@@ -33,12 +34,13 @@ export default function UsersPage() {
               return (
                 <div
                   key={u.id}
-                  className="bg-white rounded-xl border border-gray-200 p-4"
+                  onClick={() => navigate(`/users/${u.id}`)}
+                  className="bg-white rounded-xl border border-gray-200 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex items-start justify-between mb-1">
                     <div>
                       <p className="font-medium text-gray-900 text-sm">
-                        {u.name ?? u.username}
+                        {displayName(u)}
                         {isMe && (
                           <span className="ml-2 text-xs text-gray-400">
                             (вы)
@@ -57,30 +59,9 @@ export default function UsersPage() {
                       {u.role === 'admin' ? 'Администратор' : 'Пользователь'}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 font-mono mb-3">
+                  <p className="text-xs text-gray-400 font-mono">
                     ID: {u.telegram_id}
                   </p>
-                  {!isMe && (
-                    <button
-                      onClick={() => {
-                        const newRole = u.role === 'admin' ? 'user' : 'admin';
-                        const label =
-                          newRole === 'admin'
-                            ? 'сделать администратором'
-                            : 'снять права администратора';
-                        if (confirm(`${u.username}: ${label}?`))
-                          roleMutation.mutate({ id: u.id, role: newRole });
-                      }}
-                      disabled={roleMutation.isPending}
-                      className={`text-xs disabled:opacity-50 ${
-                        u.role === 'admin'
-                          ? 'text-red-500 hover:text-red-700'
-                          : 'text-blue-500 hover:text-blue-700'
-                      }`}
-                    >
-                      {u.role === 'admin' ? 'Снять права' : 'Сделать адм.'}
-                    </button>
-                  )}
                 </div>
               );
             })}
@@ -100,17 +81,20 @@ export default function UsersPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Роль
                   </th>
-                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {users?.map((u) => {
                   const isMe = u.id === me?.user?.id;
                   return (
-                    <tr key={u.id} className="hover:bg-gray-50">
+                    <tr
+                      key={u.id}
+                      onClick={() => navigate(`/users/${u.id}`)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
                       <td className="px-4 py-3">
                         <p className="font-medium text-gray-900">
-                          {u.name ?? u.username}
+                          {displayName(u)}
                           {isMe && (
                             <span className="ml-2 text-xs text-gray-400">
                               (вы)
@@ -134,35 +118,6 @@ export default function UsersPage() {
                             ? 'Администратор'
                             : 'Пользователь'}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {!isMe && (
-                          <button
-                            onClick={() => {
-                              const newRole =
-                                u.role === 'admin' ? 'user' : 'admin';
-                              const label =
-                                newRole === 'admin'
-                                  ? 'сделать администратором'
-                                  : 'снять права администратора';
-                              if (confirm(`${u.username}: ${label}?`))
-                                roleMutation.mutate({
-                                  id: u.id,
-                                  role: newRole,
-                                });
-                            }}
-                            disabled={roleMutation.isPending}
-                            className={`text-xs ${
-                              u.role === 'admin'
-                                ? 'text-red-500 hover:text-red-700'
-                                : 'text-blue-500 hover:text-blue-700'
-                            } disabled:opacity-50`}
-                          >
-                            {u.role === 'admin'
-                              ? 'Снять права'
-                              : 'Сделать адм.'}
-                          </button>
-                        )}
                       </td>
                     </tr>
                   );

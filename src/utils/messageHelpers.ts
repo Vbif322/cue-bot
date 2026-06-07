@@ -14,6 +14,22 @@ export function escapeMarkdown(text: string): string {
 }
 
 /**
+ * Собирает отображаемое «Имя Фамилия» из необязательных полей пользователя.
+ * Возвращает `null`, если оба поля пусты — вызывающий код использует fallback
+ * (например, `?? username`).
+ */
+export function formatFullName(
+  name: string | null | undefined,
+  surname: string | null | undefined,
+): string | null {
+  const full = [name, surname]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(' ');
+  return full.length > 0 ? full : null;
+}
+
+/**
  * Options for safe edit message text operation
  */
 export interface SafeEditOptions {

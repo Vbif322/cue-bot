@@ -21,6 +21,7 @@ const adminCommands: BotCommand[] = [
   ...refereeCommands,
   { command: 'cancel', description: 'Отменить wizard' },
   { command: 'create_tournament', description: 'Создать турнир' },
+  { command: 'dashboard', description: 'Панель администратора' },
   { command: 'delete_tournament', description: 'Удалить турнир' },
   { command: 'set_admin', description: 'Назначить администратора' },
   { command: 'remove_admin', description: 'Снять администратора' },

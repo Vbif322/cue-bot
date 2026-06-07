@@ -8,6 +8,12 @@ import {
 } from '@/services/userStatsService.js';
 import { getUserRefereeTournaments } from '../permissions.js';
 import type { BotContext } from '../types.js';
+import { formatFullName } from '@/utils/messageHelpers.js';
+import {
+  ProfileValidationError,
+  updateUserProfile,
+} from '@/services/userService.js';
+import { profileEditStateStore } from '../wizards/profileEdit/profileEdit.module.js';
 
 export const profileCommands = new Composer<BotContext>();
 
@@ -18,7 +24,7 @@ function pluralizeTournaments(n: number): string {
 
 function formatProfileHeader(ctx: BotContext, refereeCount: number): string {
   const user = ctx.dbUser;
-  const displayName = user.name ?? user.username;
+  const displayName = formatFullName(user.name, user.surname) ?? user.username;
   const usernameLine = user.username ? ` (@${user.username})` : '';
 
   let role: string;
@@ -83,12 +89,11 @@ export async function showProfile(ctx: BotContext): Promise<void> {
 
   const text = blocks.join('\n\n');
 
-  if (history.length === 0) {
-    await ctx.reply(text, { parse_mode: 'Markdown' });
-    return;
-  }
-
   const keyboard = new InlineKeyboard();
+  keyboard
+    .text('✏️ Изменить имя', 'pe:edit:name')
+    .text('✏️ Изменить фамилию', 'pe:edit:surname')
+    .row();
   for (const t of history) {
     keyboard.text(`📊 ${t.name}`, `bracket:view:${t.id}`).row();
   }
@@ -100,3 +105,57 @@ export async function showProfile(ctx: BotContext): Promise<void> {
 }
 
 profileCommands.command('me', (ctx) => showProfile(ctx));
+
+const FIELD_LABELS: Record<'name' | 'surname', string> = {
+  name: 'имя',
+  surname: 'фамилию',
+};
+
+profileCommands.callbackQuery(/^pe:edit:(name|surname)$/, async (ctx) => {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  const field = ctx.match![1] as 'name' | 'surname';
+  profileEditStateStore.start(userId, field);
+
+  await ctx.answerCallbackQuery();
+  await ctx.reply(
+    `Отправьте новое значение (${FIELD_LABELS[field]}) сообщением.\n` +
+      'Чтобы очистить — отправьте «-». Для отмены — /cancel.',
+  );
+});
+
+profileCommands.command('cancel', async (ctx) => {
+  const userId = ctx.from?.id;
+  if (!userId || !profileEditStateStore.has(userId)) return;
+
+  profileEditStateStore.clear(userId);
+  await ctx.reply('Редактирование профиля отменено.');
+});
+
+profileCommands.on('message:text', async (ctx, next) => {
+  const userId = ctx.from?.id;
+  if (!userId) return next();
+
+  const state = profileEditStateStore.get(userId);
+  if (!state) return next();
+
+  const raw = ctx.message.text.trim();
+  const value = raw === '-' ? null : raw;
+
+  try {
+    const updated = await updateUserProfile(ctx.dbUser.id, {
+      [state.field]: value,
+    });
+    ctx.dbUser = updated;
+    profileEditStateStore.clear(userId);
+    await ctx.reply('✅ Профиль обновлён.');
+    await showProfile(ctx);
+  } catch (error) {
+    if (error instanceof ProfileValidationError) {
+      await ctx.reply(`${error.message}\nПопробуйте ещё раз или /cancel.`);
+      return;
+    }
+    throw error;
+  }
+});
