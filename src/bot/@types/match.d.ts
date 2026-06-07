@@ -35,12 +35,15 @@ export type ApiMatchStats = {
 export interface MatchWithPlayers extends Match {
   player1Username?: string | null;
   player1Name?: string | null;
+  player1Surname?: string | null;
   player1TelegramId?: string | null;
   player2Username?: string | null;
   player2Name?: string | null;
+  player2Surname?: string | null;
   player2TelegramId?: string | null;
   winnerUsername?: string | null;
   winnerName?: string | null;
+  winnerSurname?: string | null;
   winnerTelegramId?: string | null;
   tableName?: string | null;
 }

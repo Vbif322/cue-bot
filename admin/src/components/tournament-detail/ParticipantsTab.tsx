@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tournamentsApi } from '../../lib/api.ts';
 import type { ApiTournament } from '../../lib/api.ts';
@@ -180,7 +181,12 @@ export default function ParticipantsTab({
                   />
                 </td>
                 <td className="px-4 py-3 font-medium">
-                  <span>{p.name ?? p.username ?? p.userId}</span>
+                  <Link
+                    to={`/users/${p.userId}`}
+                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    {p.name ?? p.username ?? p.userId}
+                  </Link>
                   {p.username && (
                     <span className="text-gray-400 font-normal ml-1">
                       @{p.username}
