@@ -1,11 +1,21 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { users, tournamentReferees } from '@/db/schema.js';
+import { users, tournamentReferees, tournaments } from '@/db/schema.js';
+import {
+  ProfileValidationError,
+  updateUserProfile,
+} from '@/services/userService.js';
+import {
+  getUserMatchStats,
+  getUserCompletedTournaments,
+} from '@/services/userStatsService.js';
+import { getUserRefereeTournaments } from '@/bot/permissions.js';
+import type { ApiUserStats } from '@/bot/@types/user.js';
 import { requireAdmin } from '../middleware.js';
 
 export function createUsersRouter() {
@@ -29,6 +39,66 @@ export function createUsersRouter() {
     if (!user) return c.json({ error: 'Не найден' }, 404);
     return c.json({ data: user });
   });
+
+  // Aggregated statistics for the user detail page
+  router.get('/:id/stats', async (c) => {
+    const userId = c.req.param('id') as UUID;
+
+    const [matches, history, refereeIds] = await Promise.all([
+      getUserMatchStats(userId),
+      getUserCompletedTournaments(userId, 100),
+      getUserRefereeTournaments(userId),
+    ]);
+
+    const refereeTournaments =
+      refereeIds.length > 0
+        ? await db
+            .select({
+              id: tournaments.id,
+              name: tournaments.name,
+              status: tournaments.status,
+            })
+            .from(tournaments)
+            .where(inArray(tournaments.id, refereeIds))
+        : [];
+
+    const stats: ApiUserStats = {
+      matches,
+      tournamentHistory: history.map((t) => ({
+        id: t.id,
+        name: t.name,
+        completedAt: t.completedAt.toISOString(),
+        isWinner: t.isWinner,
+      })),
+      refereeTournaments,
+    };
+
+    return c.json({ data: stats });
+  });
+
+  // Update user profile (name / surname)
+  router.patch(
+    '/:id',
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().max(50).nullable().optional(),
+        surname: z.string().max(100).nullable().optional(),
+      }),
+    ),
+    async (c) => {
+      const targetId = c.req.param('id') as UUID;
+      try {
+        const updated = await updateUserProfile(targetId, c.req.valid('json'));
+        return c.json({ data: updated });
+      } catch (err) {
+        if (err instanceof ProfileValidationError) {
+          return c.json({ error: err.message }, 400);
+        }
+        throw err;
+      }
+    },
+  );
 
   // Update user role
   router.patch(

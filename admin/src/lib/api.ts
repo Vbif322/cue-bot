@@ -5,6 +5,7 @@ import type {
   ApiMatch,
   ApiMatchStats,
   ApiUser,
+  ApiUserStats,
   ApiTable,
   ApiVenue,
   StartTournamentResponse,
@@ -20,6 +21,7 @@ export type {
   ApiMatch,
   ApiMatchStats,
   ApiUser,
+  ApiUserStats,
   ApiTable,
   ApiVenue,
   StartTournamentResponse,
@@ -265,10 +267,21 @@ export const usersApi = {
 
   get: (id: string) => apiFetch<ApiUser>(`/api/users/${id}`),
 
+  stats: (id: string) => apiFetch<ApiUserStats>(`/api/users/${id}/stats`),
+
   setRole: (id: string, role: 'user' | 'admin') =>
     apiFetch<ApiUser>(`/api/users/${id}/role`, {
       method: 'PATCH',
       body: JSON.stringify({ role }),
+    }),
+
+  update: (
+    id: string,
+    fields: { name?: string | null; surname?: string | null },
+  ) =>
+    apiFetch<ApiUser>(`/api/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(fields),
     }),
 
   assignReferee: (userId: string, tournamentId: string) =>
