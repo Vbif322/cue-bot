@@ -12,29 +12,6 @@ import type { BotContext } from '../types.js';
 
 export const roleCommands = new Composer<BotContext>();
 
-// TODO: Переделать на команду /me. Показывать еще статистику пользователя (рейтинг, количество сыгранных матчей, винрейт, количество побед и поражений и т.д.).
-// /my_role - показать свою роль
-// roleCommands.command("my_role", async (ctx) => {
-//   const { dbUser } = ctx;
-
-//   let message = `Ваша роль: ${dbUser.role}`;
-
-//   const refereeTournamentIds = await getUserRefereeTournaments(dbUser.id);
-
-//   if (refereeTournamentIds.length > 0) {
-//     const tournamentsData = await db.query.tournaments.findMany({
-//       where: (t, { inArray }) => inArray(t.id, refereeTournamentIds),
-//     });
-
-//     message += "\n\nВы судья на турнирах:";
-//     for (const t of tournamentsData) {
-//       message += `\n- ${t.name}`;
-//     }
-//   }
-
-//   await ctx.reply(message);
-// });
-
 // /set_admin <telegram_id или @username> - назначить админа
 roleCommands.command('set_admin', adminOnly(), async (ctx) => {
   const args = ctx.message?.text?.split(' ').slice(1);

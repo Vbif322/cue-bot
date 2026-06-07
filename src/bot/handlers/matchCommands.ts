@@ -36,6 +36,7 @@ import {
   getMatchKeyboard,
   formatPlayerName,
   getMatchStatusEmoji,
+  type PlayerNameParts,
 } from '../ui/matchUI.js';
 import {
   canManageTournament,
@@ -90,14 +91,18 @@ export async function showMyMatches(ctx: BotContext): Promise<void> {
 
     text += `*${tournament.name}*\n`;
     for (const m of matchList) {
-      const p1 = formatPlayerName(
-        m.player1Username ?? null,
-        m.player1Name ?? null,
-      );
-      const p2 = formatPlayerName(
-        m.player2Username ?? null,
-        m.player2Name ?? null,
-      );
+      const p1 = formatPlayerName({
+        username: m.player1Username ?? null,
+        name: m.player1Name,
+        surname: m.player1Surname,
+        telegramId: m.player1TelegramId,
+      });
+      const p2 = formatPlayerName({
+        username: m.player2Username ?? null,
+        name: m.player2Name,
+        surname: m.player2Surname,
+        telegramId: m.player2TelegramId,
+      });
       const emoji = getMatchStatusEmoji(m.status);
       text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
       if (m.scheduledAt) {
@@ -106,8 +111,11 @@ export async function showMyMatches(ctx: BotContext): Promise<void> {
 
       const isPlayer1 = m.player1Id === userId;
       const opponentPlain = formatPlayerName(
-        (isPlayer1 ? m.player2Username : m.player1Username) ?? null,
-        (isPlayer1 ? m.player2Name : m.player1Name) ?? null,
+        {
+          username: (isPlayer1 ? m.player2Username : m.player1Username) ?? null,
+          name: isPlayer1 ? m.player2Name : m.player1Name,
+          surname: isPlayer1 ? m.player2Surname : m.player1Surname,
+        },
         { markdown: false },
       );
       keyboard.text(opponentPlain, `match:view:${m.id}`).row();
@@ -161,24 +169,22 @@ matchCommands.command('referee_matches', async (ctx) => {
 
     text += `*${tournament.name}* (${activeMatches.length})\n`;
     for (const m of activeMatches) {
-      const p1 = formatPlayerName(
-        m.player1Username ?? null,
-        m.player1Name ?? null,
-      );
-      const p2 = formatPlayerName(
-        m.player2Username ?? null,
-        m.player2Name ?? null,
-      );
-      const p1Plain = formatPlayerName(
-        m.player1Username ?? null,
-        m.player1Name ?? null,
-        { markdown: false },
-      );
-      const p2Plain = formatPlayerName(
-        m.player2Username ?? null,
-        m.player2Name ?? null,
-        { markdown: false },
-      );
+      const p1Parts = {
+        username: m.player1Username ?? null,
+        name: m.player1Name,
+        surname: m.player1Surname,
+        telegramId: m.player1TelegramId,
+      };
+      const p2Parts = {
+        username: m.player2Username ?? null,
+        name: m.player2Name,
+        surname: m.player2Surname,
+        telegramId: m.player2TelegramId,
+      };
+      const p1 = formatPlayerName(p1Parts);
+      const p2 = formatPlayerName(p2Parts);
+      const p1Plain = formatPlayerName(p1Parts, { markdown: false });
+      const p2Plain = formatPlayerName(p2Parts, { markdown: false });
       const emoji = getMatchStatusEmoji(m.status);
       text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
       keyboard.text(`${p1Plain} vs ${p2Plain}`, `match:view:${m.id}`).row();
@@ -459,14 +465,18 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
 
   const winScore = tournament.winScore;
-  const player1 = formatPlayerName(
-    match.player1Username ?? null,
-    match.player1Name ?? null,
-  );
-  const player2 = formatPlayerName(
-    match.player2Username ?? null,
-    match.player2Name ?? null,
-  );
+  const player1 = formatPlayerName({
+    username: match.player1Username ?? null,
+    name: match.player1Name,
+    surname: match.player1Surname,
+    telegramId: match.player1TelegramId,
+  });
+  const player2 = formatPlayerName({
+    username: match.player2Username ?? null,
+    name: match.player2Name,
+    surname: match.player2Surname,
+    telegramId: match.player2TelegramId,
+  });
 
   // Generate score buttons
   const keyboard = new InlineKeyboard();
@@ -690,24 +700,22 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery();
 
-  const player1 = formatPlayerName(
-    match.player1Username ?? null,
-    match.player1Name ?? null,
-  );
-  const player2 = formatPlayerName(
-    match.player2Username ?? null,
-    match.player2Name ?? null,
-  );
-  const player1Plain = formatPlayerName(
-    match.player1Username ?? null,
-    match.player1Name ?? null,
-    { markdown: false },
-  );
-  const player2Plain = formatPlayerName(
-    match.player2Username ?? null,
-    match.player2Name ?? null,
-    { markdown: false },
-  );
+  const player1Parts = {
+    username: match.player1Username ?? null,
+    name: match.player1Name,
+    surname: match.player1Surname,
+    telegramId: match.player1TelegramId,
+  };
+  const player2Parts = {
+    username: match.player2Username ?? null,
+    name: match.player2Name,
+    surname: match.player2Surname,
+    telegramId: match.player2TelegramId,
+  };
+  const player1 = formatPlayerName(player1Parts);
+  const player2 = formatPlayerName(player2Parts);
+  const player1Plain = formatPlayerName(player1Parts, { markdown: false });
+  const player2Plain = formatPlayerName(player2Parts, { markdown: false });
 
   const keyboard = new InlineKeyboard();
 
@@ -825,7 +833,7 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
  */
 function formatMatchSection(
   sectionMatches: Awaited<ReturnType<typeof getTournamentMatches>>,
-  playerMap: Map<string, { username: string | null; name: string | null }>,
+  playerMap: Map<string, PlayerNameParts>,
   tournament: { format: string },
   totalRounds: number,
   keyboard: InstanceType<typeof InlineKeyboard>,
@@ -856,8 +864,8 @@ function formatMatchSection(
       const p1 = match.player1Id ? playerMap.get(match.player1Id) : null;
       const p2 = match.player2Id ? playerMap.get(match.player2Id) : null;
 
-      const player1Name = p1 ? formatPlayerName(p1.username, p1.name) : 'TBD';
-      const player2Name = p2 ? formatPlayerName(p2.username, p2.name) : 'TBD';
+      const player1Name = p1 ? formatPlayerName(p1) : 'TBD';
+      const player2Name = p2 ? formatPlayerName(p2) : 'TBD';
 
       const emoji = getMatchStatusEmoji(match.status);
       let score = '';
@@ -949,16 +957,18 @@ async function showBracket(
 
   // Get all player names
 
-  const playerMap = new Map<
-    string,
-    { username: string | null; name: string | null }
-  >();
+  const playerMap = new Map<string, PlayerNameParts>();
   if (playerIds.size > 0) {
     const players = await db.query.users.findMany({
       where: inArray(users.id, Array.from(playerIds)),
     });
     for (const p of players) {
-      playerMap.set(p.id, { username: p.username, name: p.name });
+      playerMap.set(p.id, {
+        username: p.username,
+        name: p.name,
+        surname: p.surname,
+        telegramId: p.telegram_id,
+      });
     }
   }
 
@@ -1012,8 +1022,8 @@ async function showBracket(
         const p1 = match.player1Id ? playerMap.get(match.player1Id) : null;
         const p2 = match.player2Id ? playerMap.get(match.player2Id) : null;
 
-        const player1Name = p1 ? formatPlayerName(p1.username, p1.name) : 'TBD';
-        const player2Name = p2 ? formatPlayerName(p2.username, p2.name) : 'TBD';
+        const player1Name = p1 ? formatPlayerName(p1) : 'TBD';
+        const player2Name = p2 ? formatPlayerName(p2) : 'TBD';
 
         const emoji = getMatchStatusEmoji(match.status);
         let score = '';

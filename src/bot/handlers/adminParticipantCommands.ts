@@ -14,7 +14,10 @@ import {
   notifyRegistrationConfirmed,
   notifyRegistrationRejected,
 } from "../../services/notificationService.js";
-import { safeEditMessageText } from "../../utils/messageHelpers.js";
+import {
+  formatFullName,
+  safeEditMessageText,
+} from "../../utils/messageHelpers.js";
 import { bot } from "../instance.js";
 
 export const adminParticipantCommands = new Composer<BotContext>();
@@ -56,6 +59,7 @@ async function showParticipantManagement(
       userId: tournamentParticipants.userId,
       username: users.username,
       name: users.name,
+      surname: users.surname,
     })
     .from(tournamentParticipants)
     .innerJoin(users, eq(tournamentParticipants.userId, users.id))
@@ -71,6 +75,7 @@ async function showParticipantManagement(
       userId: tournamentParticipants.userId,
       username: users.username,
       name: users.name,
+      surname: users.surname,
     })
     .from(tournamentParticipants)
     .innerJoin(users, eq(tournamentParticipants.userId, users.id))
@@ -99,7 +104,8 @@ async function showParticipantManagement(
   if (pending.length > 0) {
     message += `\n*Ожидают подтверждения (${pending.length}):*\n`;
     for (const p of pending) {
-      const displayName = p.name ?? p.username ?? "Игрок";
+      const displayName =
+        formatFullName(p.name, p.surname) ?? p.username ?? "Игрок";
       const handle = p.username ? ` (@${p.username})` : "";
       message += `${displayName}${handle}\n`;
 
@@ -115,7 +121,8 @@ async function showParticipantManagement(
   if (confirmed.length > 0) {
     message += `\n*Подтверждённые (${confirmed.length}):*\n`;
     for (const p of confirmed) {
-      const displayName = p.name ?? p.username ?? "Игрок";
+      const displayName =
+        formatFullName(p.name, p.surname) ?? p.username ?? "Игрок";
       const handle = p.username ? ` (@${p.username})` : "";
       message += `${displayName}${handle}\n`;
 
