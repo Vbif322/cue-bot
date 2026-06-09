@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { tournamentsApi } from '../../lib/api.ts';
 import type { ApiTournament, TournamentStatus } from '../../lib/api.ts';
 import { TournamentStatusBadge } from '../StatusBadge.tsx';
+import { EditTournamentModal } from '../CreateTournamentModal.tsx';
 import { FORMAT_LABELS } from '../../lib/tournamentLabels.ts';
 
 const NEXT_STATUS: Partial<Record<TournamentStatus, TournamentStatus>> = {
@@ -11,6 +12,14 @@ const NEXT_STATUS: Partial<Record<TournamentStatus, TournamentStatus>> = {
   registration_open: 'registration_closed',
   registration_closed: 'in_progress',
 };
+
+// Settings stay editable until the bracket is generated (i.e. before start).
+// Mirrors canEditTournament / EDITABLE_STATUSES on the server.
+const EDITABLE_STATUSES: TournamentStatus[] = [
+  'draft',
+  'registration_open',
+  'registration_closed',
+];
 
 const STATUS_ACTION_LABELS: Partial<Record<TournamentStatus, string>> = {
   draft: 'Открыть регистрацию',
@@ -27,6 +36,7 @@ export default function TournamentHeader({
 }) {
   const qc = useQueryClient();
   const [actionError, setActionError] = useState('');
+  const [showEdit, setShowEdit] = useState(false);
 
   const statusMutation = useMutation({
     mutationFn: (status: TournamentStatus) =>
@@ -92,6 +102,14 @@ export default function TournamentHeader({
         </div>
 
         <div className="flex items-center gap-2">
+          {EDITABLE_STATUSES.includes(tournament.status) && (
+            <button
+              onClick={() => setShowEdit(true)}
+              className="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50"
+            >
+              Редактировать
+            </button>
+          )}
           {nextStatus && nextLabel && (
             <button
               onClick={handleNextAction}
@@ -130,6 +148,13 @@ export default function TournamentHeader({
         <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">
           {actionError}
         </div>
+      )}
+
+      {showEdit && (
+        <EditTournamentModal
+          tournament={tournament}
+          onClose={() => setShowEdit(false)}
+        />
       )}
     </>
   );

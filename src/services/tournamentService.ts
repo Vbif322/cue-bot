@@ -60,6 +60,22 @@ export interface CreateTournamentDraftInput {
   tableIds?: UUID[];
 }
 
+export interface UpdateTournamentDraftInput {
+  venueId: UUID;
+
+  name: string;
+  description?: string | null;
+  format: ITournamentFormat;
+  visibility?: ITournamentVisibility;
+  scheduleMode?: ITournamentScheduleMode;
+  startDate?: Date | null;
+  maxParticipants: ITournamentMaxParticipants;
+  winScore: ITournamentWinScore;
+  rules?: string | null;
+
+  tableIds?: UUID[];
+}
+
 // Live participant counts, computed as scalar correlated subqueries so they stay
 // correct even where the outer query already joins tournamentParticipants (e.g.
 // getUserTournaments) — a GROUP BY aggregate would be skewed by that join.
@@ -299,6 +315,105 @@ export async function createTournamentDraft(
   const tournament = await getTournament(created.id);
 
   if (!tournament) throw new Error('Ошибка загрузки турнира после создания');
+
+  return tournament;
+}
+
+/**
+ * Update an existing tournament while it is still editable (before start — see
+ * {@link EDITABLE_STATUSES}). Mirrors {@link createTournamentDraft}: validates
+ * the venue and table selection, then rewrites the editable fields and replaces
+ * the table assignment atomically. Status, discipline and ownership are never
+ * changed here. The participant cap cannot be set below the people already
+ * signed up.
+ *
+ * @throws {Error} Если турнир не найден.
+ * @throws {Error} Если турнир уже стартовал и не может быть отредактирован.
+ * @throws {Error} Если площадка не найдена или столы ей не принадлежат.
+ * @throws {Error} Если новый лимит меньше текущего числа участников.
+ *
+ * @param {UUID} id Идентификатор турнира
+ * @param {UpdateTournamentDraftInput} input Новые данные турнира
+ *
+ * @returns {Promise<TournamentReadModel>} Обновлённый турнир
+ */
+export async function updateTournamentDraft(
+  id: UUID,
+  input: UpdateTournamentDraftInput,
+): Promise<TournamentReadModel> {
+  const existing = await getTournament(id);
+
+  if (!existing) throw new Error('Турнир не найден');
+
+  if (!canEditTournament(existing.status)) {
+    throw new Error('Турнир уже стартовал — редактирование недоступно');
+  }
+
+  const venue = await db.query.venues.findFirst({
+    where: eq(venues.id, input.venueId),
+  });
+
+  if (!venue) throw new Error('Площадка не найдена');
+
+  const uniqueTableIds = Array.from(new Set(input.tableIds ?? []));
+
+  await validateTableIdsForVenue(uniqueTableIds, input.venueId);
+
+  // The participant cap is only enforced at registration time, so the edit form
+  // is the one place it could be lowered below the people already signed up.
+  const [active] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, id),
+        inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+      ),
+    );
+  const activeCount = active?.count ?? 0;
+
+  if (input.maxParticipants < activeCount) {
+    throw new Error(
+      `Нельзя установить лимит участников меньше текущего числа участников (${activeCount})`,
+    );
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tournaments)
+      .set({
+        venueId: input.venueId,
+        name: input.name,
+        description: input.description ?? null,
+        format: input.format,
+        visibility: input.visibility ?? 'public',
+        scheduleMode: input.scheduleMode ?? 'single_day',
+        startDate: input.startDate ?? null,
+        maxParticipants: input.maxParticipants,
+        winScore: input.winScore,
+        rules: input.rules ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(tournaments.id, id));
+
+    await tx
+      .delete(tournamentTables)
+      .where(eq(tournamentTables.tournamentId, id));
+
+    if (uniqueTableIds.length > 0) {
+      await tx.insert(tournamentTables).values(
+        uniqueTableIds.map((tableId, position) => ({
+          tournamentId: id,
+          tableId,
+          position,
+        })),
+      );
+    }
+  });
+
+  const tournament = await getTournament(id);
+
+  if (!tournament) throw new Error('Ошибка загрузки турнира после обновления');
 
   return tournament;
 }
@@ -650,6 +765,23 @@ export async function deleteTournament(tournamentId: UUID): Promise<void> {
  */
 export function canDeleteTournament(status: string): boolean {
   return status === 'draft' || status === 'cancelled';
+}
+
+/**
+ * Statuses in which tournament settings may still be edited: before the bracket
+ * is generated (which happens only at start), so no live structure can desync.
+ */
+export const EDITABLE_STATUSES: TournamentStatus[] = [
+  'draft',
+  'registration_open',
+  'registration_closed',
+];
+
+/**
+ * Check if tournament can be edited (only before it has started)
+ */
+export function canEditTournament(status: string): boolean {
+  return (EDITABLE_STATUSES as string[]).includes(status);
 }
 
 /**
