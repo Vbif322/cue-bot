@@ -31,3 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the legacy monolithic `src/bot/wizards/tournamentCreationWizard.ts` implementation.
 - Removed the legacy `src/utils/dateHelpers.ts` helper in favor of the Luxon-based datetime module.
 - Removed the dashboard route from the active admin SPA router.
+
+### Fixed
+
+- Fixed the participant count incorrectly showing zero on the tournaments list.
