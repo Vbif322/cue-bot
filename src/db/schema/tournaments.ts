@@ -8,6 +8,16 @@ import { venues } from './venues.js';
 export { formats, type ITournamentFormat } from '../../admin/server/formats.js';
 import { formats } from '../../admin/server/formats.js';
 import type { ITournamentFormat } from '../../admin/server/formats.js';
+export {
+  maxParticipants,
+  winScores,
+  type ITournamentMaxParticipants,
+  type ITournamentWinScore,
+} from '../../admin/server/tournamentOptions.js';
+import type {
+  ITournamentMaxParticipants,
+  ITournamentWinScore,
+} from '../../admin/server/tournamentOptions.js';
 
 export const statuses = [
   'draft',
@@ -36,14 +46,6 @@ export type ITournamentVisibility = (typeof visibilities)[number];
 export const scheduleModes = ['single_day', 'per_match'] as const;
 
 export type ITournamentScheduleMode = (typeof scheduleModes)[number];
-
-export const maxParticipants = [8, 16, 32, 64, 128] as const;
-
-export type ITournamentMaxParticipants = (typeof maxParticipants)[number];
-
-export const winScores = [2, 3, 4, 5] as const;
-
-export type ITournamentWinScore = (typeof winScores)[number];
 
 export const tournaments = prodSchema.table('tournaments', {
   id: uuid('id').$type<UUID>().primaryKey().defaultRandom(),

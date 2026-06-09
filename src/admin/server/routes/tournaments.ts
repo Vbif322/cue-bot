@@ -20,11 +20,13 @@ import {
 } from '@/db/schema.js';
 import {
   createTournamentDraft,
+  updateTournamentDraft,
   getTournament,
   getTournaments,
   updateTournamentStatus,
   deleteTournament,
   canDeleteTournament,
+  canEditTournament,
   closeRegistrationWithCount,
   canStartTournament,
   confirmParticipant,
@@ -124,6 +126,78 @@ export function createTournamentsRouter(botApi: Api) {
               error instanceof Error
                 ? error.message
                 : 'Ошибка создания турнира',
+          },
+          400,
+        );
+      }
+    },
+  );
+
+  router.patch(
+    '/:id',
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().min(1),
+        description: z.string().optional(),
+        rules: z.string().optional(),
+        format: z.enum(formats),
+        visibility: z.enum(visibilities).default('public'),
+        scheduleMode: z.enum(scheduleModes).default('single_day'),
+        maxParticipants: z
+          .number()
+          .int()
+          .min(Math.min(...maxParticipants))
+          .max(Math.max(...maxParticipants))
+          .default(16),
+        winScore: z
+          .number()
+          .int()
+          .min(Math.min(...winScores))
+          .max(Math.max(...winScores))
+          .default(3),
+        startDate: z.string().optional(),
+        venueId: z.uuid(),
+        tableIds: z.array(z.uuid()).optional(),
+      }),
+    ),
+    async (c) => {
+      const id = c.req.param('id') as UUID;
+      const body = c.req.valid('json');
+
+      const existing = await getTournament(id);
+      if (!existing) return c.json({ error: 'Не найден' }, 404);
+
+      if (!canEditTournament(existing.status)) {
+        return c.json(
+          { error: 'Турнир уже стартовал — редактирование недоступно' },
+          400,
+        );
+      }
+
+      try {
+        const tournament = await updateTournamentDraft(id, {
+          name: body.name,
+          description: body.description ?? null,
+          rules: body.rules ?? null,
+          format: body.format,
+          visibility: body.visibility,
+          scheduleMode: body.scheduleMode,
+          maxParticipants: body.maxParticipants as ITournamentMaxParticipants,
+          winScore: body.winScore as ITournamentWinScore,
+          startDate: body.startDate ? new Date(body.startDate) : null,
+          venueId: body.venueId as UUID,
+          ...(body.tableIds ? { tableIds: body.tableIds as UUID[] } : {}),
+        });
+
+        return c.json({ data: tournament });
+      } catch (error) {
+        return c.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Ошибка обновления турнира',
           },
           400,
         );
