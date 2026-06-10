@@ -232,6 +232,18 @@ export function buildTournamentKeyboard(
         .row();
     }
 
+    // Cancellation is available on every stage except draft (delete it),
+    // completed and already-cancelled tournaments.
+    if (
+      info.status === 'registration_open' ||
+      info.status === 'registration_closed' ||
+      info.status === 'in_progress'
+    ) {
+      keyboard
+        .text('❌ Отменить турнир', `tournament_cancel_confirm:${info.id}`)
+        .row();
+    }
+
     // Invitations are how players reach a private tournament (it is hidden
     // from the public list). Offer them while the roster is still open.
     if (

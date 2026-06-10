@@ -16,8 +16,11 @@ import {
   updateTournamentStatus,
   deleteTournament,
   canDeleteTournament,
+  cancelTournament,
+  canCancelTournament,
   closeRegistrationWithCount,
 } from '@/services/tournamentService.js';
+import { notifyTournamentCancelled } from '@/services/notificationService.js';
 import type { TournamentStatus } from '@/bot/@types/tournament.js';
 
 import { adminOnly } from '../guards.js';
@@ -339,6 +342,101 @@ tournamentCommands.callbackQuery('tournament_delete_cancel', async (ctx) => {
   await ctx.answerCallbackQuery('Удаление отменено');
   await safeEditMessageText(ctx, {
     text: 'Удаление отменено.',
+  });
+});
+
+/**
+ * Show tournament cancellation confirmation dialog
+ */
+tournamentCommands.callbackQuery(
+  /^tournament_cancel_confirm:(.+)$/,
+  async (ctx) => {
+    if (!isAdmin(ctx)) {
+      await ctx.answerCallbackQuery('Недостаточно прав');
+      return;
+    }
+
+    const tournamentId = ctx.match![1]! as UUID;
+    const tournament = await getTournament(tournamentId);
+
+    if (!tournament) {
+      await ctx.answerCallbackQuery({
+        text: 'Турнир не найден',
+        show_alert: true,
+      });
+      return;
+    }
+
+    if (!canCancelTournament(tournament.status)) {
+      await ctx.answerCallbackQuery({
+        text: 'Этот турнир нельзя отменить',
+        show_alert: true,
+      });
+      return;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    const keyboard = new InlineKeyboard()
+      .text(
+        `${getMatchStatusEmoji('cancelled')} Да, отменить`,
+        `tournament_cancel:${tournament.id}`,
+      )
+      .text(`${getMatchStatusEmoji('completed')} Нет`, `tournament_cancel_abort`);
+
+    await safeEditMessageText(ctx, {
+      text:
+        `Вы уверены, что хотите отменить турнир?\n` +
+        `Участники получат уведомление, а незавершённые матчи будут отменены.\n\n` +
+        `📋 *${tournament.name}*\n` +
+        `Статус: ${STATUS_LABELS[tournament.status as keyof typeof STATUS_LABELS] || tournament.status}`,
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  },
+);
+
+/**
+ * Cancel tournament (final confirmation)
+ */
+tournamentCommands.callbackQuery(/^tournament_cancel:(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) {
+    await ctx.answerCallbackQuery('Недостаточно прав');
+    return;
+  }
+
+  const tournamentId = ctx.match![1]! as UUID;
+  const tournament = await getTournament(tournamentId);
+
+  if (!tournament) {
+    await ctx.answerCallbackQuery({ text: 'Турнир не найден', show_alert: true });
+    return;
+  }
+
+  if (!canCancelTournament(tournament.status)) {
+    await ctx.answerCallbackQuery({
+      text: 'Этот турнир нельзя отменить',
+      show_alert: true,
+    });
+    return;
+  }
+
+  await cancelTournament(tournamentId);
+  await notifyTournamentCancelled(ctx.api, tournamentId, tournament.name);
+
+  await ctx.answerCallbackQuery('Турнир отменён');
+  await safeEditMessageText(ctx, {
+    text: `❌ Турнир "${tournament.name}" отменён.`,
+  });
+});
+
+/**
+ * Abort tournament cancellation
+ */
+tournamentCommands.callbackQuery('tournament_cancel_abort', async (ctx) => {
+  await ctx.answerCallbackQuery('Отмена отменена');
+  await safeEditMessageText(ctx, {
+    text: 'Отмена турнира отменена.',
   });
 });
 

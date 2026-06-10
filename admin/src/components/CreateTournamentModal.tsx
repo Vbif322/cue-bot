@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { tournamentsApi, tablesApi, venuesApi } from '../lib/api.ts';
-import { formats } from '@server/apiTypes';
+import { formats, maxParticipants, winScores } from '@server/apiTypes';
 import type {
+  ApiTournament,
+  ITournamentFormat,
   TournamentVisibility,
   TournamentScheduleMode,
 } from '../lib/api.ts';
@@ -13,23 +15,41 @@ import {
   SCHEDULE_MODE_LABELS,
 } from '../lib/tournamentLabels.ts';
 
-export default function CreateTournamentModal({
+type Mode = { mode: 'create' } | { mode: 'edit'; tournament: ApiTournament };
+
+// Build a datetime-local value (YYYY-MM-DDTHH:mm) from an ISO string using local
+// time parts, so the pre-filled value matches the wall-clock that create stored.
+function toLocalDatetimeInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
+}
+
+function TournamentFormModal({
   onClose,
-}: {
-  onClose: () => void;
-}) {
+  ...modeProps
+}: { onClose: () => void } & Mode) {
   const qc = useQueryClient();
+  const tournament =
+    modeProps.mode === 'edit' ? modeProps.tournament : undefined;
+  const isEdit = tournament !== undefined;
+
   const [form, setForm] = useState({
-    name: '',
-    description: '',
-    rules: '',
-    format: 'single_elimination' as const,
-    visibility: 'public' as TournamentVisibility,
-    scheduleMode: 'single_day' as TournamentScheduleMode,
-    maxParticipants: 16,
-    winScore: 2,
-    startDate: '',
-    venueId: '',
+    name: tournament?.name ?? '',
+    description: tournament?.description ?? '',
+    rules: tournament?.rules ?? '',
+    format: (tournament?.format ?? 'single_elimination') as ITournamentFormat,
+    visibility: (tournament?.visibility ?? 'public') as TournamentVisibility,
+    scheduleMode: (tournament?.scheduleMode ??
+      'single_day') as TournamentScheduleMode,
+    maxParticipants: (tournament?.maxParticipants ?? 16) as number,
+    winScore: (tournament?.winScore ?? 2) as number,
+    startDate: tournament?.startDate
+      ? toLocalDatetimeInput(tournament.startDate)
+      : '',
+    venueId: tournament?.venueId ?? '',
   });
   const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -44,20 +64,49 @@ export default function CreateTournamentModal({
     queryFn: () => tablesApi.list(),
   });
 
+  // Pre-select the tables currently assigned to the tournament (edit mode only).
+  const { data: assignedTables } = useQuery({
+    queryKey: ['tournament-tables', tournament?.id],
+    queryFn: () => tournamentsApi.tables(tournament!.id),
+    enabled: isEdit,
+  });
+
+  useEffect(() => {
+    if (assignedTables) {
+      setSelectedTableIds(assignedTables.map((t) => t.id));
+    }
+  }, [assignedTables]);
+
   const venueTables = form.venueId
     ? existingTables.filter((table) => table.venueId === form.venueId)
     : [];
 
-  const create = useMutation({
-    mutationFn: () =>
-      tournamentsApi.create({
+  // The cap can't be set below the people already signed up (server enforces it
+  // too); disable those options so the choice is clear during registration.
+  const minParticipants = tournament
+    ? tournament.confirmedCount + tournament.pendingCount
+    : 0;
+
+  const save = useMutation({
+    mutationFn: () => {
+      const payload = {
         ...form,
         description: form.description || undefined,
         rules: form.rules || undefined,
         startDate: form.startDate || undefined,
         ...(selectedTableIds.length > 0 ? { tableIds: selectedTableIds } : {}),
-      }),
+      };
+      return isEdit
+        ? tournamentsApi.update(tournament.id, payload)
+        : tournamentsApi.create(payload);
+    },
     onSuccess: () => {
+      if (isEdit) {
+        qc.invalidateQueries({ queryKey: ['tournament', tournament.id] });
+        qc.invalidateQueries({
+          queryKey: ['tournament-tables', tournament.id],
+        });
+      }
       qc.invalidateQueries({ queryKey: ['tournaments'] });
       qc.invalidateQueries({ queryKey: ['tables'] });
       onClose();
@@ -66,7 +115,7 @@ export default function CreateTournamentModal({
   });
 
   const canSubmit =
-    venues.length > 0 && form.venueId !== '' && !create.isPending;
+    venues.length > 0 && form.venueId !== '' && !save.isPending;
 
   const toggleTable = (id: string) => {
     setSelectedTableIds((prev) =>
@@ -78,7 +127,9 @@ export default function CreateTournamentModal({
     <div className="fixed inset-0 bg-black/40 flex items-start md:items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-4 md:my-0">
         <div className="flex items-center justify-between p-5 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Новый турнир</h3>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {isEdit ? 'Редактировать турнир' : 'Новый турнир'}
+          </h3>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-xl leading-none"
@@ -93,7 +144,7 @@ export default function CreateTournamentModal({
             if (!canSubmit) {
               return;
             }
-            create.mutate();
+            save.mutate();
           }}
           className="p-5 space-y-4"
         >
@@ -221,30 +272,37 @@ export default function CreateTournamentModal({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Макс. участников
               </label>
-              <input
-                type="number"
-                min={2}
-                max={64}
+              <select
                 value={form.maxParticipants}
                 onChange={(e) =>
                   setForm({ ...form, maxParticipants: Number(e.target.value) })
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              >
+                {maxParticipants.map((n) => (
+                  <option key={n} value={n} disabled={n < minParticipants}>
+                    {n}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Win score
               </label>
-              <input
-                type="number"
-                min={1}
+              <select
                 value={form.winScore}
                 onChange={(e) =>
                   setForm({ ...form, winScore: Number(e.target.value) })
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              >
+                {winScores.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -325,11 +383,37 @@ export default function CreateTournamentModal({
               disabled={!canSubmit}
               className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
-              {create.isPending ? 'Создание...' : 'Создать'}
+              {isEdit
+                ? save.isPending
+                  ? 'Сохранение...'
+                  : 'Сохранить'
+                : save.isPending
+                  ? 'Создание...'
+                  : 'Создать'}
             </button>
           </div>
         </form>
       </div>
     </div>
+  );
+}
+
+export default function CreateTournamentModal({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  return <TournamentFormModal mode="create" onClose={onClose} />;
+}
+
+export function EditTournamentModal({
+  tournament,
+  onClose,
+}: {
+  tournament: ApiTournament;
+  onClose: () => void;
+}) {
+  return (
+    <TournamentFormModal mode="edit" tournament={tournament} onClose={onClose} />
   );
 }
