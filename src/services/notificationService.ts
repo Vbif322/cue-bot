@@ -3,7 +3,13 @@ import type { Api, InlineKeyboard } from 'grammy';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { notifications, users, tournaments, matches } from '@/db/schema.js';
+import {
+  notifications,
+  users,
+  tournaments,
+  tournamentParticipants,
+  matches,
+} from '@/db/schema.js';
 import type { INotification } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
 import { formatPlayerName, getResultConfirmKeyboard } from '@/bot/ui/matchUI.js';
@@ -422,6 +428,34 @@ export async function notifyTournamentCompleted(
       message: isWinner
         ? `Вы победили в турнире "${tournament.name}"!`
         : `Турнир "${tournament.name}" завершён.\nПобедитель: ${winnerName}`,
+      tournamentId,
+    });
+  }
+}
+
+/**
+ * Notify confirmed participants that a tournament has been cancelled. Uses the
+ * participant roster (not match players) as the source of truth so it works on
+ * every stage — before the bracket exists there are no matches yet.
+ */
+export async function notifyTournamentCancelled(
+  api: Api,
+  tournamentId: UUID,
+  tournamentName: string,
+): Promise<void> {
+  const participants = await db.query.tournamentParticipants.findMany({
+    where: and(
+      eq(tournamentParticipants.tournamentId, tournamentId),
+      eq(tournamentParticipants.status, 'confirmed'),
+    ),
+  });
+
+  for (const participant of participants) {
+    await createAndSendNotification(api, {
+      userId: participant.userId,
+      type: 'tournament_cancelled',
+      title: 'Турнир отменён',
+      message: `Турнир "${tournamentName}" отменён администратором.`,
       tournamentId,
     });
   }

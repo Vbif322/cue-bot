@@ -45,9 +45,23 @@ export default function TournamentHeader({
       setActionError('');
       qc.invalidateQueries({ queryKey: ['tournament', tournament.id] });
       qc.invalidateQueries({ queryKey: ['tournaments'] });
+      // Cancellation also marks unfinished matches as cancelled.
+      qc.invalidateQueries({
+        queryKey: ['tournament-matches', tournament.id],
+      });
     },
     onError: (e: Error) => setActionError(e.message),
   });
+
+  // Cancellation is available on every stage except draft (delete it),
+  // completed and already-cancelled tournaments.
+  const canCancel = (
+    [
+      'registration_open',
+      'registration_closed',
+      'in_progress',
+    ] as TournamentStatus[]
+  ).includes(tournament.status);
 
   const startMutation = useMutation({
     mutationFn: () => tournamentsApi.start(tournament.id),
@@ -130,13 +144,14 @@ export default function TournamentHeader({
                 : nextLabel}
             </button>
           )}
-          {tournament.status === 'in_progress' && (
+          {canCancel && (
             <button
               onClick={() => {
-                if (confirm('Отменить турнир?'))
+                if (confirm('Отменить турнир? Участники получат уведомление.'))
                   statusMutation.mutate('cancelled');
               }}
-              className="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50"
+              disabled={statusMutation.isPending}
+              className="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 disabled:opacity-50"
             >
               Отменить
             </button>

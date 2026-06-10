@@ -6,6 +6,7 @@ import {
   getTableColumns,
   inArray,
   isNull,
+  notInArray,
   sql,
 } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
@@ -13,6 +14,7 @@ import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import {
+  matches,
   tournamentTables,
   tournaments,
   tournamentParticipants,
@@ -765,6 +767,49 @@ export async function deleteTournament(tournamentId: UUID): Promise<void> {
  */
 export function canDeleteTournament(status: string): boolean {
   return status === 'draft' || status === 'cancelled';
+}
+
+/**
+ * Statuses from which a tournament may be cancelled: everything except a
+ * tournament that is still a draft (delete it instead), already finished, or
+ * already cancelled.
+ */
+export const CANCELLABLE_STATUSES: TournamentStatus[] = [
+  'registration_open',
+  'registration_closed',
+  'in_progress',
+];
+
+/**
+ * Check if tournament can be cancelled
+ */
+export function canCancelTournament(status: string): boolean {
+  return (CANCELLABLE_STATUSES as string[]).includes(status);
+}
+
+/**
+ * Cancel a tournament: flip its status to `cancelled` and mark every match that
+ * has not yet finished as cancelled, so no further results can be reported. Runs
+ * in a single transaction. Participant notification is the caller's job (the
+ * service must not depend on the bot Api).
+ */
+export async function cancelTournament(tournamentId: UUID): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tournaments)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(eq(tournaments.id, tournamentId));
+
+    await tx
+      .update(matches)
+      .set({ status: 'cancelled' })
+      .where(
+        and(
+          eq(matches.tournamentId, tournamentId),
+          notInArray(matches.status, ['completed', 'cancelled']),
+        ),
+      );
+  });
 }
 
 /**
