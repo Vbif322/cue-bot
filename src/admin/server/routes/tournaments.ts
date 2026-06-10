@@ -26,6 +26,8 @@ import {
   updateTournamentStatus,
   deleteTournament,
   canDeleteTournament,
+  cancelTournament,
+  canCancelTournament,
   canEditTournament,
   closeRegistrationWithCount,
   canStartTournament,
@@ -38,6 +40,7 @@ import {
 import {
   notifyRegistrationConfirmed,
   notifyRegistrationRejected,
+  notifyTournamentCancelled,
 } from '@/services/notificationService.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
 import { getMatchStats } from '@/services/matchService.js';
@@ -217,7 +220,15 @@ export function createTournamentsRouter(botApi: Api) {
       const { status } = c.req.valid('json');
       const id = c.req.param('id') as UUID;
 
-      if (status === 'registration_closed') {
+      if (status === 'cancelled') {
+        const tournament = await getTournament(id);
+        if (!tournament) return c.json({ error: 'Не найден' }, 404);
+        if (!canCancelTournament(tournament.status)) {
+          return c.json({ error: 'Нельзя отменить этот турнир' }, 400);
+        }
+        await cancelTournament(id);
+        await notifyTournamentCancelled(botApi, id, tournament.name);
+      } else if (status === 'registration_closed') {
         await closeRegistrationWithCount(id);
       } else {
         await updateTournamentStatus(id, status);
