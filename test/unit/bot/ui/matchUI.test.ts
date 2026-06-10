@@ -20,6 +20,44 @@ describe('formatPlayerName', () => {
     ).toBe('[ivan](tg://user?id=12345)');
   });
 
+  it('prefers a preview-free deep link for a real public username', () => {
+    expect(
+      formatPlayerName({
+        username: 'ivanpetrov',
+        name: 'Иван',
+        surname: 'Петров',
+        telegramId: '12345',
+      }),
+    ).toBe('[Иван Петров](tg://resolve?domain=ivanpetrov)');
+  });
+
+  it('uses the public username as link text when no name is set', () => {
+    expect(
+      formatPlayerName({ username: 'ivanpetrov', telegramId: '12345' }),
+    ).toBe('[ivanpetrov](tg://resolve?domain=ivanpetrov)');
+  });
+
+  it('ignores the synthetic user_<id> handle and keeps the tg://user link', () => {
+    expect(
+      formatPlayerName({
+        username: 'user_12345',
+        name: 'Иван',
+        telegramId: '12345',
+      }),
+    ).toBe('[Иван](tg://user?id=12345)');
+  });
+
+  it('ignores a non-handle username (e.g. Cyrillic) and keeps the tg://user link', () => {
+    expect(
+      formatPlayerName({
+        username: 'Иван',
+        name: 'Иван',
+        surname: 'Петров',
+        telegramId: '12345',
+      }),
+    ).toBe('[Иван Петров](tg://user?id=12345)');
+  });
+
   it('falls back to a clickable @mention when telegramId is missing', () => {
     expect(formatPlayerName({ username: 'ivan' })).toBe('@ivan');
   });

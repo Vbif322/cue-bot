@@ -110,6 +110,27 @@ export const tournamentsApi = {
       body: JSON.stringify(data),
     }),
 
+  update: (
+    id: string,
+    data: {
+      name: string;
+      description?: string;
+      rules?: string;
+      format: ITournamentFormat;
+      visibility?: TournamentVisibility;
+      scheduleMode?: TournamentScheduleMode;
+      maxParticipants?: number;
+      winScore?: number;
+      startDate?: string;
+      venueId: string;
+      tableIds?: string[];
+    },
+  ) =>
+    apiFetch<ApiTournament>(`/api/tournaments/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
   setStatus: (id: string, status: TournamentStatus) =>
     apiFetch<ApiTournament>(`/api/tournaments/${id}/status`, {
       method: 'PATCH',

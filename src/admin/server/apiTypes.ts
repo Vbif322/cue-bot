@@ -11,6 +11,12 @@ export type {
   ApiTournamentParticipant,
 } from '../../bot/@types/tournament.js';
 export { formats, type ITournamentFormat } from './formats.js';
+export {
+  maxParticipants,
+  winScores,
+  type ITournamentMaxParticipants,
+  type ITournamentWinScore,
+} from './tournamentOptions.js';
 export type {
   MatchStatus,
   BracketType,

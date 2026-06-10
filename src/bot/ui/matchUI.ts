@@ -17,13 +17,34 @@ export interface PlayerNameParts {
   telegramId?: string | null | undefined;
 }
 
+// Публичный username Telegram: начинается с буквы, всего 5–32 символа, [A-Za-z0-9_].
+const TG_USERNAME_RE = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
+
+/**
+ * Возвращает «годный публичный хэндл» игрока — username, на который можно дать
+ * надёжную `tg://resolve?domain=<username>`-ссылку (Telegram резолвит её всегда,
+ * без требований к доступу бота, в отличие от `tg://user?id=`, и без веб-превью,
+ * в отличие от `https://t.me/...`). Отсекает кириллицу / короткие / «внешние»
+ * ники, не похожие на хэндл, и наш фейковый `user_<id>`.
+ */
+function publicHandle(player: PlayerNameParts): string | null {
+  const username = player.username;
+  if (!username || !TG_USERNAME_RE.test(username)) return null;
+  if (player.telegramId && username === `user_${player.telegramId}`)
+    return null;
+  return username;
+}
+
 /**
  * Format player name for display.
  *
  * Shows «Имя Фамилия» (falling back to `@username`, then «Участник»). In
- * Markdown contexts the name is rendered as a clickable link to the player's
- * Telegram profile via `tg://user?id=<telegramId>` when the id is known;
- * otherwise it degrades to a clickable `@username` mention or plain text.
+ * Markdown contexts the name is rendered as a clickable profile link: a robust
+ * `tg://resolve?domain=<username>` deep link when the player has a real public
+ * username (Telegram resolves it client-side unconditionally and shows no web
+ * preview), else `tg://user?id=<id>` when the id is known (subject to Telegram's
+ * mention-resolution limits — fails for users who restricted «Forwarded
+ * Messages» privacy), else a `@username` mention or plain text.
  *
  * The returned string is Markdown-safe (escaped) — do NOT pass it through
  * `escapeMarkdown` again.
@@ -41,11 +62,21 @@ export function formatPlayerName(
   const fullName = formatFullName(player?.name, player?.surname);
   const displayText = fullName ?? username ?? 'Участник';
 
-  if (!markdown) return displayText;
-  if (link && player?.telegramId) {
-    return `[${escapeMarkdown(displayText)}](tg://user?id=${player.telegramId})`;
+  if (!markdown) {
+    return displayText;
   }
-  if (!fullName && username) return `@${escapeMarkdown(username)}`;
+  if (link) {
+    const handle = player ? publicHandle(player) : null;
+    if (handle) {
+      return `[${escapeMarkdown(displayText)}](tg://resolve?domain=${handle})`;
+    }
+    if (player?.telegramId) {
+      return `[${escapeMarkdown(displayText)}](tg://user?id=${player.telegramId})`;
+    }
+  }
+  if (!fullName && username) {
+    return `@${escapeMarkdown(username)}`;
+  }
   return escapeMarkdown(displayText);
 }
 
