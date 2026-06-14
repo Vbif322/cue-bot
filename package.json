@@ -25,7 +25,7 @@
     "test:coverage": "vitest run --coverage --project unit",
     "dev": "nodemon",
     "dev:admin": "npm run dev --prefix admin",
-    "dev:all": "npm run db:up && concurrently -k -n api,web,db -c blue,magenta,green \"nodemon\" \"node admin/node_modules/vite/bin/vite.js --config admin/vite.config.ts admin --host\" \"tsx node_modules/drizzle-kit/bin.cjs studio\"",
+    "dev:all": "npm run db:up && concurrently --kill-others-on-fail -n api,web,db,login -c blue,magenta,green,blue \"nodemon\" \"node admin/node_modules/vite/bin/vite.js --config admin/vite.config.ts admin --host\" \"tsx node_modules/drizzle-kit/bin.cjs studio\" \"sleep 3 && (npm run dev:login || true)\"",
     "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "start": "node --env-file=.env build/index.js",
     "build:admin": "npm run build --prefix admin",
@@ -36,7 +36,8 @@
     "db:generate": "tsx node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx node_modules/drizzle-kit/bin.cjs migrate",
     "db:studio": "tsx node_modules/drizzle-kit/bin.cjs studio",
-    "seed:de": "tsx --env-file=.env scripts/seed-double-elim.ts"
+    "seed:de": "tsx --env-file=.env scripts/seed-double-elim.ts",
+    "dev:login": "tsx --env-file=.env scripts/dev-login.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",

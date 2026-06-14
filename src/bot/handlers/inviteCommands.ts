@@ -1,5 +1,5 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -204,7 +204,7 @@ inviteCommands.on('message:text', async (ctx, next) => {
   }
 
   const target = await db.query.users.findFirst({
-    where: eq(users.username, handle),
+    where: and(eq(users.username, handle), isNotNull(users.telegram_id)),
   });
 
   if (!target) {

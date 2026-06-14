@@ -62,18 +62,6 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 // ── Auth ────────────────────────────────────────────────────────────────────
 
 export const auth = {
-  requestCode: (username: string) =>
-    apiFetch<{ ok: boolean }>('/api/auth/request-code', {
-      method: 'POST',
-      body: JSON.stringify({ username }),
-    }),
-
-  verifyCode: (username: string, code: string) =>
-    apiFetch<{ user: { id: string; username: string; role: string } }>(
-      '/api/auth/verify-code',
-      { method: 'POST', body: JSON.stringify({ username, code }) },
-    ),
-
   logout: () =>
     apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 

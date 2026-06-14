@@ -26,7 +26,7 @@ export function createAdminServer() {
   app.get('/api/health', (c) => c.json({ ok: true }));
 
   // Auth routes (no auth middleware)
-  app.route('/api/auth', createAuthRouter(bot.api));
+  app.route('/api/auth', createAuthRouter());
 
   // Protected routes
   app.route('/api/tournaments', createTournamentsRouter(bot.api));
