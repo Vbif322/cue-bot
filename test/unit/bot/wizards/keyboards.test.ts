@@ -13,7 +13,7 @@ import {
 const kbds = new TournamentCreationKeyboards();
 
 /** Flatten an InlineKeyboard into a list of {text, data} buttons. */
-const buttons = (kb: { inline_keyboard: Array<Array<{ text: string; callback_data?: string }>> }) =>
+const buttons = (kb: { inline_keyboard: { text: string; callback_data?: string }[][] }) =>
   kb.inline_keyboard.flat().map((b) => ({ text: b.text, data: b.callback_data }));
 
 describe('TournamentCreationKeyboards', () => {
@@ -61,14 +61,14 @@ describe('TournamentCreationKeyboards', () => {
   it('buildParticipantsKeyboard: one button per allowed count', () => {
     const btns = buttons(kbds.buildParticipantsKeyboard());
     expect(btns.map((b) => b.data)).toEqual(
-      maxParticipants.map((v) => `tc:participants:${v}`),
+      maxParticipants.map((v) => `tc:participants:${String(v)}`),
     );
   });
 
   it('buildWinScoreKeyboard: one button per allowed win score', () => {
     const btns = buttons(kbds.buildWinScoreKeyboard());
     expect(btns.map((b) => b.data)).toEqual(
-      winScores.map((v) => `tc:winscore:${v}`),
+      winScores.map((v) => `tc:winscore:${String(v)}`),
     );
   });
 

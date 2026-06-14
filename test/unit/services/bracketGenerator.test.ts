@@ -95,7 +95,7 @@ function assertWinnersConnectivity(matches: BracketMatch[]): void {
     if (m.nextMatchId !== undefined) {
       expect(
         positions.has(m.nextMatchId),
-        `match at position ${m.position} points to non-existent nextMatchId ${m.nextMatchId}`,
+        `match at position ${String(m.position)} points to non-existent nextMatchId ${String(m.nextMatchId)}`,
       ).toBe(true);
     }
   }
@@ -127,12 +127,12 @@ function assertSingleElimTopology(
     if (m.round === 1) {
       expect(
         feeders,
-        `round-1 match at position ${m.position} should have no feeders`,
+        `round-1 match at position ${String(m.position)} should have no feeders`,
       ).toHaveLength(0);
     } else {
       expect(
         feeders.map((f) => f.nextMatchPosition).sort(),
-        `match at position ${m.position} should be fed by exactly two matches in distinct slots`,
+        `match at position ${String(m.position)} should be fed by exactly two matches in distinct slots`,
       ).toEqual(['player1', 'player2']);
     }
   }
@@ -145,18 +145,22 @@ describe('generateSingleEliminationBracket', () => {
     const round1 = matches.filter((m) => m.round === 1);
     expect(round1).toHaveLength(4);
     // Top seed (p1) faces lowest (p8) in the first match per seed positions.
-    expect(round1[0]!.player1Id).toBe('p1');
-    expect(round1[0]!.player2Id).toBe('p8');
+    const m0 = round1[0];
+    if (!m0) throw new Error('round1[0] expected');
+    expect(m0.player1Id).toBe('p1');
+    expect(m0.player2Id).toBe('p8');
   });
 
   it('auto-advances a player who has a BYE in round 1', () => {
     // 5 players in an 8-slot bracket => 3 byes. p1 (seed 1) gets a bye.
     const matches = generateSingleEliminationBracket(makeParticipants(5));
-    const firstMatch = matches.find((m) => m.round === 1 && m.position === 1)!;
+    const firstMatch = matches.find((m) => m.round === 1 && m.position === 1);
+    if (!firstMatch) throw new Error('firstMatch expected');
     expect(firstMatch.player1Id).toBe('p1');
     expect(firstMatch.player2Id).toBeNull(); // bye
     // p1 should already be seeded into its round-2 match.
-    const next = matches.find((m) => m.position === firstMatch.nextMatchId)!;
+    const next = matches.find((m) => m.position === firstMatch.nextMatchId);
+    if (!next) throw new Error('next match expected');
     expect([next.player1Id, next.player2Id]).toContain('p1');
   });
 
@@ -190,12 +194,18 @@ describe('generateDoubleEliminationBracket', () => {
     expect(matches).toHaveLength(27);
     expect(matches.filter((m) => m.round === 1 && m.bracketType === 'winners')).toHaveLength(8);
     expect(matches.filter((m) => m.bracketType === 'losers')).toHaveLength(8);
-    expect(matches.find((m) => m.position === 27)!.round).toBe(5);
+    const finalMatch = matches.find((m) => m.position === 27);
+    if (!finalMatch) throw new Error('match at position 27 expected');
+    expect(finalMatch.round).toBe(5);
   });
 
   it('routes winners and losers per the documented layout (16 players)', () => {
     const matches = generateDoubleEliminationBracket(makeParticipants(16));
-    const at = (pos: number) => matches.find((m) => m.position === pos)!;
+    const at = (pos: number) => {
+      const m = matches.find((match) => match.position === pos);
+      if (!m) throw new Error(`match at position ${String(pos)} not found`);
+      return m;
+    };
     // R1 upper pos1,2 -> R2 upper pos13 (player1 / player2)
     expect(at(1).nextMatchId).toBe(13);
     expect(at(1).nextMatchPosition).toBe('player1');
@@ -215,7 +225,7 @@ describe('generateDoubleEliminationBracket', () => {
     // 8 real players in 16 slots => 8 walkover seats spread across R1 upper.
     const r1 = matches.filter((m) => m.round === 1 && m.bracketType === 'winners');
     const walkoverSeats = r1.filter(
-      (m) => m.player1IsWalkover || m.player2IsWalkover,
+      (m) => m.player1IsWalkover === true || m.player2IsWalkover === true,
     );
     expect(walkoverSeats.length).toBeGreaterThan(0);
     // A real-vs-walkover match must be auto-completed with the real player winning.

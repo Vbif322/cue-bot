@@ -846,17 +846,16 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
   private hasRequiredCreationData(
     data: ICreationData,
   ): data is IRequiredCreationData {
-    const isValidVenue =
-      data.venue?.id !== undefined && data.venue?.name !== undefined;
+    const isValidVenue = data.venue !== undefined;
 
     const isValidTournament =
       data.tournament?.name !== undefined &&
-      data.tournament?.visibility !== undefined &&
-      data.tournament?.scheduleMode !== undefined &&
-      data.tournament?.discipline !== undefined &&
-      data.tournament?.format !== undefined &&
-      data.tournament?.maxParticipants !== undefined &&
-      data.tournament?.winScore !== undefined;
+      data.tournament.visibility !== undefined &&
+      data.tournament.scheduleMode !== undefined &&
+      data.tournament.discipline !== undefined &&
+      data.tournament.format !== undefined &&
+      data.tournament.maxParticipants !== undefined &&
+      data.tournament.winScore !== undefined;
 
     const isValidTables = Array.isArray(data.tables);
 

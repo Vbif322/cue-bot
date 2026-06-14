@@ -6,7 +6,7 @@ import { tournaments, users, venues } from '@/db/schema.js';
  * the harness; tournament/match/participant factories are added in Phase 2.
  */
 let seq = 0;
-const uniq = (): string => `${Date.now().toString(36)}_${seq++}`;
+const uniq = (): string => `${Date.now().toString(36)}_${String(seq++)}`;
 
 export async function createUser(
   overrides: Partial<typeof users.$inferInsert> = {},
@@ -15,7 +15,8 @@ export async function createUser(
     .insert(users)
     .values({ username: `user_${uniq()}`, ...overrides })
     .returning();
-  return row!;
+  if (!row) throw new Error('insert returned no rows');
+  return row;
 }
 
 export async function createVenue(
@@ -25,7 +26,8 @@ export async function createVenue(
     .insert(venues)
     .values({ name: `Venue ${uniq()}`, address: 'Test address', ...overrides })
     .returning();
-  return row!;
+  if (!row) throw new Error('insert returned no rows');
+  return row;
 }
 
 /**
@@ -50,5 +52,6 @@ export async function createTournament(
       createdBy,
     })
     .returning();
-  return row!;
+  if (!row) throw new Error('insert returned no rows');
+  return row;
 }

@@ -1,7 +1,7 @@
-export type ApiError = { error: string };
+export interface ApiError { error: string }
 
-export type StartTournamentResponse = {
+export interface StartTournamentResponse {
   participantsCount: number;
   matchesCreated: number;
   tournamentName: string;
-};
+}

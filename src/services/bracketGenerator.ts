@@ -45,9 +45,11 @@ export function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    const temp = shuffled[i]!;
-    shuffled[i] = shuffled[j]!;
-    shuffled[j] = temp;
+    const a = shuffled[i];
+    const b = shuffled[j];
+    if (a === undefined || b === undefined) continue;
+    shuffled[i] = b;
+    shuffled[j] = a;
   }
   return shuffled;
 }
@@ -161,9 +163,7 @@ export function generateSingleEliminationBracket(
   }
 
   // Process BYEs - auto-advance players with BYEs
-  for (let i = 0; i < matches.length; i++) {
-    const match = matches[i];
-    if (!match) continue;
+  for (const match of matches) {
     if (match.round === 1) {
       // If one player is null (BYE), advance the other
       if (match.player1Id && !match.player2Id) {
@@ -221,7 +221,7 @@ export function generateDoubleEliminationBracket(
 ): BracketMatch[] {
   if (participants.length < 8 || participants.length > 16) {
     throw new Error(
-      `Double elimination поддерживает 8–16 участников. Текущее количество: ${participants.length}`,
+      `Double elimination поддерживает 8–16 участников. Текущее количество: ${String(participants.length)}`,
     );
   }
 
@@ -316,38 +316,50 @@ export function generateDoubleEliminationBracket(
 
   // R1 upper → R2 upper: pairs feed into one match
   for (let i = 0; i < 8; i++) {
-    allMatches[i]!.nextMatchId = 13 + Math.floor(i / 2);
-    allMatches[i]!.nextMatchPosition = i % 2 === 0 ? 'player1' : 'player2';
+    const m = allMatches[i];
+    if (!m) throw new Error(`Missing allMatches[${String(i)}]`);
+    m.nextMatchId = 13 + Math.floor(i / 2);
+    m.nextMatchPosition = i % 2 === 0 ? 'player1' : 'player2';
   }
 
   // R1 lower → R2 lower: each winner goes to own match as player1
   for (let i = 0; i < 4; i++) {
-    allMatches[8 + i]!.nextMatchId = 17 + i;
-    allMatches[8 + i]!.nextMatchPosition = 'player1';
+    const m = allMatches[8 + i];
+    if (!m) throw new Error(`Missing allMatches[${String(8 + i)}]`);
+    m.nextMatchId = 17 + i;
+    m.nextMatchPosition = 'player1';
   }
 
   // R2 upper → R3 merge: as player1
   for (let i = 0; i < 4; i++) {
-    allMatches[12 + i]!.nextMatchId = 21 + i;
-    allMatches[12 + i]!.nextMatchPosition = 'player1';
+    const m = allMatches[12 + i];
+    if (!m) throw new Error(`Missing allMatches[${String(12 + i)}]`);
+    m.nextMatchId = 21 + i;
+    m.nextMatchPosition = 'player1';
   }
 
   // R2 lower → R3 merge: as player2
   for (let i = 0; i < 4; i++) {
-    allMatches[16 + i]!.nextMatchId = 21 + i;
-    allMatches[16 + i]!.nextMatchPosition = 'player2';
+    const m = allMatches[16 + i];
+    if (!m) throw new Error(`Missing allMatches[${String(16 + i)}]`);
+    m.nextMatchId = 21 + i;
+    m.nextMatchPosition = 'player2';
   }
 
   // R3 → R4
   for (let i = 0; i < 4; i++) {
-    allMatches[20 + i]!.nextMatchId = 25 + Math.floor(i / 2);
-    allMatches[20 + i]!.nextMatchPosition = i % 2 === 0 ? 'player1' : 'player2';
+    const m = allMatches[20 + i];
+    if (!m) throw new Error(`Missing allMatches[${String(20 + i)}]`);
+    m.nextMatchId = 25 + Math.floor(i / 2);
+    m.nextMatchPosition = i % 2 === 0 ? 'player1' : 'player2';
   }
 
   // R4 → R5
   for (let i = 0; i < 2; i++) {
-    allMatches[24 + i]!.nextMatchId = 27;
-    allMatches[24 + i]!.nextMatchPosition = i === 0 ? 'player1' : 'player2';
+    const m = allMatches[24 + i];
+    if (!m) throw new Error(`Missing allMatches[${String(24 + i)}]`);
+    m.nextMatchId = 27;
+    m.nextMatchPosition = i === 0 ? 'player1' : 'player2';
   }
 
   // === LOSER PATHS (losersNextMatchPosition) ===
@@ -355,12 +367,16 @@ export function generateDoubleEliminationBracket(
   // R1 upper losers → R1 lower (2 losers per lower match)
   // Odd position → player1, even → player2
   for (let i = 0; i < 8; i++) {
-    allMatches[i]!.losersNextMatchPosition = 9 + Math.floor(i / 2);
+    const m = allMatches[i];
+    if (!m) throw new Error(`Missing allMatches[${String(i)}]`);
+    m.losersNextMatchPosition = 9 + Math.floor(i / 2);
   }
 
   // R2 upper losers → R2 lower (each to own match, as player2)
   for (let i = 0; i < 4; i++) {
-    allMatches[12 + i]!.losersNextMatchPosition = 17 + i;
+    const m = allMatches[12 + i];
+    if (!m) throw new Error(`Missing allMatches[${String(12 + i)}]`);
+    m.losersNextMatchPosition = 17 + i;
   }
 
   // R1 lower, R2 lower, R3+ losers → eliminated (no losersNextMatchPosition)
@@ -379,16 +395,20 @@ export function generateDoubleEliminationBracket(
     const slot2Walkover = match.player2IsWalkover === true;
 
     if (slot1Real && slot2Walkover) {
+      const p1Id = match.player1Id;
+      if (!p1Id) throw new Error('Expected player1Id to be non-null');
       match.isCompletedWalkover = true;
-      match.walkoverWinnerId = match.player1Id;
-      advanceToNextMatch(allMatches, match, match.player1Id!);
+      match.walkoverWinnerId = p1Id;
+      advanceToNextMatch(allMatches, match, p1Id);
       if (match.bracketType === 'winners') {
         markLoserSlotAsWalkover(allMatches, match);
       }
     } else if (slot2Real && slot1Walkover) {
+      const p2Id = match.player2Id;
+      if (!p2Id) throw new Error('Expected player2Id to be non-null');
       match.isCompletedWalkover = true;
-      match.walkoverWinnerId = match.player2Id;
-      advanceToNextMatch(allMatches, match, match.player2Id!);
+      match.walkoverWinnerId = p2Id;
+      advanceToNextMatch(allMatches, match, p2Id);
       if (match.bracketType === 'winners') {
         markLoserSlotAsWalkover(allMatches, match);
       }
@@ -480,7 +500,7 @@ export function generateBracket(
     case 'round_robin':
       return generateRoundRobinMatches(participants);
     default:
-      throw new Error(`Неподдерживаемый формат: ${format}`);
+      throw new Error(`Неподдерживаемый формат: ${String(format)}`);
   }
 }
 
@@ -529,7 +549,8 @@ export function generateRoundRobinMatches(
     }
 
     // Rotate players (keep first player fixed)
-    const lastPlayer = players.pop()!;
+    const lastPlayer = players.pop();
+    if (lastPlayer === undefined) break;
     players.splice(1, 0, lastPlayer);
   }
 
@@ -561,12 +582,13 @@ export function getBracketStats(
         totalMatches: 27,
         totalRounds: 5,
       };
-    case 'round_robin':
+    case 'round_robin': {
       const n = participantsCount;
       return {
         totalMatches: (n * (n - 1)) / 2,
         totalRounds: n % 2 === 0 ? n - 1 : n,
       };
+    }
     default:
       return { totalMatches: 0, totalRounds: 0 };
   }
@@ -579,10 +601,10 @@ export function getRoundName(
   round: number,
   totalRounds: number,
   format: string,
-  bracketType: string = 'winners',
+  bracketType = 'winners',
 ): string {
   if (format === 'round_robin') {
-    return `Тур ${round}`;
+    return `Тур ${String(round)}`;
   }
 
   if (
@@ -592,18 +614,18 @@ export function getRoundName(
     if (bracketType === 'losers') {
       if (round === 1) return 'Нижняя сетка, раунд 1';
       if (round === 2) return 'Нижняя сетка, раунд 2';
-      return `Нижняя сетка, раунд ${round}`;
+      return `Нижняя сетка, раунд ${String(round)}`;
     }
     if (round === 1) return '1/8 финала';
     if (round === 2) return '1/4 финала';
     if (round === 3) return 'Объединение';
     if (round === 4) return 'Полуфинал';
     if (round === 5) return 'Финал';
-    return `Раунд ${round}`;
+    return `Раунд ${String(round)}`;
   }
 
   if (bracketType === 'losers') {
-    return `Нижняя сетка, раунд ${round}`;
+    return `Нижняя сетка, раунд ${String(round)}`;
   }
 
   if (bracketType === 'grand_final') {
@@ -624,6 +646,6 @@ export function getRoundName(
     case 4:
       return '1/16 финала';
     default:
-      return `Раунд ${round}`;
+      return `Раунд ${String(round)}`;
   }
 }

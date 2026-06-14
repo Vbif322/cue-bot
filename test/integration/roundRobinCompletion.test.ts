@@ -29,7 +29,8 @@ async function addRrMatch(
       status: 'in_progress',
     })
     .returning();
-  return row!;
+  if (!row) throw new Error('insert returned no rows');
+  return row;
 }
 
 /** Mark a match completed with the given winner, then advance. */
@@ -61,20 +62,20 @@ describe('round-robin completion (S4-1)', () => {
     ]);
 
     // 3 players → 3 RR matches.
-    const m12 = await addRrMatch(t.id, 1, p1!.id, p2!.id);
-    const m13 = await addRrMatch(t.id, 2, p1!.id, p3!.id);
-    const m23 = await addRrMatch(t.id, 3, p2!.id, p3!.id);
+    const m12 = await addRrMatch(t.id, 1, p1.id, p2.id);
+    const m13 = await addRrMatch(t.id, 2, p1.id, p3.id);
+    const m23 = await addRrMatch(t.id, 3, p2.id, p3.id);
 
     // First confirmed match must NOT end the tournament.
-    await completeAndAdvance(m12, p1!.id);
+    await completeAndAdvance(m12, p1.id);
     expect((await getTournament(t.id))?.status).toBe('in_progress');
 
     // Second still leaves one match outstanding.
-    await completeAndAdvance(m13, p1!.id);
+    await completeAndAdvance(m13, p1.id);
     expect((await getTournament(t.id))?.status).toBe('in_progress');
 
     // Last match completes the tournament.
-    await completeAndAdvance(m23, p2!.id);
+    await completeAndAdvance(m23, p2.id);
     expect((await getTournament(t.id))?.status).toBe('completed');
   });
 });

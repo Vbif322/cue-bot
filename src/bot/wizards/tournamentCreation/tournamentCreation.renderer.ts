@@ -32,7 +32,7 @@ export interface ITournamentCreationRenderer {
   showVenueStep(
     ctx: BotContext,
     scheduleMode: Tournament['scheduleMode'],
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
+    venues: Pick<Venue, 'id' | 'name'>[],
   ): Promise<void>; // Step 5
   showDisciplineStep(ctx: BotContext, venueName: Venue['name']): Promise<void>; // Step 6
   showFormatStep(
@@ -49,7 +49,7 @@ export interface ITournamentCreationRenderer {
   ): Promise<void>; // Step 9
   showTablesStep(
     ctx: BotContext,
-    tables: Array<Pick<Table, 'id' | 'name'>>,
+    tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
     winScore?: Tournament['winScore'],
   ): Promise<void>; // Step 10
@@ -90,7 +90,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
   async showNameStep(ctx: BotContext): Promise<void> {
     const message = `
-    Шаг 1 / ${STEPS_COUNT}
+    Шаг 1 / ${String(STEPS_COUNT)}
     Введите название турнира
     `.trim();
 
@@ -110,7 +110,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 2 / ${STEPS_COUNT}
+    Шаг 2 / ${String(STEPS_COUNT)}
     Введите дату турнира
     `.trim();
 
@@ -130,7 +130,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 3 / ${STEPS_COUNT}
+    Шаг 3 / ${String(STEPS_COUNT)}
     Выберите видимость турнира
     `.trim();
 
@@ -152,7 +152,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 4 / ${STEPS_COUNT}
+    Шаг 4 / ${String(STEPS_COUNT)}
     Выберите режим расписания матчей
     `.trim();
 
@@ -164,7 +164,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
   async showVenueStep(
     ctx: BotContext,
     scheduleMode: Tournament['scheduleMode'],
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
+    venues: Pick<Venue, 'id' | 'name'>[],
   ): Promise<void> {
     const resultMessage = `
     Установлен режим расписания: ${formatScheduleMode(scheduleMode)}
@@ -175,7 +175,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 5 / ${STEPS_COUNT}
+    Шаг 5 / ${String(STEPS_COUNT)}
     Выберите площадку
     `.trim();
 
@@ -197,7 +197,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 6 / ${STEPS_COUNT}
+    Шаг 6 / ${String(STEPS_COUNT)}
     Выберите дисциплину
     `.trim();
 
@@ -219,7 +219,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 7 / ${STEPS_COUNT}
+    Шаг 7 / ${String(STEPS_COUNT)}
     Выберите формат турнира
     `.trim();
 
@@ -241,7 +241,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 8 / ${STEPS_COUNT}
+    Шаг 8 / ${String(STEPS_COUNT)}
     Введите максимальное количество участников
     `.trim();
 
@@ -255,7 +255,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     maxParticipants: Tournament['maxParticipants'],
   ): Promise<void> {
     const resultMessage = `
-    Установленное максимальное количество участников: ${maxParticipants}
+    Установленное максимальное количество участников: ${String(maxParticipants)}
     `;
 
     await safeEditMessageText(ctx, {
@@ -263,7 +263,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 9 / ${STEPS_COUNT}
+    Шаг 9 / ${String(STEPS_COUNT)}
     Введите количество побед при которых игра будет завершена
     `.trim();
 
@@ -274,12 +274,12 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
   async showTablesStep(
     ctx: BotContext,
-    tables: Array<Pick<Table, 'id' | 'name'>>,
+    tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
     winScore?: Tournament['winScore'],
   ): Promise<void> {
     if (winScore !== undefined) {
-      const resultMessage = `Установленное количество побед: ${winScore}`;
+      const resultMessage = `Установленное количество побед: ${String(winScore)}`;
 
       await safeEditMessageText(ctx, {
         text: resultMessage,
@@ -288,7 +288,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     if (tables.length === 0) {
       const message = `
-      Шаг 10 / ${STEPS_COUNT}
+      Шаг 10 / ${String(STEPS_COUNT)}
       У выбранной площадки нет столов
       `.trim();
 
@@ -301,7 +301,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     }
 
     const message = `
-    Шаг 10 / ${STEPS_COUNT}
+    Шаг 10 / ${String(STEPS_COUNT)}
     Выберите столы для турнира на этой площадке или пропустите шаг
     `.trim();
 
@@ -451,9 +451,9 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     - Площадка: ${venue.name}
     - Дисциплина: ${formattedDiscipline}
     - Формат: ${formattedFormat}
-    - Участников: ${tournament.maxParticipants}
-    - Количество необходимых побед: ${tournament.winScore}
-    - Количество выбранных столов: ${tables.length}
+    - Участников: ${String(tournament.maxParticipants)}
+    - Количество необходимых побед: ${String(tournament.winScore)}
+    - Количество выбранных столов: ${String(tables.length)}
     `.trim();
 
     await safeEditMessageText(ctx, {
@@ -469,7 +469,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     await safeEditMessageText(ctx, {
       text:
         `${getMatchStatusEmoji('cancelled')} Ошибка при создании турнира:\n` +
-        `${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
+        (error instanceof Error ? error.message : 'Неизвестная ошибка'),
     });
   }
 }

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
@@ -303,7 +303,7 @@ export function createTournamentsRouter(botApi: Api) {
     zValidator(
       'json',
       z.discriminatedUnion('type', [
-        z.object({ type: z.literal('user'), userId: z.string().uuid() }),
+        z.object({ type: z.literal('user'), userId: z.uuid() }),
         z.object({
           type: z.literal('external'),
           name: z.string().min(1).max(255),
@@ -328,7 +328,7 @@ export function createTournamentsRouter(botApi: Api) {
 
         if (!newUser)
           return c.json({ error: 'Ошибка создания участника' }, 500);
-        userId = newUser.id as UUID;
+        userId = newUser.id;
       } else {
         userId = body.userId as UUID;
       }

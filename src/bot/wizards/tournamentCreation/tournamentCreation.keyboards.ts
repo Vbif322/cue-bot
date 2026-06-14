@@ -22,7 +22,7 @@ import type { Table } from '../../@types/table.js';
 
 export interface ITournamentCreationKeyboards {
   buildVenuesKeyboard(
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
+    venues: Pick<Venue, 'id' | 'name'>[],
   ): InlineKeyboard;
   buildVisibilityKeyboard(): InlineKeyboard;
   buildScheduleModeKeyboard(): InlineKeyboard;
@@ -31,7 +31,7 @@ export interface ITournamentCreationKeyboards {
   buildParticipantsKeyboard(): InlineKeyboard;
   buildWinScoreKeyboard(): InlineKeyboard;
   buildTablesKeyboard(
-    tables: Array<Pick<Table, 'id' | 'name'>>,
+    tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
   ): InlineKeyboard;
 
@@ -53,7 +53,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
    * @returns {InlineKeyboard} Клавиатура с названиями площадок и коллбеком 'venue:<id>' для каждой кнопки
    */
   buildVenuesKeyboard(
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
+    venues: Pick<Venue, 'id' | 'name'>[],
   ): InlineKeyboard {
     const keyboard = new InlineKeyboard();
 
@@ -139,7 +139,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     const keyboard = new InlineKeyboard();
 
     maxParticipants.forEach((v, i) => {
-      keyboard.text(String(v), `tc:participants:${v}`);
+      keyboard.text(String(v), `tc:participants:${String(v)}`);
 
       if ((i + 1) % perRow === 0) {
         keyboard.row();
@@ -160,7 +160,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     const keyboard = new InlineKeyboard();
 
     winScores.forEach((v, i) => {
-      keyboard.text(String(v), `tc:winscore:${v}`);
+      keyboard.text(String(v), `tc:winscore:${String(v)}`);
 
       if ((i + 1) % perRow === 0) {
         keyboard.row();
@@ -181,7 +181,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
    * а также кнопками "Готово" и "Пропустить"
    */
   buildTablesKeyboard(
-    tables: Array<Pick<Table, 'id' | 'name'>>,
+    tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
   ): InlineKeyboard {
     const keyboard = new InlineKeyboard();

@@ -143,7 +143,7 @@ export function createMatchesRouter(botApi: Api) {
         c.req.param('id') as UUID,
         winnerId as UUID,
         reason,
-        admin.id as UUID,
+        admin.id,
         botApi,
       );
       if (!result.success) return c.json({ error: result.error }, 400);
@@ -191,7 +191,7 @@ export function createMatchesRouter(botApi: Api) {
         player1Score,
         player2Score,
         reason,
-        admin.id as UUID,
+        admin.id,
         botApi,
       );
       if (!result.success) return c.json({ error: result.error }, 400);
@@ -232,7 +232,7 @@ export function createMatchesRouter(botApi: Api) {
     '/:id/schedule',
     zValidator(
       'json',
-      z.object({ scheduledAt: z.string().datetime().nullable() }),
+      z.object({ scheduledAt: z.iso.datetime().nullable() }),
     ),
     async (c) => {
       const id = c.req.param('id') as UUID;

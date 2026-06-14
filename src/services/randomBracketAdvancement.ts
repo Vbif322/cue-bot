@@ -4,7 +4,7 @@ import type { UUID } from 'crypto';
 import { db } from '@/db/db.js';
 import { matches } from '@/db/schema.js';
 
-export type Pool = { bracketType: 'winners' | 'losers'; round: number };
+export interface Pool { bracketType: 'winners' | 'losers'; round: number }
 
 /**
  * Maps a (bracketType, round, role) of a finished DE match to the pool of
@@ -61,7 +61,7 @@ export async function placeIntoRandomFreeSlot(
       ),
     });
 
-    const slots: Array<{ matchId: UUID; slot: 'player1' | 'player2' }> = [];
+    const slots: { matchId: UUID; slot: 'player1' | 'player2' }[] = [];
     for (const m of candidates) {
       if (m.player1Id === null && !m.player1IsWalkover) {
         slots.push({ matchId: m.id, slot: 'player1' });
@@ -73,11 +73,12 @@ export async function placeIntoRandomFreeSlot(
 
     if (slots.length === 0) {
       throw new Error(
-        `No free slot in pool ${pool.bracketType}/${pool.round} for tournament ${tournamentId}`,
+        `No free slot in pool ${pool.bracketType}/${String(pool.round)} for tournament ${tournamentId}`,
       );
     }
 
-    const pick = slots[Math.floor(Math.random() * slots.length)]!;
+    const pick = slots[Math.floor(Math.random() * slots.length)];
+    if (!pick) throw new Error('Unreachable: slots is non-empty after length check');
     const slotCol =
       pick.slot === 'player1' ? matches.player1Id : matches.player2Id;
     const slotKey = pick.slot === 'player1' ? 'player1Id' : 'player2Id';
@@ -93,6 +94,6 @@ export async function placeIntoRandomFreeSlot(
   }
 
   throw new Error(
-    `Failed to place player into random slot after ${MAX_ATTEMPTS} attempts (pool ${pool.bracketType}/${pool.round}, tournament ${tournamentId})`,
+    `Failed to place player into random slot after ${String(MAX_ATTEMPTS)} attempts (pool ${pool.bracketType}/${String(pool.round)}, tournament ${tournamentId})`,
   );
 }

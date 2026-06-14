@@ -157,7 +157,7 @@ export async function canStartTournament(
   if (count < 2) {
     return {
       canStart: false,
-      error: `Недостаточно участников для запуска турнира (минимум 2, сейчас ${count})`,
+      error: `Недостаточно участников для запуска турнира (минимум 2, сейчас ${String(count)})`,
       participantsCount: count,
     };
   }
@@ -178,10 +178,10 @@ export function validateSeeds(
   for (const p of participants) {
     if (p.seed == null) continue;
     if (p.seed < 1 || p.seed > count) {
-      return `Сид ${p.seed} выходит за диапазон 1..${count}`;
+      return `Сид ${String(p.seed)} выходит за диапазон 1..${String(count)}`;
     }
     if (seen.has(p.seed)) {
-      return `Сид ${p.seed} задан нескольким участникам`;
+      return `Сид ${String(p.seed)} задан нескольким участникам`;
     }
     seen.add(p.seed);
   }
@@ -239,7 +239,7 @@ export async function startTournament(tournamentId: UUID): Promise<void> {
     if (participants.length < 8) {
       throw new Error(
         'Double elimination поддерживает не менее 8 участников. ' +
-          `Текущее количество: ${participants.length}`,
+          `Текущее количество: ${String(participants.length)}`,
       );
     }
   }
@@ -376,7 +376,7 @@ export async function updateTournamentDraft(
 
   if (input.maxParticipants < activeCount) {
     throw new Error(
-      `Нельзя установить лимит участников меньше текущего числа участников (${activeCount})`,
+      `Нельзя установить лимит участников меньше текущего числа участников (${String(activeCount)})`,
     );
   }
 
@@ -651,7 +651,7 @@ export async function getTournaments(options?: {
     includesDrafts = true,
     statuses,
     includePrivate = false,
-  } = options || {};
+  } = options ?? {};
 
   const statusWhere = statuses
     ? inArray(tournaments.status, statuses)
@@ -683,7 +683,7 @@ export async function getUserTournaments(
   userId: UUID,
   options?: { limit?: number },
 ): Promise<TournamentReadModel[]> {
-  const { limit = 10 } = options || {};
+  const { limit = 10 } = options ?? {};
 
   return db
     .select(tournamentReadColumns)

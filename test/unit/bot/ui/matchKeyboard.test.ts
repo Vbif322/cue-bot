@@ -7,7 +7,7 @@ import type { tournaments } from '@/db/schema.js';
 type TournamentRow = typeof tournaments.$inferSelect;
 
 const callbacks = (kb: {
-  inline_keyboard: Array<Array<{ callback_data?: string }>>;
+  inline_keyboard: { callback_data?: string }[][];
 }) => kb.inline_keyboard.flat().map((b) => b.callback_data);
 
 const match = {

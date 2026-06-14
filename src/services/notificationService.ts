@@ -66,7 +66,7 @@ export async function sendNotification(
     where: eq(users.id, notification.userId),
   });
 
-  if (!user || !user.telegram_id) {
+  if (!user?.telegram_id) {
     return false;
   }
 
@@ -304,7 +304,7 @@ export async function notifyResultPending(
       type: 'result_confirmation_request',
       title: 'Подтвердите результат матча',
       message:
-        `${reporterName} внёс результат: ${match.player1Score}:${match.player2Score}\n\n` +
+        `${reporterName} внёс результат: ${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')}\n\n` +
         `Подтвердите или оспорьте результат.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
@@ -329,7 +329,7 @@ export async function notifyResultConfirmed(
 
   const message =
     `Результат матча подтверждён!\n\n` +
-    `Счёт: ${match.player1Score}:${match.player2Score}\n` +
+    `Счёт: ${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')}\n` +
     `Победитель: ${winnerName}`;
 
   // Notify both players
@@ -479,7 +479,7 @@ export async function notifyDisqualification(
     type: 'disqualification',
     title: 'Дисквалификация',
     message:
-      `Вы были дисквалифицированы из турнира "${tournament?.name || 'Неизвестный'}".\n\n` +
+      `Вы были дисквалифицированы из турнира "${tournament?.name ?? 'Неизвестный'}".\n\n` +
       `Причина: ${reason}`,
     tournamentId,
   });
@@ -579,7 +579,7 @@ export async function markAsRead(notificationId: UUID): Promise<void> {
  */
 export async function getUnreadNotifications(
   userId: UUID,
-): Promise<Array<INotification>> {
+): Promise<INotification[]> {
   return db.query.notifications.findMany({
     where: and(
       eq(notifications.userId, userId),

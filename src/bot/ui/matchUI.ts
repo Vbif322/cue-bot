@@ -129,17 +129,17 @@ export function formatMatchCard(
     match.round,
     rounds,
     tournament.format,
-    match.bracketType || 'winners',
+    match.bracketType ?? 'winners',
   );
 
-  let text = `🎱 *Матч #${match.position}*\n`;
+  let text = `🎱 *Матч #${String(match.position)}*\n`;
   text += `${roundName}\n\n`;
   text += `${player1}\n`;
   text += `vs\n`;
   text += `${player2}\n\n`;
 
   if (match.status === 'completed' || match.status === 'pending_confirmation') {
-    text += `Счёт: ${match.player1Score ?? 0} : ${match.player2Score ?? 0}\n`;
+    text += `Счёт: ${String(match.player1Score ?? 0)} : ${String(match.player2Score ?? 0)}\n`;
   }
 
   if (match.winnerId && match.status === 'completed') {
@@ -176,7 +176,7 @@ export function formatMatchCard(
   }
 
   if (match.isTechnicalResult) {
-    text += `\n⚠️ Технический результат: ${match.technicalReason || 'не указана причина'}`;
+    text += `\n⚠️ Технический результат: ${match.technicalReason ?? 'не указана причина'}`;
   }
 
   return text;

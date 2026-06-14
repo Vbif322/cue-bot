@@ -1,4 +1,9 @@
-import { DateTime } from 'luxon';
+import dayjs, { type Dayjs } from 'dayjs';
+import customParseFormat from 'dayjs/plugin/customParseFormat.js';
+import utc from 'dayjs/plugin/utc.js';
+
+dayjs.extend(utc);
+dayjs.extend(customParseFormat);
 
 // #region Types / Interfaces
 
@@ -15,32 +20,32 @@ export interface IDateTimeHelper {
 // #region Constants
 
 const CUSTOM_FORMATS = [
-  'dd.MM.yyyy',
-  'dd.MM.yyyy HH:mm',
-  'dd.MM.yyyy HH:mm:ss',
-  'dd.MM.yyyy HH:mm:ss.SSS',
-  'dd.MM.yy',
-  'dd.MM.yy HH:mm',
-  'dd.MM.yy HH:mm:ss',
+  'DD.MM.YYYY',
+  'DD.MM.YYYY HH:mm',
+  'DD.MM.YYYY HH:mm:ss',
+  'DD.MM.YYYY HH:mm:ss.SSS',
+  'DD.MM.YY',
+  'DD.MM.YY HH:mm',
+  'DD.MM.YY HH:mm:ss',
 
-  'yyyy-MM-dd',
-  'yyyy-MM-dd HH:mm',
-  'yyyy-MM-dd HH:mm:ss',
-  'yyyy-MM-dd HH:mm:ss.SSS',
+  'YYYY-MM-DD',
+  'YYYY-MM-DD HH:mm',
+  'YYYY-MM-DD HH:mm:ss',
+  'YYYY-MM-DD HH:mm:ss.SSS',
 
-  'dd-MM-yyyy',
-  'dd-MM-yyyy HH:mm',
-  'dd-MM-yyyy HH:mm:ss',
-  'dd-MM-yy',
-  'dd-MM-yy HH:mm',
-  'dd-MM-yy HH:mm:ss',
+  'DD-MM-YYYY',
+  'DD-MM-YYYY HH:mm',
+  'DD-MM-YYYY HH:mm:ss',
+  'DD-MM-YY',
+  'DD-MM-YY HH:mm',
+  'DD-MM-YY HH:mm:ss',
 
-  'dd/MM/yyyy',
-  'dd/MM/yyyy HH:mm',
-  'dd/MM/yyyy HH:mm:ss',
-  'dd/MM/yy',
-  'dd/MM/yy HH:mm',
-  'dd/MM/yy HH:mm:ss',
+  'DD/MM/YYYY',
+  'DD/MM/YYYY HH:mm',
+  'DD/MM/YYYY HH:mm:ss',
+  'DD/MM/YY',
+  'DD/MM/YY HH:mm',
+  'DD/MM/YY HH:mm:ss',
 ] as const;
 
 // #endregion
@@ -54,57 +59,55 @@ export class DateTimeHelper implements IDateTimeHelper {
    *
    * @param {string} datetime Строка с временным значением (числа, ISO, RFC 2822, HTTP, SQL, форматы DMY HMS)
    *
-   * @returns {{ status: true; datetime: Date } | { status: false; datetime?: never }} Результат операции и объект Date
+   * @returns {{ status: true; datetime: Date } | { status: false }} Результат операции и объект Date
    */
   toDate(
     datetime: string,
   ): { status: true; datetime: Date } | { status: false } {
-    const { status, datetime: parsedDatetime, hasTime } = this.parsedISO(datetime);
+    const { status, datetime: parsedDatetime, hasTime } =
+      this.parsedISO(datetime);
 
     if (!status) return { status: false };
 
     const result = hasTime
       ? parsedDatetime
-      : parsedDatetime.set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
+      : parsedDatetime.hour(10).minute(0).second(0).millisecond(0);
 
-    return { status: true, datetime: result.toJSDate() };
+    return { status: true, datetime: result.toDate() };
   }
 
   /**
-   * Форматирует строку с датой и временем в соответствии с переданным форматом
+   * Форматирует дату в соответствии с переданным форматом (в UTC).
    *
    * @param {Date} date Объект Date
-   * @param {string} format Формат даты и времени (Luxon поддерживает следующие форматы: ISO, RFC 2822, HTTP, SQL, а также пользовательские форматы)
+   * @param {string} format Формат даты и времени (токены dayjs, напр. DD.MM.YYYY HH:mm)
    * @returns {string} Строка с форматированным значением даты и времени
    */
-  formatDate(date?: Date | null, format: string = 'dd.LL.yyyy HH:mm'): string {
+  formatDate(date?: Date | null, format = 'DD.MM.YYYY HH:mm'): string {
     if (date === null || date === undefined) {
       return 'Дата не указана';
     }
 
-    return DateTime.fromJSDate(date, { zone: 'utc' }).toFormat(format);
+    return dayjs.utc(date).format(format);
   }
 
   /**
-   * Преобразует строку с датой и временем в объект Luxon DateTime, используя следующие стратегии:
+   * Преобразует строку с датой и временем в объект dayjs (в UTC), используя
+   * следующие стратегии:
    * 1. Unix timestamp: seconds / milliseconds
-   * 2. Стандартные Luxon форматы: ISO, RFC 2822, HTTP, SQL
-   * 3. Пользовательские форматы (см. CUSTOM_FORMATS)
+   * 2. ISO 8601 (с учётом смещения / 'Z' в строке; без зоны — считается UTC)
+   * 3. RFC 2822 / HTTP даты (содержат английское название месяца)
+   * 4. Пользовательские форматы, включая ISO-дату и SQL (см. CUSTOM_FORMATS)
    *
-   * defaultZone может иметь следующие значения:
-   *  'utc' — строка уже в UTC
-   *  'local' — локальное время процесса
-   *  'Europe/Warsaw' и т.п. — считать временем конкретной зоны
+   * Строка без зоны трактуется как UTC; результат всегда нормализуется к UTC.
    *
-   * @param {string} datetime Строка с временным значением (числа, ISO, RFC 2822, HTTP, SQL, форматы DMY HMS)
-   * @param {string} defaultZone Часовой пояс по умолчанию, используемый, если он не указан в строке с датой и временем
-   * @returns {{ status: true; datetime: DateTime<true> } | { status: false; datetime?: never }} Результат операции и объект Luxon DateTime
+   * @param {string} datetime Строка с временным значением
+   * @returns {{ status: true; datetime: Dayjs; hasTime: boolean } | { status: false }} Результат операции и объект dayjs (UTC)
    */
   private parsedISO(
     datetime: string,
-    defaultZone: string = 'utc',
   ):
-    | { status: true; datetime: DateTime<true>; hasTime: boolean }
+    | { status: true; datetime: Dayjs; hasTime: boolean }
     | { status: false; datetime?: never; hasTime?: never } {
     const rawDatetime = datetime.trim();
 
@@ -117,60 +120,65 @@ export class DateTimeHelper implements IDateTimeHelper {
       if (Number.isFinite(numDatetime)) {
         const parsedDatetime =
           rawDatetime.length === 10
-            ? DateTime.fromSeconds(numDatetime, { zone: 'utc' })
-            : DateTime.fromMillis(numDatetime, { zone: 'utc' });
+            ? dayjs.unix(numDatetime)
+            : dayjs(numDatetime);
 
         const normalized = this.toUTC(parsedDatetime);
 
-        if (normalized) return { status: true, datetime: normalized, hasTime: true };
+        if (normalized) {
+          return { status: true, datetime: normalized, hasTime: true };
+        }
       }
     }
 
-    // 2) Стандартные форматы Luxon
-    // setZone: true — если в строке есть смещение/зона, сохранить её при разборе
-    const builtIn = [
-      DateTime.fromISO(rawDatetime, { zone: defaultZone, setZone: true }),
-      DateTime.fromRFC2822(rawDatetime, { zone: defaultZone, setZone: true }),
-      DateTime.fromHTTP(rawDatetime, { zone: defaultZone, setZone: true }),
-      DateTime.fromSQL(rawDatetime, { zone: defaultZone, setZone: true }),
-    ];
+    // 2) ISO 8601 c временем — dayjs учитывает смещение/'Z' в строке,
+    //    строка без зоны трактуется как UTC.
+    if (/^\d{4}-\d{2}-\d{2}[T\s]\d{1,2}:\d{2}/.test(rawDatetime)) {
+      const normalized = this.toUTC(dayjs.utc(rawDatetime));
 
-    // Время считается заданным, если в строке есть цифры после пробела или символа T
-    const builtInHasTime = /[\sT]\d{1,2}:/.test(rawDatetime);
-
-    for (const parsedDatetime of builtIn) {
-      const normalized = this.toUTC(parsedDatetime);
-
-      if (normalized) return { status: true, datetime: normalized, hasTime: builtInHasTime };
+      if (normalized) {
+        return { status: true, datetime: normalized, hasTime: true };
+      }
     }
 
-    // 3) Кастомные форматы
+    // 3) RFC 2822 / HTTP даты — содержат английское название месяца.
+    //    Парсятся нативно; regex-страж гарантирует детерминизм для прочих строк.
+    if (/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(rawDatetime)) {
+      const normalized = this.toUTC(dayjs(new Date(rawDatetime)));
+
+      if (normalized) {
+        const hasTime = /\d{1,2}:\d{2}/.test(rawDatetime);
+
+        return { status: true, datetime: normalized, hasTime };
+      }
+    }
+
+    // 4) Кастомные форматы (строгий разбор в UTC), включая ISO-дату и SQL
     for (const fmt of CUSTOM_FORMATS) {
-      const parsedDatetime = DateTime.fromFormat(rawDatetime, fmt, {
-        zone: defaultZone,
-        setZone: true,
-        locale: 'en',
-      });
+      const parsedDatetime = dayjs.utc(rawDatetime, fmt, true);
 
-      const normalized = this.toUTC(parsedDatetime);
-
-      if (normalized) return { status: true, datetime: normalized, hasTime: fmt.includes('HH') };
+      if (parsedDatetime.isValid()) {
+        return {
+          status: true,
+          datetime: parsedDatetime,
+          hasTime: fmt.includes('HH'),
+        };
+      }
     }
 
     return { status: false };
   }
 
   /**
-   * Преобразует объект DateTime в UTC.
+   * Нормализует объект dayjs к UTC.
    *
-   * @param {DateTime} datetime - исходный DateTime (например, с локальной или заданной таймзоной)
-   *
-   * @returns {DateTime<true> | null} Новый DateTime в UTC, если исходная дата валидна, иначе null
+   * @param {Dayjs} datetime Исходный dayjs (например, с локальной или заданной зоной)
+   * @returns {Dayjs | null} dayjs в UTC, если исходная дата валидна, иначе null
    */
-  private toUTC(datetime: DateTime): DateTime<true> | null {
-    if (!datetime.isValid) return null;
+  private toUTC(datetime: Dayjs): Dayjs | null {
+    if (!datetime.isValid()) return null;
 
-    return datetime.toUTC() as DateTime<true>;
+    return datetime.utc();
   }
 }
 

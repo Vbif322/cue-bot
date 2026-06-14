@@ -102,10 +102,10 @@ async function showParticipantManagement(
   }
 
   if (pending.length > 0) {
-    message += `\n*Ожидают подтверждения (${pending.length}):*\n`;
+    message += `\n*Ожидают подтверждения (${String(pending.length)}):*\n`;
     for (const p of pending) {
       const displayName =
-        formatFullName(p.name, p.surname) ?? p.username ?? "Игрок";
+        formatFullName(p.name, p.surname) ?? p.username;
       const handle = p.username ? ` (@${p.username})` : "";
       message += `${displayName}${handle}\n`;
 
@@ -119,10 +119,10 @@ async function showParticipantManagement(
   }
 
   if (confirmed.length > 0) {
-    message += `\n*Подтверждённые (${confirmed.length}):*\n`;
+    message += `\n*Подтверждённые (${String(confirmed.length)}):*\n`;
     for (const p of confirmed) {
       const displayName =
-        formatFullName(p.name, p.surname) ?? p.username ?? "Игрок";
+        formatFullName(p.name, p.surname) ?? p.username;
       const handle = p.username ? ` (@${p.username})` : "";
       message += `${displayName}${handle}\n`;
 
@@ -152,7 +152,8 @@ adminParticipantCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]!;
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
     await showParticipantManagement(ctx, tournamentId);
   },
 );
@@ -164,7 +165,8 @@ adminParticipantCommands.callbackQuery(/^adm:c:(.+)$/, async (ctx) => {
     return;
   }
 
-  const key = ctx.match![1]!;
+  const key = ctx.match[1];
+  if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {
@@ -198,7 +200,8 @@ adminParticipantCommands.callbackQuery(/^adm:r:(.+)$/, async (ctx) => {
     return;
   }
 
-  const key = ctx.match![1]!;
+  const key = ctx.match[1];
+  if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {
@@ -232,7 +235,8 @@ adminParticipantCommands.callbackQuery(/^adm:rm:(.+)$/, async (ctx) => {
     return;
   }
 
-  const key = ctx.match![1]!;
+  const key = ctx.match[1];
+  if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {

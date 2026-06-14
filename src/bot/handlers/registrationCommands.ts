@@ -30,8 +30,10 @@ async function getUserParticipation(tournamentId: UUID, userId: UUID) {
 
 // === РЕГИСТРАЦИЯ НА ТУРНИР ===
 registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const match1 = ctx.match[1];
+  if (!match1) return;
+  const tournamentId = match1 as UUID;
+  const userId = ctx.dbUser.id;
 
   // 1. Проверить существование турнира
   const tournament = await getTournament(tournamentId);
@@ -116,8 +118,10 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
 
 // === ОТМЕНА РЕГИСТРАЦИИ ===
 registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const match1 = ctx.match[1];
+  if (!match1) return;
+  const tournamentId = match1 as UUID;
+  const userId = ctx.dbUser.id;
 
   const tournament = await getTournament(tournamentId);
 
