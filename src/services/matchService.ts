@@ -641,6 +641,18 @@ export async function advanceWinner(
     return;
   }
 
+  if (tournament.format === 'round_robin') {
+    // RR-матчи не имеют nextMatchId: завершаем турнир только когда сыграны все матчи.
+    if (await checkTournamentCompletion(match.tournamentId)) {
+      await completeTournament(match.tournamentId);
+    }
+    // Стол освобождается после каждого матча независимо от завершения турнира.
+    if (match.tableId && botApi) {
+      await onTableFreed(match.tournamentId, match.tableId, botApi);
+    }
+    return;
+  }
+
   if (!match.nextMatchId) {
     await completeTournament(match.tournamentId);
     // Free the table even at tournament end (no-op since no next match)
