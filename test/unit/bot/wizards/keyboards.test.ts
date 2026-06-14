@@ -12,6 +12,14 @@ import {
 
 const kbds = new TournamentCreationKeyboards();
 
+// uuid-shaped ids: venue/table id columns are typed `crypto.UUID`, so the
+// fixtures must match `${string}-${string}-...`; the literals double as the
+// expected callback payloads below.
+const VENUE_A = '00000000-0000-0000-0000-00000000000a';
+const VENUE_B = '00000000-0000-0000-0000-00000000000b';
+const TABLE_1 = '00000000-0000-0000-0000-000000000001';
+const TABLE_2 = '00000000-0000-0000-0000-000000000002';
+
 /** Flatten an InlineKeyboard into a list of {text, data} buttons. */
 const buttons = (kb: { inline_keyboard: { text: string; callback_data?: string }[][] }) =>
   kb.inline_keyboard.flat().map((b) => ({ text: b.text, data: b.callback_data }));
@@ -19,12 +27,12 @@ const buttons = (kb: { inline_keyboard: { text: string; callback_data?: string }
 describe('TournamentCreationKeyboards', () => {
   it('buildVenuesKeyboard: one button per venue with tc:venue:<id> callback', () => {
     const kb = kbds.buildVenuesKeyboard([
-      { id: 'v1', name: 'Hall A' },
-      { id: 'v2', name: 'Hall B' },
+      { id: VENUE_A, name: 'Hall A' },
+      { id: VENUE_B, name: 'Hall B' },
     ]);
     expect(buttons(kb)).toEqual([
-      { text: 'Hall A', data: 'tc:venue:v1' },
-      { text: 'Hall B', data: 'tc:venue:v2' },
+      { text: 'Hall A', data: `tc:venue:${VENUE_A}` },
+      { text: 'Hall B', data: `tc:venue:${VENUE_B}` },
     ]);
   });
 
@@ -75,14 +83,14 @@ describe('TournamentCreationKeyboards', () => {
   it('buildTablesKeyboard: marks selected tables and adds control buttons', () => {
     const kb = kbds.buildTablesKeyboard(
       [
-        { id: 't1', name: 'Table 1' },
-        { id: 't2', name: 'Table 2' },
+        { id: TABLE_1, name: 'Table 1' },
+        { id: TABLE_2, name: 'Table 2' },
       ],
-      ['t1'],
+      [TABLE_1],
     );
     const btns = buttons(kb);
-    expect(btns).toContainEqual({ text: '✅ Table 1', data: 'tc:tables_toggle:t1' });
-    expect(btns).toContainEqual({ text: '⬜ Table 2', data: 'tc:tables_toggle:t2' });
+    expect(btns).toContainEqual({ text: '✅ Table 1', data: `tc:tables_toggle:${TABLE_1}` });
+    expect(btns).toContainEqual({ text: '⬜ Table 2', data: `tc:tables_toggle:${TABLE_2}` });
     expect(btns.map((b) => b.data)).toEqual(
       expect.arrayContaining(['tc:tables_done', 'tc:tables_skip', 'tc:tables_all']),
     );
