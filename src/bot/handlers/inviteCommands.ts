@@ -92,7 +92,7 @@ export async function joinViaInvite(
   ctx: BotContext,
   tournament: TournamentReadModel,
 ): Promise<void> {
-  const userId = ctx.dbUser.id as UUID;
+  const userId = ctx.dbUser.id;
 
   if (tournament.status !== 'registration_open') {
     await ctx.reply('Регистрация на этот турнир сейчас закрыта.');
@@ -149,7 +149,9 @@ function buildInviteLink(ctx: BotContext, code: string): string {
 // ============================================================================
 
 inviteCommands.callbackQuery(/^inv:add:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
+  const match1 = ctx.match[1];
+  if (!match1) return;
+  const tournamentId = match1 as UUID;
 
   if (!(await canManageTournament(ctx, tournamentId))) {
     await ctx.answerCallbackQuery({
@@ -159,7 +161,7 @@ inviteCommands.callbackQuery(/^inv:add:(.+)$/, async (ctx) => {
     return;
   }
 
-  inviteUsernameState.set(ctx.from!.id, { tournamentId });
+  inviteUsernameState.set(ctx.from.id, { tournamentId });
   await ctx.answerCallbackQuery();
   await ctx.reply(
     'Отправьте @username игрока, которого хотите пригласить.\n\n' +
@@ -178,8 +180,7 @@ inviteCommands.command('cancel', async (ctx, next) => {
 });
 
 inviteCommands.on('message:text', async (ctx, next) => {
-  const userId = ctx.from?.id;
-  if (userId == null) return next();
+  const userId = ctx.from.id;
 
   const state = inviteUsernameState.get(userId);
   if (!state) return next();
@@ -216,7 +217,7 @@ inviteCommands.on('message:text', async (ctx, next) => {
     return;
   }
 
-  const existing = await getParticipation(state.tournamentId, target.id as UUID);
+  const existing = await getParticipation(state.tournamentId, target.id);
 
   if (
     existing &&
@@ -253,7 +254,7 @@ inviteCommands.on('message:text', async (ctx, next) => {
   await createAndSendNotification(
     ctx.api,
     {
-      userId: target.id as UUID,
+      userId: target.id,
       type: 'tournament_invitation',
       title: 'Приглашение на турнир',
       message:
@@ -272,13 +273,15 @@ inviteCommands.on('message:text', async (ctx, next) => {
 // ============================================================================
 
 inviteCommands.callbackQuery(/^inv:accept:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const match1 = ctx.match[1];
+  if (!match1) return;
+  const tournamentId = match1 as UUID;
+  const userId = ctx.dbUser.id;
 
   const tournament = await getTournament(tournamentId);
   const participation = await getParticipation(tournamentId, userId);
 
-  if (!tournament || !participation || participation.status !== 'invited') {
+  if (!tournament || participation?.status !== 'invited') {
     await ctx.answerCallbackQuery({
       text: 'Приглашение не найдено',
       show_alert: true,
@@ -310,13 +313,15 @@ inviteCommands.callbackQuery(/^inv:accept:(.+)$/, async (ctx) => {
 });
 
 inviteCommands.callbackQuery(/^inv:decline:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const match1 = ctx.match[1];
+  if (!match1) return;
+  const tournamentId = match1 as UUID;
+  const userId = ctx.dbUser.id;
 
   const tournament = await getTournament(tournamentId);
   const participation = await getParticipation(tournamentId, userId);
 
-  if (!tournament || !participation || participation.status !== 'invited') {
+  if (!tournament || participation?.status !== 'invited') {
     await ctx.answerCallbackQuery({
       text: 'Приглашение не найдено',
       show_alert: true,
@@ -343,7 +348,9 @@ inviteCommands.callbackQuery(/^inv:decline:(.+)$/, async (ctx) => {
 // ============================================================================
 
 inviteCommands.callbackQuery(/^inv:link:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
+  const match1 = ctx.match[1];
+  if (!match1) return;
+  const tournamentId = match1 as UUID;
 
   if (!(await canManageTournament(ctx, tournamentId))) {
     await ctx.answerCallbackQuery({

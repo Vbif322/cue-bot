@@ -25,7 +25,7 @@ export function normalizeProfileValue(
   if (trimmed.length === 0) return null;
   if (trimmed.length > maxLength) {
     throw new ProfileValidationError(
-      `${fieldLabel} не должно превышать ${maxLength} символов.`,
+      `${fieldLabel} не должно превышать ${String(maxLength)} символов.`,
     );
   }
   return trimmed;

@@ -42,7 +42,7 @@ export async function getVenue(id: UUID): Promise<ApiVenue | null> {
     .where(eq(venues.id, id))
     .groupBy(venues.id);
 
-  return (rows[0] as unknown as ApiVenue) ?? null;
+  return (rows[0] as unknown as ApiVenue | undefined) ?? null;
 }
 
 /**
@@ -61,7 +61,10 @@ export async function createVenue(data: {
   image?: string | undefined;
 }): Promise<ApiVenue> {
   const [venue] = await db.insert(venues).values(data).returning();
-  return (await getVenue(venue!.id))!;
+  if (!venue) throw new Error('Failed to insert venue');
+  const created = await getVenue(venue.id);
+  if (!created) throw new Error('Failed to retrieve created venue');
+  return created;
 }
 
 /**

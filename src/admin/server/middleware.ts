@@ -30,7 +30,7 @@ export function signToken(payload: AdminUser): string {
 
 export const requireAdmin = createMiddleware(async (c, next) => {
   const cookie = c.req.header('Cookie') ?? '';
-  const tokenMatch = cookie.match(/admin_token=([^;]+)/);
+  const tokenMatch = /admin_token=([^;]+)/.exec(cookie);
   const token = tokenMatch?.[1];
 
   if (!token) {
@@ -45,7 +45,7 @@ export const requireAdmin = createMiddleware(async (c, next) => {
       where: eq(users.id, payload.id),
     });
 
-    if (!user || user.role !== 'admin') {
+    if (user?.role !== 'admin') {
       return c.json({ error: 'Forbidden' }, 403);
     }
 

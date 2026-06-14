@@ -30,9 +30,10 @@ async function setupTournament(scheduleMode: ITournamentScheduleMode) {
     .insert(tables)
     .values({ name: 'Стол 1', venueId: venue.id })
     .returning();
+  if (!table) throw new Error('insert returned no rows');
   await db
     .insert(tournamentTables)
-    .values({ tournamentId: tournament.id, tableId: table!.id, position: 0 });
+    .values({ tournamentId: tournament.id, tableId: table.id, position: 0 });
 
   for (let i = 0; i < 2; i++) {
     const user = await createUser();

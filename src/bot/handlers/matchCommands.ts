@@ -61,7 +61,7 @@ const matchScheduleState = new Map<number, { matchId: UUID }>();
  * the /my_matches command and the reply-keyboard "🎱 Мои матчи" handler.
  */
 export async function showMyMatches(ctx: BotContext): Promise<void> {
-  const userId = ctx.dbUser.id as UUID;
+  const userId = ctx.dbUser.id;
   const activeMatches = await getPlayerActiveMatches(userId);
 
   if (activeMatches.length === 0) {
@@ -71,7 +71,7 @@ export async function showMyMatches(ctx: BotContext): Promise<void> {
 
   const byTournamentId = new Map<UUID, typeof activeMatches>();
   for (const m of activeMatches) {
-    const tid = m.tournamentId as UUID;
+    const tid = m.tournamentId;
     const list = byTournamentId.get(tid) ?? [];
     list.push(m);
     byTournamentId.set(tid, list);
@@ -82,7 +82,7 @@ export async function showMyMatches(ctx: BotContext): Promise<void> {
   });
   const tournamentMap = new Map(tournamentList.map((t) => [t.id, t]));
 
-  let text = `🎱 *Ваши активные матчи (${activeMatches.length})*\n\n`;
+  let text = `🎱 *Ваши активные матчи (${String(activeMatches.length)})*\n\n`;
   const keyboard = new InlineKeyboard();
 
   for (const [tournamentId, matchList] of byTournamentId) {
@@ -104,7 +104,7 @@ export async function showMyMatches(ctx: BotContext): Promise<void> {
         telegramId: m.player2TelegramId,
       });
       const emoji = getMatchStatusEmoji(m.status);
-      text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
+      text += `  ${emoji} #${String(m.position)} ${p1} vs ${p2}\n`;
       if (m.scheduledAt) {
         text += `     🗓 ${DateTimeHelperInstance.formatDate(m.scheduledAt)}\n`;
       }
@@ -134,7 +134,7 @@ matchCommands.command('my_matches', (ctx) => showMyMatches(ctx));
 
 // /referee_matches - активные матчи турниров, где пользователь судья
 matchCommands.command('referee_matches', async (ctx) => {
-  const userId = ctx.dbUser.id as UUID;
+  const userId = ctx.dbUser.id;
 
   const refereeTournamentIds = await getUserRefereeTournaments(userId);
 
@@ -160,14 +160,14 @@ matchCommands.command('referee_matches', async (ctx) => {
   let totalMatches = 0;
 
   for (const tournament of activeTournaments) {
-    const allMatches = await getTournamentMatches(tournament.id as UUID);
+    const allMatches = await getTournamentMatches(tournament.id);
     const activeMatches = allMatches.filter((m) =>
       ['scheduled', 'in_progress', 'pending_confirmation'].includes(m.status),
     );
 
     if (activeMatches.length === 0) continue;
 
-    text += `*${tournament.name}* (${activeMatches.length})\n`;
+    text += `*${tournament.name}* (${String(activeMatches.length)})\n`;
     for (const m of activeMatches) {
       const p1Parts = {
         username: m.player1Username ?? null,
@@ -186,7 +186,7 @@ matchCommands.command('referee_matches', async (ctx) => {
       const p1Plain = formatPlayerName(p1Parts, { markdown: false });
       const p2Plain = formatPlayerName(p2Parts, { markdown: false });
       const emoji = getMatchStatusEmoji(m.status);
-      text += `  ${emoji} #${m.position} ${p1} vs ${p2}\n`;
+      text += `  ${emoji} #${String(m.position)} ${p1} vs ${p2}\n`;
       keyboard.text(`${p1Plain} vs ${p2Plain}`, `match:view:${m.id}`).row();
       totalMatches++;
     }
@@ -208,17 +208,19 @@ matchCommands.command('referee_matches', async (ctx) => {
 
 // Просмотр сетки турнира
 matchCommands.callbackQuery(/^bracket:view:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
   await ctx.answerCallbackQuery();
-  await showBracket(ctx, tournamentId, true);
+  await showBracket(ctx, tournamentId as UUID, true);
 });
 
 // Просмотр конкретного матча
 matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const userId = ctx.dbUser.id;
 
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchId as UUID);
   if (!match) {
     await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
     return;
@@ -253,9 +255,11 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
 
 // Назначить дату/время матча (поматчевое расписание)
 matchCommands.callbackQuery(/^msch:set:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchIdUUID = matchId as UUID;
 
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchIdUUID);
   if (!match) {
     await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
     return;
@@ -269,7 +273,7 @@ matchCommands.callbackQuery(/^msch:set:(.+)$/, async (ctx) => {
     return;
   }
 
-  matchScheduleState.set(ctx.from!.id, { matchId });
+  matchScheduleState.set(ctx.from.id, { matchId: matchIdUUID });
   await ctx.answerCallbackQuery();
   await ctx.reply(
     'Введите дату и время матча (например 21.06.2026 18:30).\n\n' +
@@ -279,9 +283,11 @@ matchCommands.callbackQuery(/^msch:set:(.+)$/, async (ctx) => {
 
 // Сбросить назначенное время матча
 matchCommands.callbackQuery(/^msch:clear:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchIdUUID = matchId as UUID;
 
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchIdUUID);
   if (!match) {
     await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
     return;
@@ -295,10 +301,10 @@ matchCommands.callbackQuery(/^msch:clear:(.+)$/, async (ctx) => {
     return;
   }
 
-  await setMatchSchedule(matchId, null);
+  await setMatchSchedule(matchIdUUID, null);
   await ctx.answerCallbackQuery({ text: 'Время сброшено' });
 
-  const updated = await getMatch(matchId);
+  const updated = await getMatch(matchIdUUID);
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, match.tournamentId),
   });
@@ -313,8 +319,7 @@ matchCommands.callbackQuery(/^msch:clear:(.+)$/, async (ctx) => {
 
 // Ввод даты/времени для назначаемого матча
 matchCommands.on('message:text', async (ctx, next) => {
-  const userId = ctx.from?.id;
-  if (userId == null) return next();
+  const userId = ctx.from.id;
 
   const state = matchScheduleState.get(userId);
   if (!state) return next();
@@ -369,10 +374,12 @@ matchCommands.on('message:text', async (ctx, next) => {
 
 // Начать матч
 matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchIdUUID = matchId as UUID;
+  const userId = ctx.dbUser.id;
 
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchIdUUID);
   if (!match) {
     await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
     return;
@@ -387,11 +394,11 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
     return;
   }
 
-  const result = await startMatch(matchId);
+  const result = await startMatch(matchIdUUID);
 
   if (!result.success) {
     await ctx.answerCallbackQuery({
-      text: result.error || 'Ошибка',
+      text: result.error ?? 'Ошибка',
       show_alert: true,
     });
     return;
@@ -404,7 +411,7 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery('Матч начат!');
 
-  if (updatedMatch && tournament) {
+  if (tournament) {
     await notifyMatchStart(ctx.api, updatedMatch, tournament.name, userId);
     const text = formatMatchCard(updatedMatch, tournament);
     const canManage = await canManageTournament(ctx, updatedMatch.tournamentId);
@@ -425,10 +432,12 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
 
 // Показать форму внесения результата
 matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchIdUUID = matchId as UUID;
+  const userId = ctx.dbUser.id;
 
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchIdUUID);
   if (!match) {
     await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
     return;
@@ -484,8 +493,8 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   // Winning scores for player 1 (user's perspective)
   for (let loserScore = 0; loserScore < winScore; loserScore++) {
     keyboard.text(
-      `${winScore}:${loserScore}`,
-      `match:score:${matchId}:${winScore}:${loserScore}`,
+      `${String(winScore)}:${String(loserScore)}`,
+      `match:score:${matchId}:${String(winScore)}:${String(loserScore)}`,
     );
   }
   keyboard.row();
@@ -493,8 +502,8 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   // Winning scores for player 2
   for (let loserScore = 0; loserScore < winScore; loserScore++) {
     keyboard.text(
-      `${loserScore}:${winScore}`,
-      `match:score:${matchId}:${loserScore}:${winScore}`,
+      `${String(loserScore)}:${String(winScore)}`,
+      `match:score:${matchId}:${String(loserScore)}:${String(winScore)}`,
     );
   }
   keyboard.row();
@@ -508,7 +517,7 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
     text:
       `📝 *Внесение результата*\n\n` +
       `${player1} vs ${player2}\n\n` +
-      `Игра до: ${winScore} побед\n\n` +
+      `Игра до: ${String(winScore)} побед\n\n` +
       `Выберите счёт:`,
     parse_mode: 'Markdown',
     reply_markup: keyboard,
@@ -517,13 +526,19 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
 
 // Выбор счёта
 matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
-  const player1Score = parseInt(ctx.match![2]!, 10);
-  const player2Score = parseInt(ctx.match![3]!, 10);
-  const userId = ctx.dbUser.id as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchScore2 = ctx.match[2];
+  if (!matchScore2) return;
+  const matchScore3 = ctx.match[3];
+  if (!matchScore3) return;
+  const matchIdUUID = matchId as UUID;
+  const player1Score = parseInt(matchScore2, 10);
+  const player2Score = parseInt(matchScore3, 10);
+  const userId = ctx.dbUser.id;
 
   const result = await reportResult(
-    matchId,
+    matchIdUUID,
     userId,
     player1Score,
     player2Score,
@@ -531,7 +546,7 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
 
   if (!result.success) {
     await ctx.answerCallbackQuery({
-      text: result.error || 'Ошибка',
+      text: result.error ?? 'Ошибка',
       show_alert: true,
     });
     return;
@@ -542,7 +557,7 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
   );
 
   // Get fresh match data after reportResult (includes updated scores and status)
-  const updatedMatch = await getMatch(matchId);
+  const updatedMatch = await getMatch(matchIdUUID);
   const tournament = updatedMatch
     ? await db.query.tournaments.findFirst({
         where: eq(tournaments.id, updatedMatch.tournamentId),
@@ -577,14 +592,16 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
 
 // Подтвердить результат
 matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchIdUUID = matchId as UUID;
+  const userId = ctx.dbUser.id;
 
-  const result = await confirmResult(matchId, userId);
+  const result = await confirmResult(matchIdUUID, userId);
 
   if (!result.success) {
     await ctx.answerCallbackQuery({
-      text: result.error || 'Ошибка',
+      text: result.error ?? 'Ошибка',
       show_alert: true,
     });
     return;
@@ -593,7 +610,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery('Результат подтверждён!');
 
   // Show updated match and send notifications
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchIdUUID);
   const tournament = match
     ? await db.query.tournaments.findFirst({
         where: eq(tournaments.id, match.tournamentId),
@@ -623,14 +640,16 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
 
 // Оспорить результат
 matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchIdUUID = matchId as UUID;
+  const userId = ctx.dbUser.id;
 
-  const result = await disputeResult(matchId, userId);
+  const result = await disputeResult(matchIdUUID, userId);
 
   if (!result.success) {
     await ctx.answerCallbackQuery({
-      text: result.error || 'Ошибка',
+      text: result.error ?? 'Ошибка',
       show_alert: true,
     });
     return;
@@ -641,7 +660,7 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
   );
 
   // Show updated match and send notifications
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchIdUUID);
   const tournament = match
     ? await db.query.tournaments.findFirst({
         where: eq(tournaments.id, match.tournamentId),
@@ -681,9 +700,11 @@ matchCommands.callbackQuery(/^match:waiting:(.+)$/, async (ctx) => {
 
 // Технический результат - меню
 matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchIdUUID = matchId as UUID;
 
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchIdUUID);
 
   if (!match) {
     await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
@@ -746,13 +767,18 @@ matchCommands.callbackQuery(/^match:tech:(.+)$/, async (ctx) => {
 
 // Установить технический результат
 matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
-  const matchId = ctx.match![1]! as UUID;
-  const playerIndex = ctx.match![2]! as '1' | '2'; // "1" или "2"
-  const reason = ctx.match![3]!;
-  const userId = ctx.dbUser.id as UUID;
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const playerIndexRaw = ctx.match[2];
+  if (!playerIndexRaw) return;
+  const reason = ctx.match[3];
+  if (!reason) return;
+  const matchIdUUID = matchId as UUID;
+  const playerIndex = playerIndexRaw as '1' | '2'; // "1" или "2"
+  const userId = ctx.dbUser.id;
 
   // Получаем матч для определения winnerId по индексу
-  const matchData = await getMatch(matchId);
+  const matchData = await getMatch(matchIdUUID);
   if (!matchData) {
     await ctx.answerCallbackQuery({
       text: 'Матч не найден',
@@ -789,7 +815,7 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
           : 'Техническое решение';
 
   const result = await setTechnicalResult(
-    matchId,
+    matchIdUUID,
     winnerId,
     reasonText,
     userId,
@@ -797,7 +823,7 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
 
   if (!result.success) {
     await ctx.answerCallbackQuery({
-      text: result.error || 'Ошибка',
+      text: result.error ?? 'Ошибка',
       show_alert: true,
     });
     return;
@@ -806,7 +832,7 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery('Технический результат установлен');
 
   // Show updated match
-  const match = await getMatch(matchId);
+  const match = await getMatch(matchIdUUID);
   const tournament = match
     ? await db.query.tournaments.findFirst({
         where: eq(tournaments.id, match.tournamentId),
@@ -840,22 +866,25 @@ function formatMatchSection(
 ): string {
   const byRound = new Map<number, typeof sectionMatches>();
   for (const m of sectionMatches) {
-    if (!byRound.has(m.round)) {
-      byRound.set(m.round, []);
+    const existing = byRound.get(m.round);
+    if (existing) {
+      existing.push(m);
+    } else {
+      byRound.set(m.round, [m]);
     }
-    byRound.get(m.round)!.push(m);
   }
 
   const rounds = Array.from(byRound.keys()).sort((a, b) => a - b);
   let text = '';
 
   for (const round of rounds) {
-    const roundMatches = byRound.get(round)!;
+    const roundMatches = byRound.get(round);
+    if (!roundMatches) continue;
     const roundName = getRoundName(
       round,
       totalRounds,
       tournament.format,
-      roundMatches[0]?.bracketType || 'winners',
+      roundMatches[0]?.bracketType ?? 'winners',
     );
 
     text += `*${roundName}:*\n`;
@@ -874,11 +903,11 @@ function formatMatchSection(
         match.status === 'completed' ||
         match.status === 'pending_confirmation'
       ) {
-        score = ` (${match.player1Score}:${match.player2Score})`;
+        score = ` (${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')})`;
       }
 
-      text += `#${match.position} ${emoji} ${player1Name} vs ${player2Name}${score}\n`;
-      keyboard.text(`#${match.position}`, `match:view:${match.id}`);
+      text += `#${String(match.position)} ${emoji} ${player1Name} vs ${player2Name}${score}\n`;
+      keyboard.text(`#${String(match.position)}`, `match:view:${match.id}`);
     }
     keyboard.row();
     text += '\n';
@@ -893,7 +922,7 @@ function formatMatchSection(
 async function showBracket(
   ctx: BotContext,
   tournamentId: UUID,
-  isEdit: boolean = false,
+  isEdit = false,
 ): Promise<void> {
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, tournamentId),
@@ -927,10 +956,12 @@ async function showBracket(
   // Group matches by round
   const matchesByRound = new Map<number, typeof allMatches>();
   for (const match of allMatches) {
-    if (!matchesByRound.has(match.round)) {
-      matchesByRound.set(match.round, []);
+    const existing = matchesByRound.get(match.round);
+    if (existing) {
+      existing.push(match);
+    } else {
+      matchesByRound.set(match.round, [match]);
     }
-    matchesByRound.get(match.round)!.push(match);
   }
 
   // Get all player IDs from matches
@@ -953,7 +984,7 @@ async function showBracket(
       : calculateRounds(bracketSize);
 
   let text = `📊 *Сетка турнира "${tournament.name}"*\n`;
-  text += `Завершено: ${stats.completed}/${stats.total} матчей\n\n`;
+  text += `Завершено: ${String(stats.completed)}/${String(stats.total)} матчей\n\n`;
 
   // Get all player names
 
@@ -1008,7 +1039,8 @@ async function showBracket(
     const rounds = Array.from(matchesByRound.keys()).sort((a, b) => a - b);
 
     for (const round of rounds) {
-      const roundMatches = matchesByRound.get(round)!;
+      const roundMatches = matchesByRound.get(round);
+      if (!roundMatches) continue;
       const roundName = getRoundName(
         round,
         totalRounds,
@@ -1032,13 +1064,13 @@ async function showBracket(
           match.status === 'completed' ||
           match.status === 'pending_confirmation'
         ) {
-          score = ` (${match.player1Score}:${match.player2Score})`;
+          score = ` (${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')})`;
         }
 
         text += `${emoji} ${player1Name} vs ${player2Name}${score}\n`;
 
         // Add button for each match
-        keyboard.text(`#${match.position}`, `match:view:${match.id}`);
+        keyboard.text(`#${String(match.position)}`, `match:view:${match.id}`);
       }
       keyboard.row();
       text += '\n';

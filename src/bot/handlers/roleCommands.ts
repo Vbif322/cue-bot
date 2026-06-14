@@ -14,9 +14,9 @@ export const roleCommands = new Composer<BotContext>();
 
 // /set_admin <telegram_id или @username> - назначить админа
 roleCommands.command('set_admin', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
-  if (!args || args.length === 0) {
+  if (args.length === 0) {
     await ctx.reply(
       'Использование: /set_admin <telegram_id или @username>\n' +
         'Пример: /set_admin 123456789\n' +
@@ -25,7 +25,8 @@ roleCommands.command('set_admin', adminOnly(), async (ctx) => {
     return;
   }
 
-  const target = args[0]!;
+  const target = args[0];
+  if (!target) return;
   let targetUser;
 
   if (target.startsWith('@')) {
@@ -66,9 +67,9 @@ roleCommands.command('set_admin', adminOnly(), async (ctx) => {
 
 // /remove_admin <telegram_id или @username> - снять админа
 roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
-  if (!args || args.length === 0) {
+  if (args.length === 0) {
     await ctx.reply(
       'Использование: /remove_admin <telegram_id или @username>\n' +
         'Пример: /remove_admin @username',
@@ -76,7 +77,8 @@ roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
     return;
   }
 
-  const target = args[0]!;
+  const target = args[0];
+  if (!target) return;
   let targetUser;
 
   if (target.startsWith('@')) {
@@ -124,9 +126,9 @@ roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
 
 // /assign_referee <tournament_id> <telegram_id/@username>
 roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
-  if (!args || args.length < 2) {
+  if (args.length < 2) {
     await ctx.reply(
       'Использование: /assign_referee <tournament_id> <telegram_id или @username>\n' +
         'Пример: /assign_referee abc-123 @username',
@@ -203,9 +205,9 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
 
 // /remove_referee <tournament_id> <telegram_id/@username>
 roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
-  if (!args || args.length < 2) {
+  if (args.length < 2) {
     await ctx.reply(
       'Использование: /remove_referee <tournament_id> <telegram_id или @username>\n' +
         'Пример: /remove_referee abc-123 @username',

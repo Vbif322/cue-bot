@@ -30,7 +30,7 @@ export function createAuthRouter() {
       where: eq(users.id, record.userId),
     });
 
-    if (!user || user.role !== 'admin')
+    if (user?.role !== 'admin')
       return c.redirect('/login?error=forbidden');
 
     const token = signToken({
@@ -40,7 +40,7 @@ export function createAuthRouter() {
     });
     c.header(
       'Set-Cookie',
-      `admin_token=${token}; HttpOnly; Path=/; Max-Age=${24 * 60 * 60}; SameSite=Strict`,
+      `admin_token=${token}; HttpOnly; Path=/; Max-Age=${String(24 * 60 * 60)}; SameSite=Strict`,
     );
     return c.redirect('/');
   });
@@ -55,7 +55,7 @@ export function createAuthRouter() {
 
   auth.get('/me', async (c) => {
     const cookie = c.req.header('Cookie') ?? '';
-    const tokenMatch = cookie.match(/admin_token=([^;]+)/);
+    const tokenMatch = /admin_token=([^;]+)/.exec(cookie);
     const token = tokenMatch?.[1];
 
     if (!token) {
@@ -68,7 +68,7 @@ export function createAuthRouter() {
         where: eq(users.id, payload.id),
       });
 
-      if (!user || user.role !== 'admin') {
+      if (user?.role !== 'admin') {
         return c.json({ user: null });
       }
 

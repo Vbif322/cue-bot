@@ -24,12 +24,12 @@ export type ApiMatch = Omit<
   tableName?: string | null;
 };
 
-export type ApiMatchStats = {
+export interface ApiMatchStats {
   total: number;
   completed: number;
   inProgress: number;
   scheduled: number;
-};
+}
 
 /** Bot-facing match with joined player details */
 export interface MatchWithPlayers extends Match {

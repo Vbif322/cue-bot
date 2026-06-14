@@ -19,17 +19,18 @@ describe('setMatchSchedule', () => {
       .insert(matches)
       .values({ tournamentId: t.id, round: 1, position: 1 })
       .returning();
+    if (!m) throw new Error('insert returned no rows');
 
-    const set = await setMatchSchedule(m!.id, new Date('2026-06-21T18:30:00Z'));
+    const set = await setMatchSchedule(m.id, new Date('2026-06-21T18:30:00Z'));
     expect(set.success).toBe(true);
     expect(set.match?.scheduledAt).toBeInstanceOf(Date);
 
-    const cleared = await setMatchSchedule(m!.id, null);
+    const cleared = await setMatchSchedule(m.id, null);
     expect(cleared.success).toBe(true);
     expect(cleared.match?.scheduledAt).toBeNull();
 
     const row = await db.query.matches.findFirst({
-      where: eq(matches.id, m!.id),
+      where: eq(matches.id, m.id),
     });
     expect(row?.scheduledAt).toBeNull();
   });

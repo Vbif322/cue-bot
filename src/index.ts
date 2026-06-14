@@ -50,7 +50,8 @@ bot.use(helpCommands);
 bot.use(profileCommands);
 
 bot.command('start', async (ctx) => {
-  const chatId = ctx.from!.id;
+  if (!ctx.from) return;
+  const chatId = ctx.from.id;
 
   if (ctx.dbUser.role === 'admin') {
     await setAdminCommands(bot, chatId);
@@ -126,13 +127,13 @@ async function startBot() {
             console.log(`Бот @${info.username} запущен`);
           },
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           console.error('Long polling остановлен с ошибкой:', err);
         });
       return;
     } catch (err) {
       console.error(
-        `Не удалось запустить бота (попытка ${attempt}/${MAX_BOT_START_RETRIES}):`,
+        `Не удалось запустить бота (попытка ${String(attempt)}/${String(MAX_BOT_START_RETRIES)}):`,
         err,
       );
       if (attempt < MAX_BOT_START_RETRIES) {
@@ -162,7 +163,7 @@ async function start() {
   await startBot();
 }
 
-start().catch((err) => {
+start().catch((err: unknown) => {
   console.error('Фатальная ошибка запуска:', err);
   process.exit(1);
 });

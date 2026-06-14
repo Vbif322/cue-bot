@@ -28,7 +28,7 @@ export async function authMiddleware(
       where: eq(users.telegram_id, telegramId),
     });
 
-    const needsClaim = !existing || existing.username !== desired;
+    const needsClaim = existing?.username !== desired;
     if (needsClaim) {
       await tx
         .update(users)

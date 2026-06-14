@@ -131,12 +131,12 @@ export function buildTournamentMessage(
     `📋 *${info.name}*\n\n` +
     (info.visibility === 'private' ? '🔒 Закрытый турнир\n' : '') +
     `Площадка: ${info.venueName ?? 'Не указана'}\n` +
-    `Дисциплина: ${DISCIPLINE_LABELS[info.discipline] || info.discipline}\n` +
+    `Дисциплина: ${DISCIPLINE_LABELS[info.discipline] ?? info.discipline}\n` +
     `Формат: ${formatFormat(info.format)}\n` +
-    `Статус: ${STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status}\n` +
-    `Участников: ${info.participantsCount}/${info.maxParticipants}\n` +
+    `Статус: ${STATUS_LABELS[info.status] ?? info.status}\n` +
+    `Участников: ${String(info.participantsCount)}/${String(info.maxParticipants)}\n` +
     `Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +
-    `Игра до: ${info.winScore} побед\n` +
+    `Игра до: ${String(info.winScore)} побед\n` +
     (info.description ? `\nОписание: ${info.description}\n` : '') +
     (info.isInvited
       ? '\n📨 Вас пригласили в этот турнир'
@@ -162,7 +162,7 @@ export function buildTournamentListItemCompact(
   isAdmin: boolean,
 ): string {
   const status =
-    STATUS_LABELS[info.status as keyof typeof STATUS_LABELS] || info.status;
+    STATUS_LABELS[info.status] ?? info.status;
   const date = info.startDate
     ? ` · ${DateTimeHelperInstance.formatDate(info.startDate)}`
     : '';
@@ -170,7 +170,7 @@ export function buildTournamentListItemCompact(
 
   return (
     `📋 *${lock}${escapeMarkdown(info.name)}*\n` +
-    `   ${status} · ${info.participantsCount}/${info.maxParticipants}${date}\n` +
+    `   ${status} · ${String(info.participantsCount)}/${String(info.maxParticipants)}${date}\n` +
     (isAdmin ? `   ID: \`${info.id}\`\n` : '') +
     '\n'
   );

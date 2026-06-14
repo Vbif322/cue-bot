@@ -25,8 +25,8 @@ export async function getUserMatchStats(userId: UUID): Promise<UserMatchStats> {
     );
 
   const row = rows[0];
-  const played = Number(row?.played ?? 0);
-  const wins = Number(row?.wins ?? 0);
+  const played = row?.played ?? 0;
+  const wins = row?.wins ?? 0;
   return { played, wins, losses: played - wins };
 }
 

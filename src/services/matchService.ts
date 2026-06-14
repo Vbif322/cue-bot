@@ -88,11 +88,6 @@ export async function createMatches(
   }
 }
 
-function determineInitialStatus(
-  _match: BracketMatch,
-): (typeof matches.$inferSelect)['status'] {
-  return 'scheduled';
-}
 
 /**
  * Get match by ID with player information and table name
@@ -458,7 +453,7 @@ export async function reportResult(
   if (player1Score !== winScore && player2Score !== winScore) {
     return {
       success: false,
-      error: `Один из игроков должен набрать ${winScore} побед`,
+      error: `Один из игроков должен набрать ${String(winScore)} побед`,
     };
   }
   if (player1Score === winScore && player2Score === winScore) {
@@ -628,7 +623,7 @@ export async function advanceWinner(
     where: eq(matches.id, matchId),
   });
 
-  if (!match || !match.winnerId) return;
+  if (!match?.winnerId) return;
 
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return;
@@ -799,7 +794,7 @@ async function advanceLoserToLosersBracket(
 
   if (!losersMatch) {
     console.error(
-      `Losers match not found at position ${target.position} for tournament ${match.tournamentId}`,
+      `Losers match not found at position ${String(target.position)} for tournament ${match.tournamentId}`,
     );
     return;
   }
@@ -882,11 +877,7 @@ export async function checkTournamentCompletion(
     return grandFinal?.status === 'completed';
   }
 
-  if (tournament.format === 'round_robin') {
-    return completedMatches.length === allMatches.length;
-  }
-
-  return false;
+  return completedMatches.length === allMatches.length;
 }
 
 /**
@@ -975,7 +966,7 @@ export function validateCorrectionScores(
   winScore: number,
 ): string | null {
   if (player1Score !== winScore && player2Score !== winScore) {
-    return `Один из игроков должен набрать ${winScore} побед`;
+    return `Один из игроков должен набрать ${String(winScore)} побед`;
   }
   if (player1Score === winScore && player2Score === winScore) {
     return 'Оба игрока не могут выиграть';
@@ -1023,11 +1014,11 @@ async function walkDownstream(
   const loserId =
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
-  const placements: Array<{
+  const placements: {
     match: Match;
     slot: 'player1' | 'player2';
     player: UUID;
-  }> = [];
+  }[] = [];
 
   if (tournament.format === 'double_elimination_random') {
     const winnerPool = getRandomTargetPool(match, true);
@@ -1149,14 +1140,14 @@ async function resetDownstream(
   affected.push(match.id);
 }
 
-export type CorrectionPreview = {
+export interface CorrectionPreview {
   valid: boolean;
   error?: string;
   winnerChanged: boolean;
   affectedCount: number;
   willReshuffle: boolean;
   tournamentWillReopen: boolean;
-};
+}
 
 /**
  * Read-only dry run: validate a proposed correction and count how many

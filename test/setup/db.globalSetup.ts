@@ -9,6 +9,12 @@ import {
 } from '@testcontainers/postgresql';
 import type { GlobalSetupContext } from 'vitest/node';
 
+declare module 'vitest' {
+  interface ProvidedContext {
+    dbUrl: string;
+  }
+}
+
 /**
  * Phase 0b — DB harness global setup (integration / e2e projects only).
  *
@@ -41,7 +47,7 @@ export default async function setup({ provide }: GlobalSetupContext) {
     await pool.end();
   }
 
-  provide('dbUrl', url);
+  (provide as (key: string, value: string) => void)('dbUrl', url);
 
   return async () => {
     await container?.stop();

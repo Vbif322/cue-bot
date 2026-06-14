@@ -46,15 +46,15 @@ export function startTimeoutChecker(
   }
 
   // Run immediately and then at interval
-  checkAllTimeouts();
+  void checkAllTimeouts();
 
   timeoutInterval = setInterval(
-    checkAllTimeouts,
+    () => { void checkAllTimeouts(); },
     currentConfig.checkIntervalMinutes * 60 * 1000,
   );
 
   console.log(
-    `Timeout checker started (interval: ${currentConfig.checkIntervalMinutes} min)`,
+    `Timeout checker started (interval: ${String(currentConfig.checkIntervalMinutes)} min)`,
   );
 }
 
@@ -160,10 +160,6 @@ async function checkPendingConfirmations(): Promise<void> {
     const matchWithPlayers = await getMatch(match.id);
     if (!matchWithPlayers) continue;
 
-    const tournament = await db.query.tournaments.findFirst({
-      where: eq(tournaments.id, match.tournamentId),
-    });
-
     // Notify opponent about auto-confirmation
     const opponentId =
       match.player1Id === match.reportedBy ? match.player2Id : match.player1Id;
@@ -175,7 +171,7 @@ async function checkPendingConfirmations(): Promise<void> {
         title: 'Результат автоматически подтверждён',
         message:
           `Результат матча был автоматически подтверждён из-за истечения времени ожидания.\n\n` +
-          `Счёт: ${match.player1Score}:${match.player2Score}`,
+          `Счёт: ${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')}`,
         tournamentId: match.tournamentId,
         matchId: match.id,
       });
@@ -222,7 +218,7 @@ async function checkInProgressMatches(): Promise<void> {
         type: 'match_result_pending',
         title: 'Напоминание: внесите результат',
         message:
-          `Матч в турнире "${tournament.name}" ожидает результата уже более ${currentConfig.resultSubmissionHours} часов.\n\n` +
+          `Матч в турнире "${tournament.name}" ожидает результата уже более ${String(currentConfig.resultSubmissionHours)} часов.\n\n` +
           `Пожалуйста, внесите результат или обратитесь к судье.`,
         tournamentId: match.tournamentId,
         matchId: match.id,
