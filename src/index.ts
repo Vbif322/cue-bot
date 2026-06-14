@@ -33,6 +33,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { InlineKeyboard } from 'grammy';
 import { randomBytes } from 'crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { db } from './db/db.js';
 import { loginTokens } from './db/schema.js';
 
@@ -107,10 +108,46 @@ bot.catch((err) => {
   console.error('Bot error:', err);
 });
 
-async function start() {
-  await setupCommands(bot);
-  bot.start();
+const MAX_BOT_START_RETRIES = 5;
+const BOT_START_RETRY_DELAY_MS = 5000;
 
+// bot.start() резолвится только при bot.stop(), а его внутренний polling уже сам
+// ретраит транзиентные ошибки. Незакрытый зазор — начальная инициализация
+// (getMe / setMyCommands), поэтому ретраим именно её, а сам polling не ждём.
+async function startBot() {
+  for (let attempt = 1; attempt <= MAX_BOT_START_RETRIES; attempt++) {
+    try {
+      await bot.init();
+      await setupCommands(bot);
+
+      void bot
+        .start({
+          onStart: (info) => {
+            console.log(`Бот @${info.username} запущен`);
+          },
+        })
+        .catch((err) => {
+          console.error('Long polling остановлен с ошибкой:', err);
+        });
+      return;
+    } catch (err) {
+      console.error(
+        `Не удалось запустить бота (попытка ${attempt}/${MAX_BOT_START_RETRIES}):`,
+        err,
+      );
+      if (attempt < MAX_BOT_START_RETRIES) {
+        await sleep(BOT_START_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  console.error(
+    'Бот не запустился после всех попыток; admin API продолжает работать без бота.',
+  );
+}
+
+async function start() {
+  // Поднимаем HTTP-сервер первым, чтобы admin API был доступен независимо от бота.
   const app = createAdminServer();
 
   // Serve static files from admin/dist in production
@@ -121,6 +158,20 @@ async function start() {
 
   const port = Number(process.env.ADMIN_PORT ?? 3000);
   serve({ fetch: app.fetch, port });
+
+  await startBot();
 }
 
-start();
+start().catch((err) => {
+  console.error('Фатальная ошибка запуска:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Необработанный rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Необработанное исключение:', err);
+  process.exit(1);
+});
