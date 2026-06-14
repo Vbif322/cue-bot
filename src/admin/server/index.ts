@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { secureHeaders } from 'hono/secure-headers';
 import { bot } from '../../bot/instance.js';
 import { createAuthRouter } from './auth.js';
 import { createTournamentsRouter } from './routes/tournaments.js';
@@ -10,6 +11,10 @@ import { createVenuesRouter } from './routes/venues.js';
 
 export function createAdminServer() {
   const app = new Hono();
+
+  // Security headers (defaults: X-Frame-Options, nosniff, HSTS, Referrer-Policy, …)
+  // на все ответы, включая статику SPA. Без CSP, чтобы не ломать React-приложение.
+  app.use('*', secureHeaders());
 
   // CORS for Vite dev server (dev only)
   if (process.env.NODE_ENV === 'development') {

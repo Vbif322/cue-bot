@@ -1,9 +1,19 @@
 import { Hono } from 'hono';
+import { setCookie, deleteCookie } from 'hono/cookie';
 import { and, eq, gt } from 'drizzle-orm';
 import jwt from 'jsonwebtoken';
 import { db } from '../../db/db.js';
 import { users, loginTokens } from '../../db/schema.js';
 import { signToken, JWT_SECRET, type AdminUser } from './middleware.js';
+
+// Secure-флаг ставим только в production: на http://localhost браузер иначе
+// молча отбросил бы cookie в dev.
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'Strict',
+  path: '/',
+} as const;
 
 export function createAuthRouter() {
   const auth = new Hono();
@@ -38,18 +48,15 @@ export function createAuthRouter() {
       username: user.username,
       role: user.role,
     });
-    c.header(
-      'Set-Cookie',
-      `admin_token=${token}; HttpOnly; Path=/; Max-Age=${String(24 * 60 * 60)}; SameSite=Strict`,
-    );
+    setCookie(c, 'admin_token', token, {
+      ...COOKIE_OPTS,
+      maxAge: 24 * 60 * 60,
+    });
     return c.redirect('/');
   });
 
   auth.post('/logout', (c) => {
-    c.header(
-      'Set-Cookie',
-      'admin_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict',
-    );
+    deleteCookie(c, 'admin_token', COOKIE_OPTS);
     return c.json({ ok: true });
   });
 
