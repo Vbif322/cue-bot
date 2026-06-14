@@ -1,5 +1,5 @@
 import type { NextFunction } from 'grammy';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull, ne, sql } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
 import { users } from '@/db/schema.js';
@@ -17,24 +17,51 @@ export async function authMiddleware(
   }
 
   const telegramId = telegramUser.id.toString();
+  // Keep username in sync with Telegram so it stays a deterministic identifier
+  // for bot role commands (S2-2). Telegram usernames are reusable, so before
+  // claiming `desired` we release it from any stale row (the partial unique
+  // index on username for telegram accounts would otherwise reject the write).
+  const desired = telegramUser.username ?? `user_${telegramId}`;
 
-  let dbUser = await db.query.users.findFirst({
-    where: eq(users.telegram_id, telegramId),
+  const dbUser = await db.transaction(async (tx) => {
+    let existing = await tx.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    });
+
+    const needsClaim = !existing || existing.username !== desired;
+    if (needsClaim) {
+      await tx
+        .update(users)
+        .set({ username: sql`'user_' || ${users.telegram_id}` })
+        .where(
+          and(
+            eq(users.username, desired),
+            isNotNull(users.telegram_id),
+            existing ? ne(users.id, existing.id) : sql`true`,
+          ),
+        );
+    }
+
+    if (!existing) {
+      [existing] = await tx
+        .insert(users)
+        .values({
+          telegram_id: telegramId,
+          username: desired,
+          name: telegramUser.first_name,
+          surname: telegramUser.last_name ?? undefined,
+        })
+        .returning();
+    } else if (existing.username !== desired) {
+      await tx
+        .update(users)
+        .set({ username: desired })
+        .where(eq(users.id, existing.id));
+      existing.username = desired;
+    }
+
+    return existing;
   });
-
-  if (!dbUser) {
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        telegram_id: telegramId,
-        username: telegramUser.username ?? `user_${telegramId}`,
-        name: telegramUser.first_name,
-        surname: telegramUser.last_name ?? undefined,
-      })
-      .returning();
-
-    dbUser = newUser;
-  }
 
   if (!dbUser) {
     throw new Error('Failed to get or create user');

@@ -1,5 +1,5 @@
 import { Composer } from 'grammy';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -31,7 +31,7 @@ roleCommands.command('set_admin', adminOnly(), async (ctx) => {
   if (target.startsWith('@')) {
     const username = target.slice(1);
     targetUser = await db.query.users.findFirst({
-      where: eq(users.username, username),
+      where: and(eq(users.username, username), isNotNull(users.telegram_id)),
     });
   } else {
     targetUser = await db.query.users.findFirst({
@@ -81,7 +81,10 @@ roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
 
   if (target.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
-      where: eq(users.username, target.slice(1)),
+      where: and(
+        eq(users.username, target.slice(1)),
+        isNotNull(users.telegram_id),
+      ),
     });
   } else {
     targetUser = await db.query.users.findFirst({
@@ -145,7 +148,10 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
   let targetUser;
   if (targetArg.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
-      where: eq(users.username, targetArg.slice(1)),
+      where: and(
+        eq(users.username, targetArg.slice(1)),
+        isNotNull(users.telegram_id),
+      ),
     });
   } else {
     targetUser = await db.query.users.findFirst({
@@ -221,7 +227,10 @@ roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
   let targetUser;
   if (targetArg.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
-      where: eq(users.username, targetArg.slice(1)),
+      where: and(
+        eq(users.username, targetArg.slice(1)),
+        isNotNull(users.telegram_id),
+      ),
     });
   } else {
     targetUser = await db.query.users.findFirst({

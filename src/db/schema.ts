@@ -6,7 +6,6 @@ export * from './schema/matches.js';
 export * from './schema/matchCorrections.js';
 export * from './schema/notifications.js';
 export * from './schema/disqualifications.js';
-export * from './schema/loginCodes.js';
 export * from './schema/loginTokens.js';
 export * from './schema/venues.js';
 export * from './schema/tables.js';
