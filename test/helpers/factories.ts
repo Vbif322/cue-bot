@@ -1,5 +1,7 @@
+import type { UUID } from 'crypto';
+
 import { db } from '@/db/db.js';
-import { tournaments, users, venues } from '@/db/schema.js';
+import { loginTokens, tournaments, users, venues } from '@/db/schema.js';
 
 /**
  * Test-data factories. Phase 0b ships the two leaf entities needed to validate
@@ -14,6 +16,34 @@ export async function createUser(
   const [row] = await db
     .insert(users)
     .values({ username: `user_${uniq()}`, ...overrides })
+    .returning();
+  if (!row) throw new Error('insert returned no rows');
+  return row;
+}
+
+/** A user with `role: 'admin'` — convenience wrapper used by admin-API tests. */
+export async function createAdminUser(
+  overrides: Partial<typeof users.$inferInsert> = {},
+) {
+  return createUser({ role: 'admin', ...overrides });
+}
+
+/**
+ * Insert a one-click login token (`loginTokens` table). Defaults to a token
+ * that expires one hour from now; pass `expiresAt` in the past to test expiry.
+ */
+export async function createLoginToken(
+  userId: UUID,
+  overrides: Partial<typeof loginTokens.$inferInsert> = {},
+) {
+  const [row] = await db
+    .insert(loginTokens)
+    .values({
+      token: `tok_${uniq()}`.slice(0, 32),
+      userId,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      ...overrides,
+    })
     .returning();
   if (!row) throw new Error('insert returned no rows');
   return row;
