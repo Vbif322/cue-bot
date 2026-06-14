@@ -7,7 +7,7 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from '@testcontainers/postgresql';
-import type { GlobalSetupContext } from 'vitest/node';
+import type { TestProject } from 'vitest/node';
 
 declare module 'vitest' {
   interface ProvidedContext {
@@ -34,7 +34,7 @@ declare module 'vitest' {
  */
 let container: StartedPostgreSqlContainer | undefined;
 
-export default async function setup({ provide }: GlobalSetupContext) {
+export default async function setup({ provide }: TestProject) {
   container = await new PostgreSqlContainer('postgres:16-alpine').start();
   const url = container.getConnectionUri();
 
@@ -47,7 +47,7 @@ export default async function setup({ provide }: GlobalSetupContext) {
     await pool.end();
   }
 
-  (provide as (key: string, value: string) => void)('dbUrl', url);
+  provide('dbUrl', url);
 
   return async () => {
     await container?.stop();

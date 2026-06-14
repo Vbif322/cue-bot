@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { TournamentCreationStateStore } from '@/bot/wizards/tournamentCreation/tournamentCreation.stateStore.js';
 
 const USER = 123;
+// uuid-shaped ids: venue/table id columns are typed `crypto.UUID`.
+const TABLE_1 = '00000000-0000-0000-0000-000000000001';
+const VENUE_1 = '00000000-0000-0000-0000-00000000000a';
 
 describe('TournamentCreationStateStore', () => {
   let store: TournamentCreationStateStore;
@@ -50,21 +53,21 @@ describe('TournamentCreationStateStore', () => {
     store.updateData(USER, { tournament: { name: 'Cup' } });
     store.updateData(USER, {
       tournament: { winScore: 3 },
-      tables: [{ id: 't1', name: 'Table 1' }],
+      tables: [{ id: TABLE_1, name: 'Table 1' }],
     });
     const state = store.getOrThrow(USER);
     expect(state.data.tournament).toMatchObject({ name: 'Cup', winScore: 3 });
-    expect(state.data.tables).toEqual([{ id: 't1', name: 'Table 1' }]);
+    expect(state.data.tables).toEqual([{ id: TABLE_1, name: 'Table 1' }]);
   });
 
   it('update() applies both step and data in one call', () => {
     store.start(USER);
     const state = store.update(USER, {
       step: 'venue',
-      data: { venue: { id: 'v1', name: 'Hall' } },
+      data: { venue: { id: VENUE_1, name: 'Hall' } },
     });
     expect(state.step).toBe('venue');
-    expect(state.data.venue).toEqual({ id: 'v1', name: 'Hall' });
+    expect(state.data.venue).toEqual({ id: VENUE_1, name: 'Hall' });
   });
 
   it('clear() removes the session', () => {
