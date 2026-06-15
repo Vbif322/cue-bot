@@ -232,5 +232,33 @@ describe('matchService lifecycle', () => {
       const res = await startMatch(MISSING_ID);
       expect(res.success).toBe(false);
     });
+
+    it('rejects an already in-progress match', async () => {
+      const { match } = await freshMatch();
+      await startMatch(match.id);
+      const res = await startMatch(match.id);
+      expect(res).toEqual({
+        success: false,
+        error: 'Матч можно начать только из статуса «Запланирован»',
+      });
+    });
+
+    it('rejects a completed match without touching its result', async () => {
+      const { match, p1 } = await freshMatch();
+      await completeMatch(match.id, p1);
+      const before = await getMatch(match.id);
+
+      const res = await startMatch(match.id);
+      expect(res).toEqual({
+        success: false,
+        error: 'Матч можно начать только из статуса «Запланирован»',
+      });
+
+      const after = await getMatch(match.id);
+      expect(after?.status).toBe('completed');
+      expect(after?.winnerId).toBe(before?.winnerId);
+      expect(after?.player1Score).toBe(before?.player1Score);
+      expect(after?.player2Score).toBe(before?.player2Score);
+    });
   });
 });

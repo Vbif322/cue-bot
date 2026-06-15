@@ -908,6 +908,15 @@ export async function startMatch(
   matchId: UUID,
 ): Promise<{ success: boolean; error?: string; match?: Match }> {
   try {
+    const match = await getMatch(matchId);
+    if (!match) return { success: false, error: 'Матч не найден' };
+    if (match.status !== 'scheduled') {
+      return {
+        success: false,
+        error: 'Матч можно начать только из статуса «Запланирован»',
+      };
+    }
+
     const updatedMatch = await db
       .update(matches)
       .set({
@@ -915,11 +924,11 @@ export async function startMatch(
         startedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(matches.id, matchId))
+      .where(and(eq(matches.id, matchId), eq(matches.status, 'scheduled')))
       .returning();
 
     if (!updatedMatch[0]) {
-      return { success: false, error: 'Не удалось обновить матч' };
+      return { success: false, error: 'Статус матча изменился, обновите страницу' };
     }
 
     return { success: true, match: updatedMatch[0] };

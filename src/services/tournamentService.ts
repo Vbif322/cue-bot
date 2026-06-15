@@ -813,6 +813,36 @@ export async function cancelTournament(tournamentId: UUID): Promise<void> {
 }
 
 /**
+ * Legal forward transitions of the documented tournament state machine. A
+ * status change is allowed only if the target is listed for the current status;
+ * `completed`/`cancelled` are terminal. `in_progress`/`completed` are reachable
+ * here but are set only via the dedicated start/auto-complete flows — the admin
+ * `PATCH /status` route additionally blocks them as manual targets.
+ */
+export const TOURNAMENT_STATUS_TRANSITIONS: Record<
+  TournamentStatus,
+  TournamentStatus[]
+> = {
+  draft: ['registration_open', 'cancelled'],
+  registration_open: ['registration_closed', 'cancelled'],
+  registration_closed: ['in_progress', 'cancelled'],
+  in_progress: ['completed', 'cancelled'],
+  completed: [],
+  cancelled: [],
+};
+
+/**
+ * Check whether a tournament may move from `from` to `to` per the documented
+ * state machine.
+ */
+export function canTransitionTournamentStatus(
+  from: TournamentStatus,
+  to: TournamentStatus,
+): boolean {
+  return TOURNAMENT_STATUS_TRANSITIONS[from].includes(to);
+}
+
+/**
  * Statuses in which tournament settings may still be edited: before the bracket
  * is generated (which happens only at start), so no live structure can desync.
  */
