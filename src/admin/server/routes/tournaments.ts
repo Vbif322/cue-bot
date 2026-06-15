@@ -27,7 +27,7 @@ import {
   deleteTournament,
   canDeleteTournament,
   cancelTournament,
-  canCancelTournament,
+  canTransitionTournamentStatus,
   canEditTournament,
   closeRegistrationWithCount,
   canStartTournament,
@@ -220,12 +220,22 @@ export function createTournamentsRouter(botApi: Api) {
       const { status } = c.req.valid('json');
       const id = c.req.param('id') as UUID;
 
+      const tournament = await getTournament(id);
+      if (!tournament) return c.json({ error: 'Не найден' }, 404);
+
+      // in_progress / completed are reached only via the dedicated start and
+      // auto-complete flows, never a manual PATCH.
+      if (status === 'in_progress' || status === 'completed') {
+        return c.json({ error: 'Этот статус устанавливается автоматически' }, 400);
+      }
+      if (!canTransitionTournamentStatus(tournament.status, status)) {
+        return c.json(
+          { error: `Недопустимый переход: ${tournament.status} → ${status}` },
+          400,
+        );
+      }
+
       if (status === 'cancelled') {
-        const tournament = await getTournament(id);
-        if (!tournament) return c.json({ error: 'Не найден' }, 404);
-        if (!canCancelTournament(tournament.status)) {
-          return c.json({ error: 'Нельзя отменить этот турнир' }, 400);
-        }
         await cancelTournament(id);
         await notifyTournamentCancelled(botApi, id, tournament.name);
       } else if (status === 'registration_closed') {

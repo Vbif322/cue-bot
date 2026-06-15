@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canCancelTournament,
+  canTransitionTournamentStatus,
   validateSeeds,
 } from '@/services/tournamentService.js';
 
@@ -54,5 +55,46 @@ describe('canCancelTournament', () => {
     expect(canCancelTournament('draft')).toBe(false);
     expect(canCancelTournament('completed')).toBe(false);
     expect(canCancelTournament('cancelled')).toBe(false);
+  });
+});
+
+describe('canTransitionTournamentStatus', () => {
+  it('allows the documented forward transitions', () => {
+    expect(canTransitionTournamentStatus('draft', 'registration_open')).toBe(true);
+    expect(
+      canTransitionTournamentStatus('registration_open', 'registration_closed'),
+    ).toBe(true);
+    expect(
+      canTransitionTournamentStatus('registration_closed', 'in_progress'),
+    ).toBe(true);
+    expect(canTransitionTournamentStatus('in_progress', 'completed')).toBe(true);
+  });
+
+  it('allows cancelling from any active status', () => {
+    expect(canTransitionTournamentStatus('draft', 'cancelled')).toBe(true);
+    expect(canTransitionTournamentStatus('registration_open', 'cancelled')).toBe(true);
+    expect(canTransitionTournamentStatus('registration_closed', 'cancelled')).toBe(true);
+    expect(canTransitionTournamentStatus('in_progress', 'cancelled')).toBe(true);
+  });
+
+  it('forbids rollbacks', () => {
+    expect(canTransitionTournamentStatus('completed', 'draft')).toBe(false);
+    expect(
+      canTransitionTournamentStatus('in_progress', 'registration_open'),
+    ).toBe(false);
+    expect(
+      canTransitionTournamentStatus('registration_closed', 'registration_open'),
+    ).toBe(false);
+  });
+
+  it('forbids skipping over intermediate states', () => {
+    expect(canTransitionTournamentStatus('draft', 'in_progress')).toBe(false);
+    expect(canTransitionTournamentStatus('registration_open', 'in_progress')).toBe(false);
+  });
+
+  it('forbids self-transitions and exits from terminal states', () => {
+    expect(canTransitionTournamentStatus('draft', 'draft')).toBe(false);
+    expect(canTransitionTournamentStatus('completed', 'cancelled')).toBe(false);
+    expect(canTransitionTournamentStatus('cancelled', 'draft')).toBe(false);
   });
 });

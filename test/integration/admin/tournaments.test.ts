@@ -187,6 +187,40 @@ describe('admin tournaments router', () => {
     expect(body.data.status).toBe('cancelled');
   });
 
+  it('PATCH /:id/status opens registration on a draft', async () => {
+    const t = await createTournament({ status: 'draft' });
+    const { status, body } = await apiRequest<{ data: TournamentRow }>(
+      app,
+      'PATCH',
+      `/api/tournaments/${t.id}/status`,
+      { user: admin, body: { status: 'registration_open' } },
+    );
+    expect(status).toBe(200);
+    expect(body.data.status).toBe('registration_open');
+  });
+
+  it('PATCH /:id/status rejects rolling a completed tournament back to draft', async () => {
+    const t = await createTournament({ status: 'completed' });
+    const { status } = await apiRequest(
+      app,
+      'PATCH',
+      `/api/tournaments/${t.id}/status`,
+      { user: admin, body: { status: 'draft' } },
+    );
+    expect(status).toBe(400);
+  });
+
+  it('PATCH /:id/status rejects setting in_progress manually', async () => {
+    const t = await createTournament({ status: 'registration_closed' });
+    const { status } = await apiRequest(
+      app,
+      'PATCH',
+      `/api/tournaments/${t.id}/status`,
+      { user: admin, body: { status: 'in_progress' } },
+    );
+    expect(status).toBe(400);
+  });
+
   it('DELETE /:id removes a draft but refuses a started tournament', async () => {
     const draft = await createTournament({ status: 'draft' });
     const okDelete = await apiRequest<{ ok: boolean }>(
