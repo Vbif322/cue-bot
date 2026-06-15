@@ -15,6 +15,7 @@ import {
   notifyRegistrationRejected,
 } from "../../services/notificationService.js";
 import {
+  escapeMarkdown,
   formatFullName,
   safeEditMessageText,
 } from "../../utils/messageHelpers.js";
@@ -90,7 +91,7 @@ async function showParticipantManagement(
   clearKeysForTournament(tournamentId);
 
   const keyboard = new InlineKeyboard();
-  let message = `*${tournament.name}*\n`;
+  let message = `*${escapeMarkdown(tournament.name)}*\n`;
 
   if (pending.length === 0 && confirmed.length === 0) {
     await ctx.answerCallbackQuery({ text: "Нет участников" });
@@ -106,8 +107,8 @@ async function showParticipantManagement(
     for (const p of pending) {
       const displayName =
         formatFullName(p.name, p.surname) ?? p.username;
-      const handle = p.username ? ` (@${p.username})` : "";
-      message += `${displayName}${handle}\n`;
+      const handle = p.username ? ` (@${escapeMarkdown(p.username)})` : "";
+      message += `${escapeMarkdown(displayName)}${handle}\n`;
 
       const key = generateKey();
       participantActionsMap.set(key, { tournamentId, userId: p.userId });
@@ -123,8 +124,8 @@ async function showParticipantManagement(
     for (const p of confirmed) {
       const displayName =
         formatFullName(p.name, p.surname) ?? p.username;
-      const handle = p.username ? ` (@${p.username})` : "";
-      message += `${displayName}${handle}\n`;
+      const handle = p.username ? ` (@${escapeMarkdown(p.username)})` : "";
+      message += `${escapeMarkdown(displayName)}${handle}\n`;
 
       const key = generateKey();
       participantActionsMap.set(key, { tournamentId, userId: p.userId });
