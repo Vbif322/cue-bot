@@ -1,4 +1,4 @@
-import { uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
@@ -17,6 +17,9 @@ export const users = prodSchema.table(
     role: varchar({ enum: ['user', 'admin'] })
       .notNull()
       .default('user'),
+    // Soft-delete marker: null = active. When set, the row is a tombstone — personal
+    // data is wiped and it is hidden from the admin list. History/FK references stay intact.
+    deletedAt: timestamp('deleted_at'),
   },
   (table) => [
     // username is the human-typed identifier for bot role commands (/set_admin @x);

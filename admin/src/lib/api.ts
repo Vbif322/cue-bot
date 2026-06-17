@@ -303,6 +303,9 @@ export const usersApi = {
     apiFetch<{ ok: boolean }>(`/api/users/${userId}/referee/${tournamentId}`, {
       method: 'DELETE',
     }),
+
+  delete: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
 };
 
 // ── Tables ────────────────────────────────────────────────────────────────────

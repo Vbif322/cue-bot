@@ -2,12 +2,15 @@ import { eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { users } from '@/db/schema.js';
+import { users, loginTokens } from '@/db/schema.js';
 import type { DbUser } from '@/bot/types.js';
 import type { ApiUser } from '@/bot/@types/user.js';
 
 export const MAX_NAME_LENGTH = 50;
 export const MAX_SURNAME_LENGTH = 100;
+
+/** Отображаемое имя анонимизированного («удалённого») аккаунта. */
+export const DELETED_USERNAME = 'Удалённый аккаунт';
 
 /**
  * Allow-lists a DB row onto the admin-API shape. Explicit field selection keeps the
@@ -23,6 +26,7 @@ export function toApiUser(u: DbUser): ApiUser {
     name: u.name,
     surname: u.surname,
     role: u.role,
+    deletedAt: u.deletedAt,
   };
 }
 
@@ -87,4 +91,32 @@ export async function updateUserProfile(
   if (!updated) throw new Error('Пользователь не найден');
 
   return updated;
+}
+
+/**
+ * «Удаляет» пользователя через анонимизацию (soft-delete). Строку не удаляем —
+ * затираем персональные данные, обнуляем `telegram_id` и выставляем `deletedAt`.
+ * Все внешние ключи (матчи, турниры, история) остаются валидными и отображаются
+ * как «{@link DELETED_USERNAME}». Обнуление `telegram_id` освобождает условный
+ * уникальный индекс и делает строку «мёртвой»: повторный вход того же человека
+ * создаст новую запись. Логин-токены удаляются, чтобы оборвать активные сессии.
+ */
+export async function anonymizeUser(userId: UUID): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .update(users)
+      .set({
+        username: DELETED_USERNAME,
+        telegram_id: null,
+        name: null,
+        surname: null,
+        phone: null,
+        email: null,
+        role: 'user',
+        deletedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    await tx.delete(loginTokens).where(eq(loginTokens.userId, userId));
+  });
 }

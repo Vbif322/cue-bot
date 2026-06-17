@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usersApi, tournamentsApi } from '../lib/api.ts';
 import { useMe } from '../lib/useAuth.ts';
@@ -27,6 +27,7 @@ const card = 'bg-white rounded-xl border border-gray-200 p-5';
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: me } = useMe();
 
@@ -52,6 +53,7 @@ export default function UserDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [selectedTournament, setSelectedTournament] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
     // Keep the form synced with server data only while not actively editing,
@@ -100,6 +102,14 @@ export default function UserDetailPage() {
     mutationFn: (tournamentId: string) =>
       usersApi.removeReferee(id!, tournamentId),
     onSuccess: invalidate,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => usersApi.delete(id!),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['users'] });
+      navigate('/users');
+    },
   });
 
   if (isLoading || !user || !id) {
@@ -178,6 +188,18 @@ export default function UserDetailPage() {
               ? 'Снять права администратора'
               : 'Сделать администратором'}
           </button>
+        )}
+
+        {!isMe && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              disabled={deleteMutation.isPending}
+              className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50"
+            >
+              Удалить пользователя
+            </button>
+          </div>
         )}
       </div>
 
@@ -372,6 +394,61 @@ export default function UserDetailPage() {
           </button>
         </div>
       </div>
+
+      {/* Delete confirmation */}
+      {showDeleteModal && !isMe && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h3 className="font-semibold text-gray-900">
+                Удалить пользователя
+              </h3>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleteMutation.isPending}
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none disabled:opacity-50"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-gray-600">
+                Удалить пользователя{' '}
+                <span className="font-medium text-gray-900">
+                  {user.username}
+                </span>
+                ? Аккаунт будет анонимизирован: личные данные удалятся, а в
+                прошлых матчах и турнирах он будет отображаться как «Удалённый
+                аккаунт». История сохранится.
+              </p>
+
+              {deleteMutation.error && (
+                <p className="text-xs text-red-600">
+                  {deleteMutation.error.message}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={deleteMutation.isPending}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 disabled:opacity-50"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={() => deleteMutation.mutate()}
+                  disabled={deleteMutation.isPending}
+                  className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteMutation.isPending ? 'Удаление...' : 'Удалить'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
