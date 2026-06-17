@@ -1,4 +1,4 @@
-import { date, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
@@ -14,7 +14,6 @@ export const users = prodSchema.table(
     email: varchar({ length: 255 }),
     name: varchar({ length: 50 }),
     surname: varchar({ length: 100 }),
-    birthday: date(),
     role: varchar({ enum: ['user', 'admin'] })
       .notNull()
       .default('user'),
