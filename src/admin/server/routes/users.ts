@@ -8,6 +8,7 @@ import { db } from '@/db/db.js';
 import { users, tournamentReferees, tournaments } from '@/db/schema.js';
 import {
   ProfileValidationError,
+  toApiUser,
   updateUserProfile,
 } from '@/services/userService.js';
 import {
@@ -28,7 +29,7 @@ export function createUsersRouter() {
     const allUsers = await db.query.users.findMany({
       orderBy: (u, { asc }) => [asc(u.username)],
     });
-    return c.json({ data: allUsers });
+    return c.json({ data: allUsers.map(toApiUser) });
   });
 
   // Get single user
@@ -37,7 +38,7 @@ export function createUsersRouter() {
       where: eq(users.id, c.req.param('id') as UUID),
     });
     if (!user) return c.json({ error: 'Не найден' }, 404);
-    return c.json({ data: user });
+    return c.json({ data: toApiUser(user) });
   });
 
   // Aggregated statistics for the user detail page
@@ -90,7 +91,7 @@ export function createUsersRouter() {
       const targetId = c.req.param('id') as UUID;
       try {
         const updated = await updateUserProfile(targetId, c.req.valid('json'));
-        return c.json({ data: updated });
+        return c.json({ data: toApiUser(updated) });
       } catch (err) {
         if (err instanceof ProfileValidationError) {
           return c.json({ error: err.message }, 400);
@@ -121,7 +122,8 @@ export function createUsersRouter() {
         where: eq(users.id, targetId),
       });
 
-      return c.json({ data: updated });
+      if (!updated) return c.json({ error: 'Не найден' }, 404);
+      return c.json({ data: toApiUser(updated) });
     },
   );
 

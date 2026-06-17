@@ -4,9 +4,27 @@ import type { UUID } from 'crypto';
 import { db } from '@/db/db.js';
 import { users } from '@/db/schema.js';
 import type { DbUser } from '@/bot/types.js';
+import type { ApiUser } from '@/bot/@types/user.js';
 
 export const MAX_NAME_LENGTH = 50;
 export const MAX_SURNAME_LENGTH = 100;
+
+/**
+ * Allow-lists a DB row onto the admin-API shape. Explicit field selection keeps the
+ * exposed surface a conscious decision — a new column stays hidden until added here.
+ */
+export function toApiUser(u: DbUser): ApiUser {
+  return {
+    id: u.id,
+    telegram_id: u.telegram_id,
+    username: u.username,
+    phone: u.phone,
+    email: u.email,
+    name: u.name,
+    surname: u.surname,
+    role: u.role,
+  };
+}
 
 /** Ошибка валидации профиля — текст пригоден для показа пользователю. */
 export class ProfileValidationError extends Error {}

@@ -47,9 +47,11 @@ describe('admin users router', () => {
     expect(usernames).toContain('zoe');
     // Globally sorted ascending.
     expect([...usernames]).toEqual([...usernames].sort((a, b) => a.localeCompare(b)));
+    // Personal data must never be exposed via the API.
+    expect(body.data.every((u) => !('birthday' in u))).toBe(true);
   });
 
-  it('GET /:id returns a single user', async () => {
+  it('GET /:id returns a single user without personal data', async () => {
     const user = await createUser();
     const { status, body } = await apiRequest<{ data: UserRow }>(
       app,
@@ -59,6 +61,8 @@ describe('admin users router', () => {
     );
     expect(status).toBe(200);
     expect(body.data.id).toBe(user.id);
+    expect(body.data).toHaveProperty('username');
+    expect(body.data).not.toHaveProperty('birthday');
   });
 
   it('GET /:id returns 404 for an unknown user', async () => {
