@@ -7,6 +7,7 @@ import type { UUID } from 'crypto';
 import { db } from '@/db/db.js';
 import { users, tournamentReferees, tournaments } from '@/db/schema.js';
 import {
+  anonymizeUser,
   ProfileValidationError,
   toApiUser,
   updateUserProfile,
@@ -24,9 +25,10 @@ export function createUsersRouter() {
 
   router.use('/*', requireAdmin);
 
-  // List all users
+  // List all users (tombstoned/anonymized accounts are hidden)
   router.get('/', async (c) => {
     const allUsers = await db.query.users.findMany({
+      where: (u, { isNull }) => isNull(u.deletedAt),
       orderBy: (u, { asc }) => [asc(u.username)],
     });
     return c.json({ data: allUsers.map(toApiUser) });
@@ -126,6 +128,27 @@ export function createUsersRouter() {
       return c.json({ data: toApiUser(updated) });
     },
   );
+
+  // "Delete" user — anonymize (soft-delete). The row is kept so past matches and
+  // tournaments stay intact, displayed as «Удалённый аккаунт».
+  router.delete('/:id', async (c) => {
+    const admin = c.get('adminUser');
+    const targetId = c.req.param('id') as UUID;
+
+    if (admin.id === targetId) {
+      return c.json({ error: 'Нельзя удалить собственный аккаунт' }, 400);
+    }
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, targetId),
+    });
+
+    if (!user) return c.json({ error: 'Не найден' }, 404);
+    if (user.deletedAt) return c.json({ ok: true }); // idempotent
+
+    await anonymizeUser(targetId);
+    return c.json({ ok: true });
+  });
 
   // Assign referee to tournament
   router.post(
