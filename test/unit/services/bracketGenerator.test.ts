@@ -158,6 +158,10 @@ describe('generateSingleEliminationBracket', () => {
     if (!firstMatch) throw new Error('firstMatch expected');
     expect(firstMatch.player1Id).toBe('p1');
     expect(firstMatch.player2Id).toBeNull(); // bye
+    // The bye seat is resolved as a completed walkover (mirrors double-elim).
+    expect(firstMatch.isCompletedWalkover).toBe(true);
+    expect(firstMatch.walkoverWinnerId).toBe('p1');
+    expect(firstMatch.player2IsWalkover).toBe(true);
     // p1 should already be seeded into its round-2 match.
     const next = matches.find((m) => m.position === firstMatch.nextMatchId);
     if (!next) throw new Error('next match expected');

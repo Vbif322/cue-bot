@@ -163,13 +163,21 @@ export function generateSingleEliminationBracket(
     matchesInPrevRound = matchesInRound;
   }
 
-  // Process BYEs - auto-advance players with BYEs
+  // Process BYEs - auto-advance the real player AND resolve the seat as a
+  // completed walkover, so createMatches persists status 'completed' (mirrors
+  // the double-elim walkover resolution pass). Standard seeding guarantees a
+  // round-1 BYE always has exactly one real player, so no cascade is needed.
   for (const match of matches) {
     if (match.round === 1) {
-      // If one player is null (BYE), advance the other
       if (match.player1Id && !match.player2Id) {
+        match.player2IsWalkover = true;
+        match.isCompletedWalkover = true;
+        match.walkoverWinnerId = match.player1Id;
         advanceToNextMatch(matches, match, match.player1Id);
       } else if (!match.player1Id && match.player2Id) {
+        match.player1IsWalkover = true;
+        match.isCompletedWalkover = true;
+        match.walkoverWinnerId = match.player2Id;
         advanceToNextMatch(matches, match, match.player2Id);
       }
     }

@@ -52,13 +52,15 @@ describe('full tournament run-throughs', () => {
       const r1 = (await getTournamentMatches(tournament.id)).filter(
         (m) => m.round === 1,
       );
-      // Bye matches stay scheduled with exactly one player (S4-2 phantom byes).
+      // Bye matches are auto-completed as walkovers (S4-2 fixed); the real player wins.
       const byeMatches = r1.filter(
         (m) => (m.player1Id === null) !== (m.player2Id === null), // exactly one set
       );
       expect(byeMatches.length).toBeGreaterThan(0);
       for (const bye of byeMatches) {
-        expect(bye.status).toBe('scheduled');
+        expect(bye.status).toBe('completed');
+        expect(bye.winnerId).not.toBeNull();
+        expect(bye.technicalReason).toBe('walkover');
       }
 
       await playAllReady(tournament.id, 'single_elimination');
