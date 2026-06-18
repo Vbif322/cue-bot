@@ -63,6 +63,11 @@ export interface ITournamentCreationFlow {
 
   handleFormatSelection(ctx: BotContext, format: string): Promise<boolean>;
 
+  handleRandomModeSelection(
+    ctx: BotContext,
+    randomAdvancement: boolean,
+  ): Promise<boolean>;
+
   handleMaxParticipantsSelection(
     ctx: BotContext,
     maxParticipants: number,
@@ -483,8 +488,37 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
+    // Random pairing is only meaningful for elimination brackets. Round-robin
+    // skips the random-mode step entirely and pins the flag to false.
+    if (format === 'round_robin') {
+      const state = this.stateStore.update(userId, {
+        step: 'maxParticipants',
+        data: {
+          tournament: {
+            format,
+            randomAdvancement: false,
+          },
+        },
+      });
+
+      if (
+        state.step !== 'maxParticipants' ||
+        state.data.tournament?.format !== format
+      ) {
+        await this.renderer.showSavedStateError(ctx);
+
+        return false;
+      }
+
+      await ctx.answerCallbackQuery();
+
+      await this.renderer.showMaxParticipantsStep(ctx, format);
+
+      return true;
+    }
+
     const state = this.stateStore.update(userId, {
-      step: 'maxParticipants',
+      step: 'randomMode',
       data: {
         tournament: {
           format,
@@ -493,7 +527,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     });
 
     if (
-      state.step !== 'maxParticipants' ||
+      state.step !== 'randomMode' ||
       state.data.tournament?.format !== format
     ) {
       await this.renderer.showSavedStateError(ctx);
@@ -503,7 +537,59 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     await ctx.answerCallbackQuery();
 
-    await this.renderer.showMaxParticipantsStep(ctx, format);
+    await this.renderer.showRandomModeStep(ctx, format);
+
+    return true;
+  }
+
+  /**
+   * Обрабатывает выбор режима случайных пар (рандом) пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {boolean} randomAdvancement Включён ли режим случайных пар
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleRandomModeSelection(
+    ctx: BotContext,
+    randomAdvancement: boolean,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'randomMode',
+    );
+
+    if (!hasStep) return false;
+
+    const state = this.stateStore.update(userId, {
+      step: 'maxParticipants',
+      data: {
+        tournament: {
+          randomAdvancement,
+        },
+      },
+    });
+
+    if (
+      state.step !== 'maxParticipants' ||
+      state.data.tournament?.randomAdvancement !== randomAdvancement ||
+      state.data.tournament.format === undefined
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showMaxParticipantsStep(
+      ctx,
+      state.data.tournament.format,
+      randomAdvancement,
+    );
 
     return true;
   }
@@ -770,6 +856,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
         name: state.data.tournament.name,
         discipline: state.data.tournament.discipline,
         format: state.data.tournament.format,
+        randomAdvancement: state.data.tournament.randomAdvancement,
         visibility: state.data.tournament.visibility,
         scheduleMode: state.data.tournament.scheduleMode,
         maxParticipants: state.data.tournament.maxParticipants,
@@ -854,6 +941,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       data.tournament.scheduleMode !== undefined &&
       data.tournament.discipline !== undefined &&
       data.tournament.format !== undefined &&
+      data.tournament.randomAdvancement !== undefined &&
       data.tournament.maxParticipants !== undefined &&
       data.tournament.winScore !== undefined;
 

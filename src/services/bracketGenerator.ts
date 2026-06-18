@@ -81,6 +81,7 @@ export function generateSeedPositions(bracketSize: number): number[] {
  */
 export function generateSingleEliminationBracket(
   participants: TournamentParticipant[],
+  options?: { randomAdvancement?: boolean },
 ): BracketMatch[] {
   const bracketSize = getNextPowerOfTwo(participants.length);
   const totalRounds = calculateRounds(bracketSize);
@@ -171,6 +172,16 @@ export function generateSingleEliminationBracket(
       } else if (!match.player1Id && match.player2Id) {
         advanceToNextMatch(matches, match, match.player2Id);
       }
+    }
+  }
+
+  // Random mode: drop deterministic routing so winners are placed into random
+  // free slots of the next round at runtime. BYE winners are already seeded into
+  // round 2 above; the remaining slots fill randomly, yielding random pairings.
+  if (options?.randomAdvancement) {
+    for (const m of matches) {
+      delete m.nextMatchId;
+      delete m.nextMatchPosition;
     }
   }
 
@@ -483,6 +494,7 @@ function markLoserSlotAsWalkover(
 export function generateBracket(
   format: Tournament['format'],
   participants: TournamentParticipant[],
+  randomAdvancement = false,
 ): BracketMatch[] {
   if (participants.length < 2) {
     throw new Error('Минимум 2 участника для создания сетки');
@@ -490,12 +502,12 @@ export function generateBracket(
 
   switch (format) {
     case 'single_elimination':
-      return generateSingleEliminationBracket(participants);
+      return generateSingleEliminationBracket(participants, {
+        randomAdvancement,
+      });
     case 'double_elimination':
-      return generateDoubleEliminationBracket(participants);
-    case 'double_elimination_random':
       return generateDoubleEliminationBracket(participants, {
-        randomAdvancement: true,
+        randomAdvancement,
       });
     case 'round_robin':
       return generateRoundRobinMatches(participants);
@@ -561,11 +573,7 @@ export function generateRoundRobinMatches(
  * Get bracket statistics
  */
 export function getBracketStats(
-  format:
-    | 'single_elimination'
-    | 'double_elimination'
-    | 'double_elimination_random'
-    | 'round_robin',
+  format: 'single_elimination' | 'double_elimination' | 'round_robin',
   participantsCount: number,
 ): { totalMatches: number; totalRounds: number } {
   const bracketSize = getNextPowerOfTwo(participantsCount);
@@ -577,7 +585,6 @@ export function getBracketStats(
         totalRounds: calculateRounds(bracketSize),
       };
     case 'double_elimination':
-    case 'double_elimination_random':
       return {
         totalMatches: 27,
         totalRounds: 5,
@@ -607,10 +614,7 @@ export function getRoundName(
     return `Тур ${String(round)}`;
   }
 
-  if (
-    format === 'double_elimination' ||
-    format === 'double_elimination_random'
-  ) {
+  if (format === 'double_elimination') {
     if (bracketType === 'losers') {
       if (round === 1) return 'Нижняя сетка, раунд 1';
       if (round === 2) return 'Нижняя сетка, раунд 2';

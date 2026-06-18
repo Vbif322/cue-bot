@@ -181,6 +181,32 @@ describe('generateSingleEliminationBracket', () => {
       16,
     );
   });
+
+  it('clears deterministic pointers in random-advancement mode', () => {
+    const matches = generateSingleEliminationBracket(makeParticipants(8), {
+      randomAdvancement: true,
+    });
+    // Same bracket size/rounds as the deterministic variant, just unrouted.
+    expect(matches).toHaveLength(7);
+    expect(matches.filter((m) => m.round === 1)).toHaveLength(4);
+    for (const m of matches) {
+      expect(m.nextMatchId).toBeUndefined();
+      expect(m.nextMatchPosition).toBeUndefined();
+      expect(m.bracketType).toBe('winners');
+    }
+  });
+
+  it('still seeds BYE winners into round 2 in random-advancement mode', () => {
+    // 5 players in an 8-slot bracket => p1 gets a bye and must already sit in R2.
+    const matches = generateSingleEliminationBracket(makeParticipants(5), {
+      randomAdvancement: true,
+    });
+    const round2 = matches.filter((m) => m.round === 2);
+    const seeded = round2.some(
+      (m) => m.player1Id === 'p1' || m.player2Id === 'p1',
+    );
+    expect(seeded).toBe(true);
+  });
 });
 
 describe('generateDoubleEliminationBracket', () => {
@@ -275,6 +301,14 @@ describe('generateBracket (dispatcher)', () => {
   it('dispatches to the round-robin generator', () => {
     const matches = generateBracket('round_robin', makeParticipants(4));
     expect(matches).toHaveLength(6);
+  });
+
+  it('threads randomAdvancement into single elimination (pointers cleared)', () => {
+    const matches = generateBracket('single_elimination', makeParticipants(8), true);
+    expect(matches).toHaveLength(7);
+    for (const m of matches) {
+      expect(m.nextMatchId).toBeUndefined();
+    }
   });
 
   it('throws on an unknown format', () => {

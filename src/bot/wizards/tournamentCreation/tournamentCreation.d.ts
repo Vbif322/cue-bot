@@ -20,6 +20,7 @@ export interface ICreationData {
       | 'scheduleMode'
       | 'discipline'
       | 'format'
+      | 'randomAdvancement'
       | 'maxParticipants'
       | 'winScore'
     >
@@ -39,6 +40,7 @@ export interface IRequiredCreationData extends Required<ICreationData> {
       | 'scheduleMode'
       | 'discipline'
       | 'format'
+      | 'randomAdvancement'
       | 'maxParticipants'
       | 'winScore'
     >

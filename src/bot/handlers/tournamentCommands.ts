@@ -485,13 +485,7 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
     return;
   }
 
-  const stats = getBracketStats(
-    tournament.format as
-      | 'single_elimination'
-      | 'double_elimination'
-      | 'round_robin',
-    result.participantsCount,
-  );
+  const stats = getBracketStats(tournament.format, result.participantsCount);
 
   const keyboard = new InlineKeyboard()
     .text(
@@ -616,6 +610,12 @@ tournamentCommands.callbackQuery(/^tc:format:(.+)$/, async (ctx) => {
   const val = ctx.match[1];
   if (!val) return;
   await tournamentCreationFlow.handleFormatSelection(ctx, val);
+});
+
+tournamentCommands.callbackQuery(/^tc:random:(true|false)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleRandomModeSelection(ctx, val === 'true');
 });
 
 tournamentCommands.callbackQuery(/^tc:participants:(\d+)$/, async (ctx) => {

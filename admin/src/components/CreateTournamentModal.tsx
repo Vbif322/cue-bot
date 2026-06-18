@@ -41,6 +41,7 @@ function TournamentFormModal({
     description: tournament?.description ?? '',
     rules: tournament?.rules ?? '',
     format: (tournament?.format ?? 'single_elimination') as ITournamentFormat,
+    randomAdvancement: tournament?.randomAdvancement ?? false,
     visibility: (tournament?.visibility ?? 'public') as TournamentVisibility,
     scheduleMode: (tournament?.scheduleMode ??
       'single_day') as TournamentScheduleMode,
@@ -204,12 +205,16 @@ function TournamentFormModal({
             </label>
             <select
               value={form.format}
-              onChange={(e) =>
+              onChange={(e) => {
+                const format = e.target.value as typeof form.format;
                 setForm({
                   ...form,
-                  format: e.target.value as typeof form.format,
-                })
-              }
+                  format,
+                  // Random pairing is meaningless for round-robin.
+                  randomAdvancement:
+                    format === 'round_robin' ? false : form.randomAdvancement,
+                });
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {formats.map((f) => (
@@ -219,6 +224,22 @@ function TournamentFormModal({
               ))}
             </select>
           </div>
+
+          {form.format !== 'round_robin' && (
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={form.randomAdvancement}
+                  onChange={(e) =>
+                    setForm({ ...form, randomAdvancement: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Случайные пары после каждого раунда
+              </label>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

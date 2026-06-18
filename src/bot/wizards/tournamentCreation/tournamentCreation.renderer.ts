@@ -39,9 +39,14 @@ export interface ITournamentCreationRenderer {
     ctx: BotContext,
     discipline: Tournament['discipline'],
   ): Promise<void>; // Step 7
+  showRandomModeStep(
+    ctx: BotContext,
+    format: Tournament['format'],
+  ): Promise<void>; // unnumbered (elimination only)
   showMaxParticipantsStep(
     ctx: BotContext,
     format: Tournament['format'],
+    randomAdvancement?: boolean,
   ): Promise<void>; // Step 8
   showWinScoreStep(
     ctx: BotContext,
@@ -228,9 +233,27 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
+  async showRandomModeStep(
+    ctx: BotContext,
+    format: Tournament['format'],
+  ): Promise<void> {
+    const resultMessageRandom = `Установленный формат: ${formatFormat(format)}`;
+
+    await safeEditMessageText(ctx, {
+      text: resultMessageRandom,
+    });
+
+    const promptMessage = 'Случайные пары после каждого раунда?';
+
+    await ctx.reply(promptMessage, {
+      reply_markup: this.keyboards.buildRandomModeKeyboard(),
+    });
+  }
+
   async showMaxParticipantsStep(
     ctx: BotContext,
     format: Tournament['format'],
+    randomAdvancement?: boolean,
   ): Promise<void> {
     const resultMessage = `
     Установленный формат: ${formatFormat(format)}
@@ -239,6 +262,14 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     await safeEditMessageText(ctx, {
       text: resultMessage,
     });
+
+    // Elimination path arrives here from the random-mode step: re-confirm the
+    // random choice instead of the (already-confirmed) format.
+    if (randomAdvancement !== undefined) {
+      await safeEditMessageText(ctx, {
+        text: `Случайные пары: ${randomAdvancement ? 'Да' : 'Нет'}`,
+      });
+    }
 
     const message = `
     Шаг 8 / ${String(STEPS_COUNT)}
@@ -436,6 +467,8 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     const formattedFormat = formatFormat(tournament.format);
 
+    const formattedRandom = tournament.randomAdvancement ? 'Да' : 'Нет';
+
     const formattedVisibility = formatVisibility(tournament.visibility);
 
     const formattedScheduleMode = formatScheduleMode(tournament.scheduleMode);
@@ -451,6 +484,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     - Площадка: ${venue.name}
     - Дисциплина: ${formattedDiscipline}
     - Формат: ${formattedFormat}
+    - Случайные пары: ${formattedRandom}
     - Участников: ${String(tournament.maxParticipants)}
     - Количество необходимых побед: ${String(tournament.winScore)}
     - Количество выбранных столов: ${String(tables.length)}

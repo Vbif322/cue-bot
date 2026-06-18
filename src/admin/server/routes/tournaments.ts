@@ -81,6 +81,7 @@ export function createTournamentsRouter(botApi: Api) {
         description: z.string().optional(),
         rules: z.string().optional(),
         format: z.enum(formats),
+        randomAdvancement: z.boolean().default(false),
         visibility: z.enum(visibilities).default('public'),
         scheduleMode: z.enum(scheduleModes).default('single_day'),
         maxParticipants: z
@@ -111,6 +112,7 @@ export function createTournamentsRouter(botApi: Api) {
           rules: body.rules ?? null,
           discipline: 'snooker',
           format: body.format,
+          randomAdvancement: body.randomAdvancement,
           visibility: body.visibility,
           scheduleMode: body.scheduleMode,
           maxParticipants: body.maxParticipants as ITournamentMaxParticipants,
@@ -145,6 +147,7 @@ export function createTournamentsRouter(botApi: Api) {
         description: z.string().optional(),
         rules: z.string().optional(),
         format: z.enum(formats),
+        randomAdvancement: z.boolean().default(false),
         visibility: z.enum(visibilities).default('public'),
         scheduleMode: z.enum(scheduleModes).default('single_day'),
         maxParticipants: z
@@ -184,6 +187,7 @@ export function createTournamentsRouter(botApi: Api) {
           description: body.description ?? null,
           rules: body.rules ?? null,
           format: body.format,
+          randomAdvancement: body.randomAdvancement,
           visibility: body.visibility,
           scheduleMode: body.scheduleMode,
           maxParticipants: body.maxParticipants as ITournamentMaxParticipants,

@@ -51,6 +51,7 @@ export interface CreateTournamentDraftInput {
   description?: string | null;
   discipline: ITournamentDiscipline;
   format: ITournamentFormat;
+  randomAdvancement?: boolean;
   visibility?: ITournamentVisibility;
   scheduleMode?: ITournamentScheduleMode;
   startDate?: Date | null;
@@ -68,6 +69,7 @@ export interface UpdateTournamentDraftInput {
   name: string;
   description?: string | null;
   format: ITournamentFormat;
+  randomAdvancement?: boolean;
   visibility?: ITournamentVisibility;
   scheduleMode?: ITournamentScheduleMode;
   startDate?: Date | null;
@@ -231,10 +233,7 @@ export async function startTournament(tournamentId: UUID): Promise<void> {
   }
 
   // Validate double elimination requires exactly 16 participants
-  if (
-    tournament.format === 'double_elimination' ||
-    tournament.format === 'double_elimination_random'
-  ) {
+  if (tournament.format === 'double_elimination') {
     const participants = await getConfirmedParticipants(tournamentId);
     if (participants.length < 8) {
       throw new Error(
@@ -288,6 +287,7 @@ export async function createTournamentDraft(
         description: input.description ?? null,
         discipline: input.discipline,
         format: input.format,
+        randomAdvancement: input.randomAdvancement ?? false,
         visibility: input.visibility ?? 'public',
         scheduleMode: input.scheduleMode ?? 'single_day',
         status: 'draft',
@@ -388,6 +388,7 @@ export async function updateTournamentDraft(
         name: input.name,
         description: input.description ?? null,
         format: input.format,
+        randomAdvancement: input.randomAdvancement ?? false,
         visibility: input.visibility ?? 'public',
         scheduleMode: input.scheduleMode ?? 'single_day',
         startDate: input.startDate ?? null,

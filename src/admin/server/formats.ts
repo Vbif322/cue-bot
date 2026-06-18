@@ -5,7 +5,6 @@
 export const formats = [
   'single_elimination',
   'double_elimination',
-  'double_elimination_random',
   'round_robin',
 ] as const;
 
