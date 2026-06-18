@@ -22,6 +22,7 @@ import {
 import { getTournament } from '@/services/tournamentService.js';
 import {
   notifyMatchScheduled,
+  notifyMatchStart,
   notifyResultPending,
 } from '@/services/notificationService.js';
 
@@ -55,8 +56,22 @@ export function createMatchesRouter(botApi: Api) {
 
   // Start a match
   router.post('/:id/start', async (c) => {
-    const result = await startMatch(c.req.param('id') as UUID);
+    const id = c.req.param('id') as UUID;
+    const result = await startMatch(id);
     if (!result.success) return c.json({ error: result.error }, 400);
+
+    try {
+      const matchWithPlayers = await getMatch(id);
+      const tournament = matchWithPlayers
+        ? await getTournament(matchWithPlayers.tournamentId)
+        : null;
+      if (matchWithPlayers && tournament) {
+        await notifyMatchStart(botApi, matchWithPlayers, tournament.name, '');
+      }
+    } catch (err) {
+      console.error(`Failed to notify match start for ${id}:`, err);
+    }
+
     return c.json({ data: result.match });
   });
 
