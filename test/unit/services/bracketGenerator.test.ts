@@ -1,3 +1,5 @@
+import type { UUID } from 'crypto';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -207,7 +209,7 @@ describe('generateSingleEliminationBracket', () => {
     });
     const round2 = matches.filter((m) => m.round === 2);
     const seeded = round2.some(
-      (m) => m.player1Id === 'p1' || m.player2Id === 'p1',
+      (m) => m.player1Id === ('p1' as UUID) || m.player2Id === ('p1' as UUID),
     );
     expect(seeded).toBe(true);
   });

@@ -1,3 +1,5 @@
+import type { UUID } from 'crypto';
+
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getTournamentMatches } from '@/services/matchService.js';
@@ -72,7 +74,7 @@ describe('single elimination with randomAdvancement', () => {
     expect(round2).toHaveLength(2);
     // All four winners are now distributed across round 2's four slots.
     const placed = round2.flatMap((m) =>
-      [m.player1Id, m.player2Id].filter((id): id is string => id !== null),
+      [m.player1Id, m.player2Id].filter((id): id is UUID => id !== null),
     );
     expect(placed.sort()).toEqual([...winners].sort());
   });
