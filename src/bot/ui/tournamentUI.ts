@@ -5,7 +5,7 @@ import type { UUID } from 'crypto';
 
 import {
   DISCIPLINE_LABELS,
-  formatFormat,
+  formatFormatWithMode,
   STATUS_LABELS,
 } from '@/utils/constants.js';
 import { db } from '@/db/db.js';
@@ -21,6 +21,7 @@ export interface TournamentInfo {
   name: string;
   discipline: string;
   format: string;
+  randomAdvancement: boolean;
   status: string;
   visibility: string;
   venueName: string | null;
@@ -94,6 +95,7 @@ export async function getTournamentInfo(
     name: string;
     discipline: string;
     format: string;
+    randomAdvancement: boolean;
     status: string;
     visibility: string;
     venueName: string | null;
@@ -132,7 +134,7 @@ export function buildTournamentMessage(
     (info.visibility === 'private' ? '🔒 Закрытый турнир\n' : '') +
     `Площадка: ${info.venueName ?? 'Не указана'}\n` +
     `Дисциплина: ${DISCIPLINE_LABELS[info.discipline] ?? info.discipline}\n` +
-    `Формат: ${formatFormat(info.format)}\n` +
+    `Формат: ${formatFormatWithMode(info.format, info.randomAdvancement)}\n` +
     `Статус: ${STATUS_LABELS[info.status] ?? info.status}\n` +
     `Участников: ${String(info.participantsCount)}/${String(info.maxParticipants)}\n` +
     `Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +

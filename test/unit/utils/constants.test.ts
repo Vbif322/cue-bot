@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatDiscipline,
   formatFormat,
+  formatFormatWithMode,
   formatScheduleMode,
   formatStatus,
   formatVisibility,
@@ -16,10 +17,17 @@ describe('constants formatters', () => {
 
   it('formatFormat maps known formats and falls back to input', () => {
     expect(formatFormat('single_elimination')).toBe('Олимпийская система');
-    expect(formatFormat('double_elimination_random')).toBe(
-      'Двойная элиминация (рандом)',
-    );
+    expect(formatFormat('double_elimination')).toBe('Двойная элиминация');
     expect(formatFormat('mystery')).toBe('mystery');
+  });
+
+  it('formatFormatWithMode appends "(рандом)" only when random is enabled', () => {
+    expect(formatFormatWithMode('single_elimination', false)).toBe(
+      'Олимпийская система',
+    );
+    expect(formatFormatWithMode('single_elimination', true)).toBe(
+      'Олимпийская система (рандом)',
+    );
   });
 
   it('formatStatus maps known statuses and falls back to input', () => {

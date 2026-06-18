@@ -10,7 +10,6 @@ import type { ITournamentFormat } from '@/admin/server/formats.js';
 export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Олимпийская система',
   double_elimination: 'Двойная элиминация',
-  double_elimination_random: 'Двойная элиминация (рандом)',
   round_robin: 'Круговая система',
 };
 
@@ -39,6 +38,18 @@ export function formatDiscipline(discipline: string): string {
 
 export function formatFormat(format: string): string {
   return (FORMAT_LABELS as Record<string, string>)[format] ?? format;
+}
+
+/**
+ * Format label with an optional "(рандом)" suffix when random pairing after each
+ * round is enabled. `randomAdvancement` is orthogonal to the bracket format.
+ */
+export function formatFormatWithMode(
+  format: string,
+  randomAdvancement: boolean,
+): string {
+  const label = formatFormat(format);
+  return randomAdvancement ? `${label} (рандом)` : label;
 }
 
 export function formatStatus(status: string): string {

@@ -28,6 +28,7 @@ export interface ITournamentCreationKeyboards {
   buildScheduleModeKeyboard(): InlineKeyboard;
   buildDisciplineKeyboard(): InlineKeyboard;
   buildFormatKeyboard(): InlineKeyboard;
+  buildRandomModeKeyboard(): InlineKeyboard;
   buildParticipantsKeyboard(): InlineKeyboard;
   buildWinScoreKeyboard(): InlineKeyboard;
   buildTablesKeyboard(
@@ -126,6 +127,17 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     }
 
     return keyboard;
+  }
+
+  /**
+   * Создает клавиатуру для выбора режима случайных пар (рандом)
+   *
+   * @returns {InlineKeyboard} Клавиатура с кнопками "Да"/"Нет" и коллбеком 'tc:random:<true|false>'
+   */
+  buildRandomModeKeyboard(): InlineKeyboard {
+    return new InlineKeyboard()
+      .text('Да', 'tc:random:true')
+      .text('Нет', 'tc:random:false');
   }
 
   /**

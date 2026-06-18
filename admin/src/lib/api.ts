@@ -85,6 +85,7 @@ export const tournamentsApi = {
     description?: string;
     rules?: string;
     format: ITournamentFormat;
+    randomAdvancement?: boolean;
     visibility?: TournamentVisibility;
     scheduleMode?: TournamentScheduleMode;
     maxParticipants?: number;
@@ -105,6 +106,7 @@ export const tournamentsApi = {
       description?: string;
       rules?: string;
       format: ITournamentFormat;
+      randomAdvancement?: boolean;
       visibility?: TournamentVisibility;
       scheduleMode?: TournamentScheduleMode;
       maxParticipants?: number;

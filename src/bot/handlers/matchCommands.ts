@@ -978,8 +978,7 @@ async function showBracket(
 
   const bracketSize = getNextPowerOfTwo(playerIds.size);
   const totalRounds =
-    tournament.format === 'double_elimination' ||
-    tournament.format === 'double_elimination_random'
+    tournament.format === 'double_elimination'
       ? 5
       : calculateRounds(bracketSize);
 
@@ -1005,10 +1004,7 @@ async function showBracket(
 
   const keyboard = new InlineKeyboard();
 
-  if (
-    tournament.format === 'double_elimination' ||
-    tournament.format === 'double_elimination_random'
-  ) {
+  if (tournament.format === 'double_elimination') {
     // Split matches by bracket type
     const winnersMatches = allMatches.filter(
       (m) => m.bracketType === 'winners',

@@ -111,8 +111,13 @@ export async function createMatchesForTournament(
   tournamentId: UUID,
   format: ITournamentFormat,
 ) {
+  const tournament = await getTournament(tournamentId);
   const participants = await getConfirmedParticipantsBySeed(tournamentId);
-  const bracket = generateBracket(format, participants);
+  const bracket = generateBracket(
+    format,
+    participants,
+    tournament?.randomAdvancement ?? false,
+  );
   await createMatches(tournamentId, bracket);
   await startTournament(tournamentId);
   return getTournamentMatches(tournamentId);

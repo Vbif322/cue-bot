@@ -1,4 +1,11 @@
-import { integer, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  integer,
+  text,
+  timestamp,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
 import type { UUID } from 'crypto';
 
 import { createdAt, prodSchema, updatedAt } from '../schemaHelpers.js';
@@ -60,6 +67,7 @@ export const tournaments = prodSchema.table('tournaments', {
     .$type<ITournamentDiscipline>()
     .notNull(),
   format: varchar({ enum: formats }).$type<ITournamentFormat>().notNull(),
+  randomAdvancement: boolean('random_advancement').notNull().default(false),
   status: varchar({ enum: statuses })
     .$type<ITournamentStatus>()
     .notNull()

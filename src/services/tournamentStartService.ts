@@ -50,7 +50,11 @@ export async function startTournamentFull(
   }
 
   // 3. Generate bracket
-  const bracket = generateBracket(tournament.format, participants);
+  const bracket = generateBracket(
+    tournament.format,
+    participants,
+    tournament.randomAdvancement,
+  );
 
   // 4. Create matches in database
   await createMatches(tournamentId, bracket);

@@ -10,7 +10,6 @@ import type {
 export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elimination',
   double_elimination: 'Double Elimination',
-  double_elimination_random: 'Double Elimination (random)',
   round_robin: 'Round Robin',
 };
 
@@ -18,9 +17,20 @@ export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
 export const FORMAT_LABELS_SHORT: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elim.',
   double_elimination: 'Double Elim.',
-  double_elimination_random: 'Double Elim. (random)',
   round_robin: 'Round Robin',
 };
+
+/**
+ * Format label with a "(random)" suffix when random pairing after each round is
+ * enabled. `randomAdvancement` is orthogonal to the bracket format.
+ */
+export function formatLabelWithMode(
+  format: ITournamentFormat,
+  randomAdvancement: boolean,
+): string {
+  const label = FORMAT_LABELS[format];
+  return randomAdvancement ? `${label} (random)` : label;
+}
 
 export const VISIBILITY_LABELS: Record<TournamentVisibility, string> = {
   public: 'Открытый',

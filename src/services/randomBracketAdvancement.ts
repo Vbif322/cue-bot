@@ -11,7 +11,7 @@ export interface Pool { bracketType: 'winners' | 'losers'; round: number }
  * matches the player should be placed into. Returns null when there is no
  * advancement (eliminated, or champion).
  *
- * Single source of truth for double_elimination_random transitions.
+ * Single source of truth for double-elimination random-advancement transitions.
  */
 export function getRandomTargetPool(
   match: { bracketType: string | null; round: number },

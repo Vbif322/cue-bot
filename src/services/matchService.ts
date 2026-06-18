@@ -11,6 +11,7 @@ import {
   users,
   tables,
   tournamentTables,
+  type ITournamentFormat,
 } from '@/db/schema.js';
 import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
 
@@ -631,8 +632,8 @@ export async function advanceWinner(
   const loserId =
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
-  if (tournament.format === 'double_elimination_random') {
-    await advanceWinnerRandom(match, loserId, botApi);
+  if (tournament.randomAdvancement) {
+    await advanceWinnerRandom(match, loserId, tournament.format, botApi);
     return;
   }
 
@@ -701,16 +702,22 @@ export async function advanceWinner(
 }
 
 /**
- * Random-mode advancement: place winner (and, for winners-bracket matches,
- * the loser too) into a random free slot of the corresponding next-round pool.
- * Used only for tournaments with format === 'double_elimination_random'.
+ * Random-mode advancement: place winner (and, for double-elim winners-bracket
+ * matches, the loser too) into a random free slot of the corresponding
+ * next-round pool. Used for tournaments with `randomAdvancement = true`.
  */
 async function advanceWinnerRandom(
   match: Match,
   loserId: UUID | null,
+  format: ITournamentFormat,
   botApi?: Api,
 ): Promise<void> {
   if (!match.winnerId) return;
+
+  if (format === 'single_elimination') {
+    await advanceWinnerRandomSingleElim(match, botApi);
+    return;
+  }
 
   const winnerPool = getRandomTargetPool(match, true);
 
@@ -750,6 +757,51 @@ async function advanceWinnerRandom(
       );
     }
   }
+
+  if (match.tableId && botApi) {
+    await onTableFreed(match.tournamentId, match.tableId, botApi);
+  }
+}
+
+/**
+ * Random-mode advancement for single elimination: place the winner into a
+ * random free slot of the next round (all matches are `winners`). The loser is
+ * simply eliminated. When the next round has no matches, the tournament is over.
+ */
+async function advanceWinnerRandomSingleElim(
+  match: Match,
+  botApi?: Api,
+): Promise<void> {
+  if (!match.winnerId) return;
+
+  const nextRound = match.round + 1;
+  const nextRoundMatches = await db.query.matches.findMany({
+    where: and(
+      eq(matches.tournamentId, match.tournamentId),
+      eq(matches.bracketType, 'winners'),
+      eq(matches.round, nextRound),
+    ),
+  });
+
+  if (nextRoundMatches.length === 0) {
+    await completeTournament(match.tournamentId);
+    if (match.tableId && botApi) {
+      await onTableFreed(match.tournamentId, match.tableId, botApi);
+    }
+    return;
+  }
+
+  const placed = await placeIntoRandomFreeSlot(
+    match.tournamentId,
+    { bracketType: 'winners', round: nextRound },
+    match.winnerId,
+  );
+  await maybeAutoResolveWalkover(
+    placed.matchId,
+    placed.slot,
+    match.winnerId,
+    botApi,
+  );
 
   if (match.tableId && botApi) {
     await onTableFreed(match.tournamentId, match.tableId, botApi);
@@ -863,16 +915,18 @@ export async function checkTournamentCompletion(
   const completedMatches = allMatches.filter((m) => m.status === 'completed');
 
   if (tournament.format === 'single_elimination') {
-    const finalMatch = allMatches.find(
-      (m) => !m.nextMatchId && m.bracketType === 'winners',
+    // The final is the single highest-round winners match. Detecting it by the
+    // absence of `nextMatchId` breaks under random advancement (pointers are
+    // stripped from every match), so key off the max round instead.
+    const winnersMatches = allMatches.filter(
+      (m) => m.bracketType === 'winners',
     );
+    const maxRound = winnersMatches.reduce((max, m) => Math.max(max, m.round), 0);
+    const finalMatch = winnersMatches.find((m) => m.round === maxRound);
     return finalMatch?.status === 'completed';
   }
 
-  if (
-    tournament.format === 'double_elimination' ||
-    tournament.format === 'double_elimination_random'
-  ) {
+  if (tournament.format === 'double_elimination') {
     const grandFinal = allMatches.find((m) => m.bracketType === 'grand_final');
     return grandFinal?.status === 'completed';
   }
@@ -1015,7 +1069,7 @@ async function findPlayerSlotInPool(
 async function walkDownstream(
   exec: Executor,
   match: Match,
-  tournament: { format: string },
+  tournament: { format: ITournamentFormat; randomAdvancement: boolean },
   visit: DownstreamVisitor,
 ): Promise<void> {
   if (!match.winnerId) return;
@@ -1029,8 +1083,14 @@ async function walkDownstream(
     player: UUID;
   }[] = [];
 
-  if (tournament.format === 'double_elimination_random') {
-    const winnerPool = getRandomTargetPool(match, true);
+  if (tournament.randomAdvancement) {
+    // Single elimination supports up to 128 players, so the round-capped
+    // getRandomTargetPool (16-player double-elim layout) must not be used for it;
+    // the winner simply advances to the next winners round.
+    const winnerPool =
+      tournament.format === 'single_elimination'
+        ? { bracketType: 'winners' as const, round: match.round + 1 }
+        : getRandomTargetPool(match, true);
     if (winnerPool) {
       const found = await findPlayerSlotInPool(
         exec,
@@ -1046,7 +1106,11 @@ async function walkDownstream(
         });
       }
     }
-    if (match.bracketType === 'winners' && loserId) {
+    if (
+      tournament.format === 'double_elimination' &&
+      match.bracketType === 'winners' &&
+      loserId
+    ) {
       const loserPool = getRandomTargetPool(match, false);
       if (loserPool) {
         const found = await findPlayerSlotInPool(
@@ -1214,8 +1278,7 @@ export async function previewCorrection(
     valid: true,
     winnerChanged,
     affectedCount,
-    willReshuffle:
-      tournament.format === 'double_elimination_random' && winnerChanged,
+    willReshuffle: tournament.randomAdvancement && winnerChanged,
     tournamentWillReopen:
       winnerChanged &&
       tournament.status === 'completed' &&
