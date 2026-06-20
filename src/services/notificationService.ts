@@ -12,7 +12,11 @@ import {
 } from '@/db/schema.js';
 import type { INotification } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
-import { formatPlayerName, getResultConfirmKeyboard } from '@/bot/ui/matchUI.js';
+import {
+  formatPlayerName,
+  getResultConfirmKeyboard,
+  getMatchNotificationKeyboard,
+} from '@/bot/ui/matchUI.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 
@@ -138,34 +142,38 @@ export async function notifyMatchAssigned(
     telegramId: match.player2TelegramId,
   });
 
+  const keyboard = getMatchNotificationKeyboard(match, { action: 'start' });
+
   // Notify player 1
   if (match.player1Id) {
-    await createAndSendNotification(api, {
-      userId: match.player1Id,
-      type: 'bracket_formed',
-      title: 'Назначен матч',
-      message:
-        `Турнир: ${tournamentName}\n` +
-        `Ваш соперник: ${player2Name}\n\n` +
-        `Используйте /my\\_matches для просмотра деталей.`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
+    await createAndSendNotification(
+      api,
+      {
+        userId: match.player1Id,
+        type: 'bracket_formed',
+        title: 'Назначен матч',
+        message: `Турнир: ${tournamentName}\n` + `Ваш соперник: ${player2Name}`,
+        tournamentId: match.tournamentId,
+        matchId: match.id,
+      },
+      keyboard,
+    );
   }
 
   // Notify player 2
   if (match.player2Id) {
-    await createAndSendNotification(api, {
-      userId: match.player2Id,
-      type: 'bracket_formed',
-      title: 'Назначен матч',
-      message:
-        `Турнир: ${tournamentName}\n` +
-        `Ваш соперник: ${player1Name}\n\n` +
-        `Используйте /my\\_matches для просмотра деталей.`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
+    await createAndSendNotification(
+      api,
+      {
+        userId: match.player2Id,
+        type: 'bracket_formed',
+        title: 'Назначен матч',
+        message: `Турнир: ${tournamentName}\n` + `Ваш соперник: ${player1Name}`,
+        tournamentId: match.tournamentId,
+        matchId: match.id,
+      },
+      keyboard,
+    );
   }
 }
 
@@ -195,34 +203,42 @@ export async function notifyMatchScheduled(
     telegramId: match.player2TelegramId,
   });
 
+  const keyboard = getMatchNotificationKeyboard(match);
+
   if (match.player1Id) {
-    await createAndSendNotification(api, {
-      userId: match.player1Id,
-      type: 'match_reminder',
-      title: 'Матч назначен',
-      message:
-        `Турнир: ${safeName}\n` +
-        `Соперник: ${player2Name}\n` +
-        `Дата и время: ${when}\n\n` +
-        `Используйте /my\\_matches для просмотра деталей.`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
+    await createAndSendNotification(
+      api,
+      {
+        userId: match.player1Id,
+        type: 'match_reminder',
+        title: 'Матч назначен',
+        message:
+          `Турнир: ${safeName}\n` +
+          `Соперник: ${player2Name}\n` +
+          `Дата и время: ${when}`,
+        tournamentId: match.tournamentId,
+        matchId: match.id,
+      },
+      keyboard,
+    );
   }
 
   if (match.player2Id) {
-    await createAndSendNotification(api, {
-      userId: match.player2Id,
-      type: 'match_reminder',
-      title: 'Матч назначен',
-      message:
-        `Турнир: ${safeName}\n` +
-        `Соперник: ${player1Name}\n` +
-        `Дата и время: ${when}\n\n` +
-        `Используйте /my\\_matches для просмотра деталей.`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
+    await createAndSendNotification(
+      api,
+      {
+        userId: match.player2Id,
+        type: 'match_reminder',
+        title: 'Матч назначен',
+        message:
+          `Турнир: ${safeName}\n` +
+          `Соперник: ${player1Name}\n` +
+          `Дата и время: ${when}`,
+        tournamentId: match.tournamentId,
+        matchId: match.id,
+      },
+      keyboard,
+    );
   }
 }
 
@@ -254,17 +270,21 @@ export async function notifyMatchStart(
     const opponentName =
       playerId === match.player1Id ? player2Name : player1Name;
 
-    await createAndSendNotification(api, {
-      userId: playerId,
-      type: 'match_reminder',
-      title: 'Матч!',
-      message:
-        `Турнир: ${tournamentName}\n` +
-        `Ваш соперник: ${opponentName}\n\n` +
-        `Начался матч!`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
+    await createAndSendNotification(
+      api,
+      {
+        userId: playerId,
+        type: 'match_reminder',
+        title: 'Матч!',
+        message:
+          `Турнир: ${tournamentName}\n` +
+          `Ваш соперник: ${opponentName}\n\n` +
+          `Начался матч!`,
+        tournamentId: match.tournamentId,
+        matchId: match.id,
+      },
+      getMatchNotificationKeyboard(match, { action: 'report' }),
+    );
   }
 }
 
