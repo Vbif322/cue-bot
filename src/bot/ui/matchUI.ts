@@ -194,6 +194,34 @@ export function getResultConfirmKeyboard(matchId: string): InlineKeyboard {
 }
 
 /**
+ * Inline keyboard attached to match notifications so the recipient can act in a
+ * single tap instead of navigating via `/my_matches`. Reuses the existing match
+ * callbacks (`match:start` / `match:report` / `match:view` / `bracket:view`),
+ * whose handlers edit the notification message in place via `safeEditMessageText`.
+ *
+ * `options.action` controls the primary button:
+ *   - `'start'`  → «▶️ Начать матч» (для назначенного матча),
+ *   - `'report'` → «📝 Внести результат» (для уже идущего матча),
+ *   - не указан   → только навигационные кнопки.
+ */
+export function getMatchNotificationKeyboard(
+  match: MatchWithPlayers,
+  options: { action?: 'start' | 'report' } = {},
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (options.action === 'start') {
+    keyboard.text('▶️ Начать матч', `match:start:${match.id}`).row();
+  } else if (options.action === 'report') {
+    keyboard.text('📝 Внести результат', `match:report:${match.id}`).row();
+  }
+  keyboard
+    .text('📋 Открыть матч', `match:view:${match.id}`)
+    .text('📊 К сетке', `bracket:view:${match.tournamentId}`)
+    .row();
+  return keyboard;
+}
+
+/**
  * Get keyboard for match based on user role and match status
  */
 export function getMatchKeyboard(
