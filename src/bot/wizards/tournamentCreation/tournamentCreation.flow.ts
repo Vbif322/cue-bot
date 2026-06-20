@@ -5,6 +5,7 @@ import {
   maxParticipants,
   formats,
   scheduleModes,
+  validMergeRoundsForSize,
   visibilities,
   winScores,
 } from '@/db/schema.js';
@@ -71,6 +72,11 @@ export interface ITournamentCreationFlow {
   handleMaxParticipantsSelection(
     ctx: BotContext,
     maxParticipants: number,
+  ): Promise<boolean>;
+
+  handleMergeRoundSelection(
+    ctx: BotContext,
+    mergeRound: number,
   ): Promise<boolean>;
 
   handleWinScoreSelection(ctx: BotContext, winScore: number): Promise<boolean>;
@@ -622,6 +628,33 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
+    const current = this.stateStore.getOrThrow(userId);
+    const isDoubleElim =
+      current.data.tournament?.format === 'double_elimination';
+
+    // Double elimination has an extra "merge round" sub-step before win score.
+    if (isDoubleElim) {
+      const state = this.stateStore.update(userId, {
+        step: 'mergeRound',
+        data: { tournament: { maxParticipants } },
+      });
+
+      if (
+        state.step !== 'mergeRound' ||
+        state.data.tournament?.maxParticipants !== maxParticipants
+      ) {
+        await this.renderer.showSavedStateError(ctx);
+
+        return false;
+      }
+
+      await ctx.answerCallbackQuery();
+
+      await this.renderer.showMergeRoundStep(ctx, maxParticipants);
+
+      return true;
+    }
+
     const state = this.stateStore.update(userId, {
       step: 'winScore',
       data: {
@@ -643,6 +676,66 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     await ctx.answerCallbackQuery();
 
     await this.renderer.showWinScoreStep(ctx, maxParticipants);
+
+    return true;
+  }
+
+  /**
+   * Обрабатывает выбор раунда объединения (для double elimination)
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {number} mergeRound Выбранный раунд объединения
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleMergeRoundSelection(
+    ctx: BotContext,
+    mergeRound: number,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'mergeRound',
+    );
+
+    if (!hasStep) return false;
+
+    const current = this.stateStore.getOrThrow(userId);
+    const maxP = current.data.tournament?.maxParticipants;
+
+    if (maxP === undefined || !this.isAllowedMergeRound(mergeRound, maxP)) {
+      await this.renderer.showIncorrectMergeRound(ctx);
+
+      return true;
+    }
+
+    const state = this.stateStore.update(userId, {
+      step: 'winScore',
+      data: {
+        tournament: {
+          mergeRound,
+        },
+      },
+    });
+
+    if (
+      state.step !== 'winScore' ||
+      state.data.tournament?.mergeRound !== mergeRound ||
+      state.data.tournament.maxParticipants === undefined
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showWinScoreStep(
+      ctx,
+      state.data.tournament.maxParticipants,
+    );
 
     return true;
   }
@@ -861,6 +954,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
         scheduleMode: state.data.tournament.scheduleMode,
         maxParticipants: state.data.tournament.maxParticipants,
         winScore: state.data.tournament.winScore,
+        mergeRound: state.data.tournament.mergeRound ?? 2,
         startDate: state.data.tournament.startDate ?? null,
 
         tableIds: isSkip ? [] : state.data.tables.map((table) => table.id),
@@ -928,6 +1022,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
   private isAllowedWinScore(value: number): value is ITournamentWinScore {
     return Object.values<number>(winScores).includes(value);
+  }
+
+  private isAllowedMergeRound(value: number, maxParticipants: number): boolean {
+    return validMergeRoundsForSize(maxParticipants).includes(value);
   }
 
   private hasRequiredCreationData(

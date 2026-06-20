@@ -18,8 +18,11 @@ import type { ITournamentFormat } from '../../admin/server/formats.js';
 export {
   maxParticipants,
   winScores,
+  mergeRounds,
+  validMergeRoundsForSize,
   type ITournamentMaxParticipants,
   type ITournamentWinScore,
+  type ITournamentMergeRound,
 } from '../../admin/server/tournamentOptions.js';
 import type {
   ITournamentMaxParticipants,
@@ -90,6 +93,10 @@ export const tournaments = prodSchema.table('tournaments', {
     .$type<ITournamentWinScore>()
     .notNull()
     .default(3),
+  // Double elimination: after which upper-bracket round the losers bracket merges
+  // back into a single-elimination playoff. 2 = current/default scheme, k = full
+  // double elimination (no bracket reset). Ignored for other formats.
+  mergeRound: integer('merge_round').notNull().default(2),
   rules: text(),
   inviteCode: varchar('invite_code', { length: 16 }).unique(),
   createdBy: uuid('created_by')

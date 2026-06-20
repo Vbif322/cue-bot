@@ -14,8 +14,11 @@ export { formats, type ITournamentFormat } from './formats.js';
 export {
   maxParticipants,
   winScores,
+  mergeRounds,
+  validMergeRoundsForSize,
   type ITournamentMaxParticipants,
   type ITournamentWinScore,
+  type ITournamentMergeRound,
 } from './tournamentOptions.js';
 export type {
   MatchStatus,

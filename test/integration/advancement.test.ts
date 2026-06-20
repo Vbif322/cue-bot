@@ -8,6 +8,7 @@ import { matches, tables, tournamentTables } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
 import {
   confirmResult,
+  correctMatchResult,
   getTournamentMatches,
   reportResult,
 } from '@/services/matchService.js';
@@ -19,6 +20,7 @@ import {
   createMatchesForTournament,
   createTournamentWithParticipants,
   createVenue,
+  playAllReady,
 } from '../helpers/factories.js';
 import { must, positionLookup } from '../helpers/must.js';
 import { truncateAll } from '../helpers/truncate.js';
@@ -228,5 +230,138 @@ describe('advanceWinner propagation (S7-2)', () => {
       await completeMatch(m2.id, must(m2.player1Id));
       expect((await getTournament(tournament.id))?.status).toBe('completed');
     });
+  });
+
+  describe('generalized double elimination (configurable merge round)', () => {
+    it.each([
+      [8, 2, 13],
+      [8, 3, 14],
+      [16, 4, 30],
+      [32, 2, 55],
+    ])(
+      'plays a full %i-player bracket (mergeRound %i) to completion (%i matches)',
+      async (count, mergeRound, expectedMatches) => {
+        const { tournament } = await createTournamentWithParticipants(
+          count,
+          'double_elimination',
+          { mergeRound },
+        );
+        await createMatchesForTournament(tournament.id, 'double_elimination');
+
+        const all = await getTournamentMatches(tournament.id);
+        expect(all).toHaveLength(expectedMatches);
+
+        await playAllReady(tournament.id, 'double_elimination');
+        expect((await getTournament(tournament.id))?.status).toBe('completed');
+      },
+    );
+
+    it('persists losersNextMatchSlot on winners-bracket drop matches', async () => {
+      const { tournament } = await createTournamentWithParticipants(
+        16,
+        'double_elimination',
+      );
+      await createMatchesForTournament(tournament.id, 'double_elimination');
+
+      const rows = await db
+        .select()
+        .from(matches)
+        .where(eq(matches.tournamentId, tournament.id));
+      const r1 = rows.find((m) => m.bracketType === 'winners' && m.round === 1);
+      expect(r1?.losersNextMatchPosition).not.toBeNull();
+      expect(['player1', 'player2']).toContain(r1?.losersNextMatchSlot);
+    });
+
+    it('routes an upper round-3 loser into the deeper losers bracket (N=16, M=3)', async () => {
+      const { tournament } = await createTournamentWithParticipants(
+        16,
+        'double_elimination',
+        { mergeRound: 3 },
+      );
+      await createMatchesForTournament(tournament.id, 'double_elimination');
+
+      // Drive upper rounds 1 and 2 so an upper round-3 match has both players.
+      const advanceWinners = async (): Promise<void> => {
+        const open = (await getTournamentMatches(tournament.id)).filter(
+          (m) =>
+            m.bracketType === 'winners' &&
+            m.round <= 2 &&
+            m.player1Id !== null &&
+            m.player2Id !== null &&
+            m.status === 'scheduled',
+        );
+        for (const m of open) await completeMatch(m.id, must(m.player1Id));
+      };
+      await advanceWinners();
+      await advanceWinners();
+
+      const r3 = (await getTournamentMatches(tournament.id)).find(
+        (m) => m.bracketType === 'winners' && m.round === 3,
+      );
+      const r3match = must(r3, 'upper round 3 match');
+      const loser = must(r3match.player2Id, 'r3 player2');
+      await completeMatch(r3match.id, must(r3match.player1Id));
+
+      // The loser drops into a losers-bracket match in LB round 2*(3-1) = 4.
+      const lbRow = (await getTournamentMatches(tournament.id)).find(
+        (m) =>
+          m.bracketType === 'losers' &&
+          (m.player1Id === loser || m.player2Id === loser),
+      );
+      expect(must(lbRow, 'losers drop match').round).toBe(4);
+    });
+
+    it('cascades a corrected upstream result across the merge boundary', async () => {
+      const { tournament } = await createTournamentWithParticipants(
+        8,
+        'double_elimination',
+        { mergeRound: 2 },
+      );
+      await createMatchesForTournament(tournament.id, 'double_elimination');
+      await playAllReady(tournament.id, 'double_elimination');
+      expect((await getTournament(tournament.id))?.status).toBe('completed');
+
+      // Flip the winner of the first upper match; downstream (incl. across the
+      // merge) must roll back. playAllReady made player1 win, so make player2 win.
+      const pos = await positionLookup(tournament.id);
+      const m1 = pos(1);
+      const winScore = must((await getTournament(tournament.id))?.winScore);
+      const player1Won = m1.winnerId === m1.player1Id;
+      const result = await correctMatchResult(
+        m1.id,
+        player1Won ? 0 : winScore,
+        player1Won ? winScore : 0,
+        'test correction',
+        must(m1.player1Id),
+      );
+      expect(result.success).toBe(true);
+      expect(result.winnerChanged).toBe(true);
+      expect(result.affectedCount ?? 0).toBeGreaterThan(0);
+    });
+
+    it.each([2, 3])(
+      'completes a random-advancement bracket (mergeRound %i) and clears loser pointers',
+      async (mergeRound) => {
+        const { tournament } = await createTournamentWithParticipants(
+          16,
+          'double_elimination',
+          { mergeRound, randomAdvancement: true },
+        );
+        await createMatchesForTournament(tournament.id, 'double_elimination');
+
+        const rows = await db
+          .select()
+          .from(matches)
+          .where(eq(matches.tournamentId, tournament.id));
+        for (const m of rows) {
+          expect(m.losersNextMatchPosition).toBeNull();
+          expect(m.losersNextMatchSlot).toBeNull();
+          expect(m.nextMatchId).toBeNull();
+        }
+
+        await playAllReady(tournament.id, 'double_elimination');
+        expect((await getTournament(tournament.id))?.status).toBe('completed');
+      },
+    );
   });
 });

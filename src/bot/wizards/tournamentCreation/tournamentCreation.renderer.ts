@@ -48,6 +48,10 @@ export interface ITournamentCreationRenderer {
     format: Tournament['format'],
     randomAdvancement?: boolean,
   ): Promise<void>; // Step 8
+  showMergeRoundStep(
+    ctx: BotContext,
+    maxParticipants: Tournament['maxParticipants'],
+  ): Promise<void>; // unnumbered (double_elimination only)
   showWinScoreStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
@@ -72,6 +76,7 @@ export interface ITournamentCreationRenderer {
   showNoVenues(ctx: BotContext): Promise<void>;
   showCorruptedSession(ctx: BotContext): Promise<void>;
   showIncorrectMaxParticipants(ctx: BotContext): Promise<void>;
+  showIncorrectMergeRound(ctx: BotContext): Promise<void>;
   showIncorrectWinScore(ctx: BotContext): Promise<void>;
   showSavedStateError(ctx: BotContext): Promise<void>;
 
@@ -281,6 +286,30 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
+  async showMergeRoundStep(
+    ctx: BotContext,
+    maxParticipants: Tournament['maxParticipants'],
+  ): Promise<void> {
+    const resultMessage = `
+    Установленное максимальное количество участников: ${String(maxParticipants)}
+    `;
+
+    await safeEditMessageText(ctx, {
+      text: resultMessage,
+    });
+
+    const message = `
+    Раунд объединения (double elimination)
+    После какого раунда верхней сетки нижняя сетка объединяется с верхней?
+    2 — стандартная схема (второй шанс только в ранних раундах).
+    Максимальное значение — полный double elimination.
+    `.trim();
+
+    await ctx.reply(message, {
+      reply_markup: this.keyboards.buildMergeRoundKeyboard(maxParticipants),
+    });
+  }
+
   async showWinScoreStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
@@ -432,6 +461,13 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
+  async showIncorrectMergeRound(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректный раунд объединения',
+      show_alert: true,
+    });
+  }
+
   async showIncorrectWinScore(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
       text: 'Некорректное значение для количества побед',
@@ -473,6 +509,11 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     const formattedScheduleMode = formatScheduleMode(tournament.scheduleMode);
 
+    const mergeRoundLine =
+      tournament.format === 'double_elimination'
+        ? `\n    - Раунд объединения: ${String(tournament.mergeRound ?? 2)}`
+        : '';
+
     const message = `
     Данные турнира:
     - ID: ${tournament.id}
@@ -485,7 +526,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     - Дисциплина: ${formattedDiscipline}
     - Формат: ${formattedFormat}
     - Случайные пары: ${formattedRandom}
-    - Участников: ${String(tournament.maxParticipants)}
+    - Участников: ${String(tournament.maxParticipants)}${mergeRoundLine}
     - Количество необходимых побед: ${String(tournament.winScore)}
     - Количество выбранных столов: ${String(tables.length)}
     `.trim();

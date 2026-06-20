@@ -860,7 +860,7 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
 function formatMatchSection(
   sectionMatches: Awaited<ReturnType<typeof getTournamentMatches>>,
   playerMap: Map<string, PlayerNameParts>,
-  tournament: { format: string },
+  tournament: { format: string; mergeRound: number },
   totalRounds: number,
   keyboard: InstanceType<typeof InlineKeyboard>,
 ): string {
@@ -885,6 +885,7 @@ function formatMatchSection(
       totalRounds,
       tournament.format,
       roundMatches[0]?.bracketType ?? 'winners',
+      tournament.mergeRound,
     );
 
     text += `*${roundName}:*\n`;
@@ -979,7 +980,7 @@ async function showBracket(
   const bracketSize = getNextPowerOfTwo(playerIds.size);
   const totalRounds =
     tournament.format === 'double_elimination'
-      ? 5
+      ? calculateRounds(bracketSize) + 1
       : calculateRounds(bracketSize);
 
   let text = `📊 *Сетка турнира "${tournament.name}"*\n`;

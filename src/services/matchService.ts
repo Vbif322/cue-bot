@@ -28,10 +28,25 @@ type DownstreamVisitor = (
 import { completeTournament, getTournament } from './tournamentService.js';
 import { notifyMatchStart } from './notificationService.js';
 import type { BracketMatch } from './bracketGenerator.js';
+import { getNextPowerOfTwo } from './bracketGenerator.js';
 import {
   getRandomTargetPool,
   placeIntoRandomFreeSlot,
 } from './randomBracketAdvancement.js';
+
+/** Bracket dimensions the DE random-advancement pool map needs at runtime. */
+function deBracketDims(tournament: {
+  mergeRound: number;
+  confirmedParticipants: number | null;
+  maxParticipants: number;
+}): { mergeRound: number; bracketSize: number } {
+  return {
+    mergeRound: tournament.mergeRound,
+    bracketSize: getNextPowerOfTwo(
+      tournament.confirmedParticipants ?? tournament.maxParticipants,
+    ),
+  };
+}
 
 /**
  * Create matches in database from generated bracket
@@ -57,6 +72,7 @@ export async function createMatches(
         bracketType: match.bracketType,
         nextMatchPosition: match.nextMatchPosition ?? null,
         losersNextMatchPosition: match.losersNextMatchPosition ?? null,
+        losersNextMatchSlot: match.losersNextMatchSlot ?? null,
         status: isWalkover ? 'completed' : 'scheduled',
         winnerId: isWalkover ? (match.walkoverWinnerId ?? null) : null,
         isTechnicalResult: isWalkover,
@@ -633,7 +649,7 @@ export async function advanceWinner(
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
   if (tournament.randomAdvancement) {
-    await advanceWinnerRandom(match, loserId, tournament.format, botApi);
+    await advanceWinnerRandom(match, loserId, tournament, botApi);
     return;
   }
 
@@ -709,17 +725,23 @@ export async function advanceWinner(
 async function advanceWinnerRandom(
   match: Match,
   loserId: UUID | null,
-  format: ITournamentFormat,
+  tournament: {
+    format: ITournamentFormat;
+    mergeRound: number;
+    confirmedParticipants: number | null;
+    maxParticipants: number;
+  },
   botApi?: Api,
 ): Promise<void> {
   if (!match.winnerId) return;
 
-  if (format === 'single_elimination') {
+  if (tournament.format === 'single_elimination') {
     await advanceWinnerRandomSingleElim(match, botApi);
     return;
   }
 
-  const winnerPool = getRandomTargetPool(match, true);
+  const { mergeRound, bracketSize } = deBracketDims(tournament);
+  const winnerPool = getRandomTargetPool(match, true, mergeRound, bracketSize);
 
   if (winnerPool === null) {
     await completeTournament(match.tournamentId);
@@ -742,7 +764,7 @@ async function advanceWinnerRandom(
   );
 
   if (match.bracketType === 'winners' && loserId) {
-    const loserPool = getRandomTargetPool(match, false);
+    const loserPool = getRandomTargetPool(match, false, mergeRound, bracketSize);
     if (loserPool) {
       const placedLoser = await placeIntoRandomFreeSlot(
         match.tournamentId,
@@ -810,23 +832,38 @@ async function advanceWinnerRandomSingleElim(
 
 /**
  * Where the loser of a winners-bracket match drops into the losers bracket.
- * Hardcoded to the 16-player double-elimination layout (mirrors the generator).
- * Returns null when the loser is eliminated (winners round > 2). Single source
- * of truth shared by advanceLoserToLosersBracket (forward) and the correction
- * rollback (reverse), so the two can never drift.
+ * Reads the routing the generator stored on the row (`losersNextMatchPosition` +
+ * `losersNextMatchSlot`), so it works for any bracket size / merge round. Returns
+ * null when the loser is eliminated (no drop stored). Single source of truth
+ * shared by advanceLoserToLosersBracket (forward) and the correction rollback
+ * (reverse), so the two can never drift.
  */
 export function loserTarget(
   match: Match,
 ): { position: number; slot: 'player1Id' | 'player2Id' } | null {
-  if (match.round > 2 || match.bracketType !== 'winners') return null;
+  if (match.bracketType !== 'winners') return null;
+  if (match.losersNextMatchPosition == null) return null;
 
-  if (match.round === 1) {
+  const slot = match.losersNextMatchSlot;
+  if (slot === 'player1' || slot === 'player2') {
     return {
-      position: 9 + Math.floor((match.position - 1) / 2),
-      slot: match.position % 2 === 1 ? 'player1Id' : 'player2Id',
+      position: match.losersNextMatchPosition,
+      slot: slot === 'player1' ? 'player1Id' : 'player2Id',
     };
   }
-  return { position: 17 + (match.position - 13), slot: 'player2Id' };
+
+  // Backward-compat fallback for rows created before `losersNextMatchSlot`
+  // existed (the historical fixed 16-slot, merge-round-2 layout): round 1 →
+  // odd position to player1 / even to player2; round 2 → player2.
+  return {
+    position: match.losersNextMatchPosition,
+    slot:
+      match.round === 1
+        ? match.position % 2 === 1
+          ? 'player1Id'
+          : 'player2Id'
+        : 'player2Id',
+  };
 }
 
 async function advanceLoserToLosersBracket(
@@ -927,8 +964,15 @@ export async function checkTournamentCompletion(
   }
 
   if (tournament.format === 'double_elimination') {
-    const grandFinal = allMatches.find((m) => m.bracketType === 'grand_final');
-    return grandFinal?.status === 'completed';
+    // The terminal match is the single highest-round winners match (the merge
+    // playoff final / grand final). Keying off max round is robust to any bracket
+    // size, merge round, and random advancement (where pointers are stripped).
+    const winnersMatches = allMatches.filter(
+      (m) => m.bracketType === 'winners',
+    );
+    const maxRound = winnersMatches.reduce((max, m) => Math.max(max, m.round), 0);
+    const finalMatch = winnersMatches.find((m) => m.round === maxRound);
+    return finalMatch?.status === 'completed';
   }
 
   return completedMatches.length === allMatches.length;
@@ -1069,13 +1113,21 @@ async function findPlayerSlotInPool(
 async function walkDownstream(
   exec: Executor,
   match: Match,
-  tournament: { format: ITournamentFormat; randomAdvancement: boolean },
+  tournament: {
+    format: ITournamentFormat;
+    randomAdvancement: boolean;
+    mergeRound: number;
+    confirmedParticipants: number | null;
+    maxParticipants: number;
+  },
   visit: DownstreamVisitor,
 ): Promise<void> {
   if (!match.winnerId) return;
 
   const loserId =
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
+
+  const { mergeRound, bracketSize } = deBracketDims(tournament);
 
   const placements: {
     match: Match;
@@ -1084,13 +1136,12 @@ async function walkDownstream(
   }[] = [];
 
   if (tournament.randomAdvancement) {
-    // Single elimination supports up to 128 players, so the round-capped
-    // getRandomTargetPool (16-player double-elim layout) must not be used for it;
-    // the winner simply advances to the next winners round.
+    // Single elimination uses a plain next-round pool; double elimination uses
+    // the merge-round-aware getRandomTargetPool.
     const winnerPool =
       tournament.format === 'single_elimination'
         ? { bracketType: 'winners' as const, round: match.round + 1 }
-        : getRandomTargetPool(match, true);
+        : getRandomTargetPool(match, true, mergeRound, bracketSize);
     if (winnerPool) {
       const found = await findPlayerSlotInPool(
         exec,
@@ -1111,7 +1162,7 @@ async function walkDownstream(
       match.bracketType === 'winners' &&
       loserId
     ) {
-      const loserPool = getRandomTargetPool(match, false);
+      const loserPool = getRandomTargetPool(match, false, mergeRound, bracketSize);
       if (loserPool) {
         const found = await findPlayerSlotInPool(
           exec,

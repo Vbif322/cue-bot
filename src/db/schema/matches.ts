@@ -62,6 +62,7 @@ export const matches = prodSchema.table('matches', {
   nextMatchPosition: varchar('next_match_position', { length: 10 }),
   bracketType: varchar({ length: 20 }).default('winners'),
   losersNextMatchPosition: integer('losers_next_match_position'),
+  losersNextMatchSlot: varchar('losers_next_match_slot', { length: 10 }),
   tableId: uuid('table_id')
     .$type<UUID>()
     .references(() => tables.id, {

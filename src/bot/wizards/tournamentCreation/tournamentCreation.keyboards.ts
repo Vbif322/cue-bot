@@ -5,6 +5,7 @@ import {
   maxParticipants,
   formats,
   scheduleModes,
+  validMergeRoundsForSize,
   visibilities,
   winScores,
 } from '@/db/schema/tournaments.js';
@@ -30,6 +31,7 @@ export interface ITournamentCreationKeyboards {
   buildFormatKeyboard(): InlineKeyboard;
   buildRandomModeKeyboard(): InlineKeyboard;
   buildParticipantsKeyboard(): InlineKeyboard;
+  buildMergeRoundKeyboard(maxParticipants: number): InlineKeyboard;
   buildWinScoreKeyboard(): InlineKeyboard;
   buildTablesKeyboard(
     tables: Pick<Table, 'id' | 'name'>[],
@@ -152,6 +154,31 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
 
     maxParticipants.forEach((v, i) => {
       keyboard.text(String(v), `tc:participants:${String(v)}`);
+
+      if ((i + 1) % perRow === 0) {
+        keyboard.row();
+      }
+    });
+
+    return keyboard;
+  }
+
+  /**
+   * Создает клавиатуру для выбора раунда объединения (double elimination)
+   *
+   * @param {number} maxParticipants Лимит участников (определяет допустимые раунды)
+   * @param {number} [perRow=3] Количество кнопок в строке (3 по умолчанию)
+   *
+   * @returns {InlineKeyboard} Клавиатура с номерами раундов и коллбеком 'tc:merge:<number>'
+   */
+  buildMergeRoundKeyboard(maxParticipants: number, perRow = 3): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    const rounds = validMergeRoundsForSize(maxParticipants);
+    const lastRound = rounds[rounds.length - 1];
+
+    rounds.forEach((m, i) => {
+      const label = m === lastRound ? `${String(m)} (полный DE)` : String(m);
+      keyboard.text(label, `tc:merge:${String(m)}`);
 
       if ((i + 1) % perRow === 0) {
         keyboard.row();
