@@ -57,6 +57,7 @@ export interface CreateTournamentDraftInput {
   startDate?: Date | null;
   maxParticipants: ITournamentMaxParticipants;
   winScore: ITournamentWinScore;
+  mergeRound?: number;
   rules?: string | null;
   createdBy: UUID;
 
@@ -75,6 +76,7 @@ export interface UpdateTournamentDraftInput {
   startDate?: Date | null;
   maxParticipants: ITournamentMaxParticipants;
   winScore: ITournamentWinScore;
+  mergeRound?: number;
   rules?: string | null;
 
   tableIds?: UUID[];
@@ -232,12 +234,12 @@ export async function startTournament(tournamentId: UUID): Promise<void> {
     throw new Error('Tournament not found');
   }
 
-  // Validate double elimination requires exactly 16 participants
+  // Validate double elimination participant count (8–128).
   if (tournament.format === 'double_elimination') {
     const participants = await getConfirmedParticipants(tournamentId);
-    if (participants.length < 8) {
+    if (participants.length < 8 || participants.length > 128) {
       throw new Error(
-        'Double elimination поддерживает не менее 8 участников. ' +
+        'Double elimination поддерживает 8–128 участников. ' +
           `Текущее количество: ${String(participants.length)}`,
       );
     }
@@ -294,6 +296,7 @@ export async function createTournamentDraft(
         startDate: input.startDate ?? null,
         maxParticipants: input.maxParticipants,
         winScore: input.winScore,
+        mergeRound: input.mergeRound ?? 2,
         rules: input.rules ?? null,
         createdBy: input.createdBy,
       })
@@ -394,6 +397,7 @@ export async function updateTournamentDraft(
         startDate: input.startDate ?? null,
         maxParticipants: input.maxParticipants,
         winScore: input.winScore,
+        mergeRound: input.mergeRound ?? 2,
         rules: input.rules ?? null,
         updatedAt: new Date(),
       })

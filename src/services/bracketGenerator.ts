@@ -12,6 +12,7 @@ export interface BracketMatch {
   nextMatchPosition?: 'player1' | 'player2'; // Which slot in next match
   bracketType: 'winners' | 'losers' | 'grand_final';
   losersNextMatchPosition?: number; // For double elimination - where loser goes
+  losersNextMatchSlot?: 'player1' | 'player2'; // Which slot the loser drops into
   player1IsWalkover?: boolean;
   player2IsWalkover?: boolean;
   isCompletedWalkover?: boolean;
@@ -219,228 +220,267 @@ function advanceToNextMatch(
 }
 
 /**
- * Generate hybrid Double Elimination bracket for 8–16 participants.
+ * Generate a generalized Double Elimination bracket for 8–128 participants with a
+ * configurable "merge round" M (default 2).
  *
- * Structure (always 27 matches, fixed slots):
- *   R1 upper (8 matches, pos 1-8)   → winners to R2 upper, losers to R1 lower
- *   R1 lower (4 matches, pos 9-12)  → winners to R2 lower, losers eliminated
- *   R2 upper (4 matches, pos 13-16) → winners to R3 merge, losers to R2 lower
- *   R2 lower (4 matches, pos 17-20) → winners to R3 merge, losers eliminated
- *   R3 merge (4 matches, pos 21-24) → winners to R4, losers eliminated
- *   R4 semi  (2 matches, pos 25-26) → winners to R5
- *   R5 final (1 match,   pos 27)    → champion
+ * The losers bracket is a standard double-elimination losers bracket truncated
+ * after it absorbs the losers of upper round M; its N/2^M survivors then merge
+ * 1:1 with the N/2^M upper-bracket survivors into a single-elimination playoff.
  *
- * For <16 participants: empty slots are filled with walkover (auto-loss in
- * upper AND lower bracket). Distribution is via generateSeedPositions so
- * walkovers spread evenly across the bracket.
+ *   - M = 2 (default) reproduces the historical scheme (a second chance only in
+ *     rounds 1–2, then single elimination from the "Объединение" round on).
+ *   - M = k (= log2(bracketSize)) is a full double elimination WITHOUT bracket
+ *     reset: the merge degenerates to a single 1-vs-1 grand final.
+ *
+ * Round numbering: upper rounds 1..M and merge-playoff rounds M+1..k+1 are
+ * bracketType 'winners'; losers-bracket rounds 1..2(M-1) are bracketType
+ * 'losers' (odd = minor / play-down, even = major / absorbs an upper drop).
+ * Positions are allocated in topological order (a match's position precedes
+ * every match it feeds — winner and loser), so the gen-time walkover pass
+ * resolves byes correctly.
+ *
+ * For non-power-of-two participant counts, empty seats are filled with walkovers
+ * (auto-loss in both upper and lower bracket), spread via generateSeedPositions.
  */
 export function generateDoubleEliminationBracket(
   participants: TournamentParticipant[],
-  options?: { randomAdvancement?: boolean },
+  options?: { randomAdvancement?: boolean; mergeRound?: number },
 ): BracketMatch[] {
-  if (participants.length < 8 || participants.length > 16) {
+  if (participants.length < 8 || participants.length > 128) {
     throw new Error(
-      `Double elimination поддерживает 8–16 участников. Текущее количество: ${String(participants.length)}`,
+      `Double elimination поддерживает 8–128 участников. Текущее количество: ${String(participants.length)}`,
     );
   }
 
-  const seedPositions = generateSeedPositions(16);
-  const allSlots: (TournamentParticipant | null)[] = seedPositions.map(
-    (seed) =>
-      seed <= participants.length ? participants[seed - 1] ?? null : null,
+  const bracketSize = getNextPowerOfTwo(participants.length);
+  const k = calculateRounds(bracketSize); // upper rounds to a single winner
+  const mergeRound = Math.max(2, Math.min(options?.mergeRound ?? 2, k));
+
+  const seedPositions = generateSeedPositions(bracketSize);
+  const allSlots: (TournamentParticipant | null)[] = seedPositions.map((seed) =>
+    seed <= participants.length ? participants[seed - 1] ?? null : null,
   );
 
   const allMatches: BracketMatch[] = [];
+  let position = 1;
 
-  // R1 upper: 8 matches (positions 1-8)
-  for (let i = 0; i < 8; i++) {
-    const p1 = allSlots[i * 2];
-    const p2 = allSlots[i * 2 + 1];
-    allMatches.push({
-      round: 1,
-      position: i + 1,
-      player1Id: p1?.userId ?? null,
-      player2Id: p2?.userId ?? null,
-      player1IsWalkover: p1 == null,
-      player2IsWalkover: p2 == null,
-      bracketType: 'winners',
+  // Logical round -> ordered match objects (sparse arrays keyed by round number).
+  const upperRounds: BracketMatch[][] = [];
+  const losersRounds: BracketMatch[][] = [];
+  const mergeRounds: BracketMatch[][] = [];
+
+  const need = <T>(v: T | undefined, msg: string): T => {
+    if (v === undefined) throw new Error(msg);
+    return v;
+  };
+
+  // Allocate the round-1 upper matches, seeding players (null seat => walkover).
+  const allocUpperRound1 = (matchCount: number): BracketMatch[] => {
+    const out: BracketMatch[] = [];
+    for (let i = 0; i < matchCount; i++) {
+      const p1 = allSlots[i * 2] ?? null;
+      const p2 = allSlots[i * 2 + 1] ?? null;
+      const match: BracketMatch = {
+        round: 1,
+        position,
+        player1Id: p1?.userId ?? null,
+        player2Id: p2?.userId ?? null,
+        player1IsWalkover: p1 == null,
+        player2IsWalkover: p2 == null,
+        bracketType: 'winners',
+      };
+      allMatches.push(match);
+      out.push(match);
+      position++;
+    }
+    return out;
+  };
+
+  // Allocate empty matches (players arrive via advancement at runtime).
+  const allocEmpty = (
+    round: number,
+    matchCount: number,
+    bracketType: 'winners' | 'losers',
+  ): BracketMatch[] => {
+    const out: BracketMatch[] = [];
+    for (let i = 0; i < matchCount; i++) {
+      const match: BracketMatch = {
+        round,
+        position,
+        player1Id: null,
+        player2Id: null,
+        bracketType,
+      };
+      allMatches.push(match);
+      out.push(match);
+      position++;
+    }
+    return out;
+  };
+
+  // === ALLOCATION (topological order) ===
+  upperRounds[1] = allocUpperRound1(bracketSize / 2);
+  losersRounds[1] = allocEmpty(1, bracketSize / 4, 'losers'); // LB minor_1
+
+  for (let r = 2; r <= mergeRound; r++) {
+    upperRounds[r] = allocEmpty(r, bracketSize / 2 ** r, 'winners');
+    // LB major_(r-1) absorbs upper round r's losers.
+    losersRounds[2 * (r - 1)] = allocEmpty(
+      2 * (r - 1),
+      bracketSize / 2 ** r,
+      'losers',
+    );
+    if (r < mergeRound) {
+      // LB minor_r plays down major_(r-1) winners.
+      losersRounds[2 * r - 1] = allocEmpty(
+        2 * r - 1,
+        bracketSize / 2 ** (r + 1),
+        'losers',
+      );
+    }
+  }
+
+  // Merge playoff: single elimination of N/2^(M-1) players, rounds M+1..k+1.
+  for (let mr = mergeRound + 1; mr <= k + 1; mr++) {
+    mergeRounds[mr] = allocEmpty(mr, bracketSize / 2 ** (mr - 1), 'winners');
+  }
+
+  // === WIRING ===
+  const link = (
+    from: BracketMatch,
+    to: BracketMatch,
+    slot: 'player1' | 'player2',
+  ): void => {
+    from.nextMatchId = to.position;
+    from.nextMatchPosition = slot;
+  };
+  const linkLoser = (
+    from: BracketMatch,
+    to: BracketMatch,
+    slot: 'player1' | 'player2',
+  ): void => {
+    from.losersNextMatchPosition = to.position;
+    from.losersNextMatchSlot = slot;
+  };
+
+  // Winner paths: upper r -> upper r+1 (pairs).
+  for (let r = 1; r < mergeRound; r++) {
+    const cur = need(upperRounds[r], `upper round ${String(r)}`);
+    const next = need(upperRounds[r + 1], `upper round ${String(r + 1)}`);
+    cur.forEach((m, i) => {
+      link(m, need(next[Math.floor(i / 2)], 'upper target'), i % 2 === 0 ? 'player1' : 'player2');
+    });
+  }
+  // Upper round M -> merge round M+1 (1:1, as player1).
+  {
+    const cur = need(upperRounds[mergeRound], 'upper merge round');
+    const next = need(mergeRounds[mergeRound + 1], 'first merge round');
+    cur.forEach((m, i) => {
+      link(m, need(next[i], 'merge target'), 'player1');
     });
   }
 
-  // R1 lower: 4 matches (positions 9-12) — filled by R1 upper losers
-  for (let i = 0; i < 4; i++) {
-    allMatches.push({
-      round: 1,
-      position: 9 + i,
-      player1Id: null,
-      player2Id: null,
-      bracketType: 'losers',
+  // Losers paths within the lower bracket.
+  for (let j = 1; j <= mergeRound - 1; j++) {
+    const minor = need(losersRounds[2 * j - 1], `LB minor ${String(j)}`);
+    const major = need(losersRounds[2 * j], `LB major ${String(j)}`);
+    // minor_j -> major_j (1:1, as player1; player2 is reserved for the upper drop).
+    minor.forEach((m, i) => {
+      link(m, need(major[i], 'LB major target'), 'player1');
+    });
+    if (j < mergeRound - 1) {
+      // major_j -> minor_(j+1) (pairs).
+      const nextMinor = need(losersRounds[2 * (j + 1) - 1], `LB minor ${String(j + 1)}`);
+      major.forEach((m, i) => {
+        link(m, need(nextMinor[Math.floor(i / 2)], 'LB minor target'), i % 2 === 0 ? 'player1' : 'player2');
+      });
+    } else {
+      // Final LB major -> merge round M+1 (1:1, as player2).
+      const next = need(mergeRounds[mergeRound + 1], 'first merge round');
+      major.forEach((m, i) => {
+        link(m, need(next[i], 'merge target'), 'player2');
+      });
+    }
+  }
+
+  // Merge playoff: round mr -> round mr+1 (pairs); terminal round has no next.
+  for (let mr = mergeRound + 1; mr < k + 1; mr++) {
+    const cur = need(mergeRounds[mr], `merge round ${String(mr)}`);
+    const next = need(mergeRounds[mr + 1], `merge round ${String(mr + 1)}`);
+    cur.forEach((m, i) => {
+      link(m, need(next[Math.floor(i / 2)], 'merge target'), i % 2 === 0 ? 'player1' : 'player2');
     });
   }
 
-  // R2 upper: 4 matches (positions 13-16)
-  for (let i = 0; i < 4; i++) {
-    allMatches.push({
-      round: 2,
-      position: 13 + i,
-      player1Id: null,
-      player2Id: null,
-      bracketType: 'winners',
+  // Loser drops from the upper bracket into the lower bracket.
+  // Upper round 1 losers -> LB minor_1 (2 per match: odd index -> player1).
+  {
+    const cur = need(upperRounds[1], 'upper round 1');
+    const target = need(losersRounds[1], 'LB minor 1');
+    cur.forEach((m, i) => {
+      linkLoser(m, need(target[Math.floor(i / 2)], 'LB drop target'), i % 2 === 0 ? 'player1' : 'player2');
     });
   }
-
-  // R2 lower: 4 matches (positions 17-20)
-  for (let i = 0; i < 4; i++) {
-    allMatches.push({
-      round: 2,
-      position: 17 + i,
-      player1Id: null,
-      player2Id: null,
-      bracketType: 'losers',
+  // Upper round r losers (2<=r<=M) -> LB major_(r-1) (1:1, as player2).
+  for (let r = 2; r <= mergeRound; r++) {
+    const cur = need(upperRounds[r], `upper round ${String(r)}`);
+    const target = need(losersRounds[2 * (r - 1)], `LB major ${String(r - 1)}`);
+    cur.forEach((m, i) => {
+      linkLoser(m, need(target[i], 'LB drop target'), 'player2');
     });
   }
-
-  // R3 merge: 4 matches (positions 21-24)
-  for (let i = 0; i < 4; i++) {
-    allMatches.push({
-      round: 3,
-      position: 21 + i,
-      player1Id: null,
-      player2Id: null,
-      bracketType: 'winners',
-    });
-  }
-
-  // R4 semi: 2 matches (positions 25-26)
-  for (let i = 0; i < 2; i++) {
-    allMatches.push({
-      round: 4,
-      position: 25 + i,
-      player1Id: null,
-      player2Id: null,
-      bracketType: 'winners',
-    });
-  }
-
-  // R5 final: 1 match (position 27)
-  allMatches.push({
-    round: 5,
-    position: 27,
-    player1Id: null,
-    player2Id: null,
-    bracketType: 'winners',
-  });
-
-  // === WINNER PATHS (nextMatchId + nextMatchPosition) ===
-
-  // R1 upper → R2 upper: pairs feed into one match
-  for (let i = 0; i < 8; i++) {
-    const m = allMatches[i];
-    if (!m) throw new Error(`Missing allMatches[${String(i)}]`);
-    m.nextMatchId = 13 + Math.floor(i / 2);
-    m.nextMatchPosition = i % 2 === 0 ? 'player1' : 'player2';
-  }
-
-  // R1 lower → R2 lower: each winner goes to own match as player1
-  for (let i = 0; i < 4; i++) {
-    const m = allMatches[8 + i];
-    if (!m) throw new Error(`Missing allMatches[${String(8 + i)}]`);
-    m.nextMatchId = 17 + i;
-    m.nextMatchPosition = 'player1';
-  }
-
-  // R2 upper → R3 merge: as player1
-  for (let i = 0; i < 4; i++) {
-    const m = allMatches[12 + i];
-    if (!m) throw new Error(`Missing allMatches[${String(12 + i)}]`);
-    m.nextMatchId = 21 + i;
-    m.nextMatchPosition = 'player1';
-  }
-
-  // R2 lower → R3 merge: as player2
-  for (let i = 0; i < 4; i++) {
-    const m = allMatches[16 + i];
-    if (!m) throw new Error(`Missing allMatches[${String(16 + i)}]`);
-    m.nextMatchId = 21 + i;
-    m.nextMatchPosition = 'player2';
-  }
-
-  // R3 → R4
-  for (let i = 0; i < 4; i++) {
-    const m = allMatches[20 + i];
-    if (!m) throw new Error(`Missing allMatches[${String(20 + i)}]`);
-    m.nextMatchId = 25 + Math.floor(i / 2);
-    m.nextMatchPosition = i % 2 === 0 ? 'player1' : 'player2';
-  }
-
-  // R4 → R5
-  for (let i = 0; i < 2; i++) {
-    const m = allMatches[24 + i];
-    if (!m) throw new Error(`Missing allMatches[${String(24 + i)}]`);
-    m.nextMatchId = 27;
-    m.nextMatchPosition = i === 0 ? 'player1' : 'player2';
-  }
-
-  // === LOSER PATHS (losersNextMatchPosition) ===
-
-  // R1 upper losers → R1 lower (2 losers per lower match)
-  // Odd position → player1, even → player2
-  for (let i = 0; i < 8; i++) {
-    const m = allMatches[i];
-    if (!m) throw new Error(`Missing allMatches[${String(i)}]`);
-    m.losersNextMatchPosition = 9 + Math.floor(i / 2);
-  }
-
-  // R2 upper losers → R2 lower (each to own match, as player2)
-  for (let i = 0; i < 4; i++) {
-    const m = allMatches[12 + i];
-    if (!m) throw new Error(`Missing allMatches[${String(12 + i)}]`);
-    m.losersNextMatchPosition = 17 + i;
-  }
-
-  // R1 lower, R2 lower, R3+ losers → eliminated (no losersNextMatchPosition)
+  // All LB matches and upper/merge rounds > M: losers are eliminated (no pointer).
 
   // === WALKOVER RESOLUTION PASS ===
-  // Process matches in position order. For each match, classify slot states:
+  // Resolve fully-determined walkover matches at gen-time, classifying slots:
   //   REAL: playerNId !== null
   //   WALKOVER_BOUND: playerNId === null && playerNIsWalkover === true
   //   WAITING: playerNId === null && playerNIsWalkover === false
-  // and resolve fully-determined walkover matches at gen-time. Mixed cases
+  // Run to a fixed point so a resolved walkover can cascade through the deeper
+  // losers-bracket rounds regardless of allocation order. Mixed cases
   // (WAITING + WALKOVER_BOUND) are left for runtime detection in matchService.
-  for (const match of allMatches) {
-    const slot1Real = match.player1Id !== null;
-    const slot2Real = match.player2Id !== null;
-    const slot1Walkover = match.player1IsWalkover === true;
-    const slot2Walkover = match.player2IsWalkover === true;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const match of allMatches) {
+      if (match.isCompletedWalkover === true) continue;
+      const slot1Real = match.player1Id !== null;
+      const slot2Real = match.player2Id !== null;
+      const slot1Walkover = match.player1IsWalkover === true;
+      const slot2Walkover = match.player2IsWalkover === true;
 
-    if (slot1Real && slot2Walkover) {
-      const p1Id = match.player1Id;
-      if (!p1Id) throw new Error('Expected player1Id to be non-null');
-      match.isCompletedWalkover = true;
-      match.walkoverWinnerId = p1Id;
-      advanceToNextMatch(allMatches, match, p1Id);
-      if (match.bracketType === 'winners') {
-        markLoserSlotAsWalkover(allMatches, match);
+      if (slot1Real && slot2Walkover) {
+        const p1Id = match.player1Id;
+        if (!p1Id) throw new Error('Expected player1Id to be non-null');
+        match.isCompletedWalkover = true;
+        match.walkoverWinnerId = p1Id;
+        advanceToNextMatch(allMatches, match, p1Id);
+        if (match.bracketType === 'winners') {
+          markLoserSlotAsWalkover(allMatches, match);
+        }
+        changed = true;
+      } else if (slot2Real && slot1Walkover) {
+        const p2Id = match.player2Id;
+        if (!p2Id) throw new Error('Expected player2Id to be non-null');
+        match.isCompletedWalkover = true;
+        match.walkoverWinnerId = p2Id;
+        advanceToNextMatch(allMatches, match, p2Id);
+        if (match.bracketType === 'winners') {
+          markLoserSlotAsWalkover(allMatches, match);
+        }
+        changed = true;
+      } else if (slot1Walkover && slot2Walkover) {
+        match.isCompletedWalkover = true;
+        match.walkoverWinnerId = null;
+        markNextMatchSlotAsWalkover(allMatches, match);
+        if (match.bracketType === 'winners') {
+          markLoserSlotAsWalkover(allMatches, match);
+        }
+        changed = true;
       }
-    } else if (slot2Real && slot1Walkover) {
-      const p2Id = match.player2Id;
-      if (!p2Id) throw new Error('Expected player2Id to be non-null');
-      match.isCompletedWalkover = true;
-      match.walkoverWinnerId = p2Id;
-      advanceToNextMatch(allMatches, match, p2Id);
-      if (match.bracketType === 'winners') {
-        markLoserSlotAsWalkover(allMatches, match);
-      }
-    } else if (slot1Walkover && slot2Walkover) {
-      match.isCompletedWalkover = true;
-      match.walkoverWinnerId = null;
-      markNextMatchSlotAsWalkover(allMatches, match);
-      if (match.bracketType === 'winners') {
-        markLoserSlotAsWalkover(allMatches, match);
-      }
+      // All other combinations (REAL+REAL, REAL+WAITING, WAITING+WAITING,
+      // WAITING+WALKOVER_BOUND) are left for runtime.
     }
-    // All other combinations (REAL+REAL, REAL+WAITING, WAITING+WAITING,
-    // WAITING+WALKOVER_BOUND) are left for runtime.
   }
 
   // For random advancement mode, the deterministic pointers were only needed
@@ -451,6 +491,7 @@ export function generateDoubleEliminationBracket(
       delete m.nextMatchId;
       delete m.nextMatchPosition;
       delete m.losersNextMatchPosition;
+      delete m.losersNextMatchSlot;
     }
   }
 
@@ -471,7 +512,8 @@ function markNextMatchSlotAsWalkover(
   }
 }
 
-// Slot formula must stay in sync with matchService.advanceLoserToLosersBracket
+// Reads the loser-drop slot stored by the generator (single source of truth,
+// mirrored at runtime by matchService.loserTarget).
 function markLoserSlotAsWalkover(
   matches: BracketMatch[],
   currentMatch: BracketMatch,
@@ -482,14 +524,7 @@ function markLoserSlotAsWalkover(
   );
   if (!losersMatch) return;
 
-  const slot: 'player1' | 'player2' =
-    currentMatch.round === 1
-      ? currentMatch.position % 2 === 1
-        ? 'player1'
-        : 'player2'
-      : 'player2';
-
-  if (slot === 'player1') {
+  if (currentMatch.losersNextMatchSlot === 'player1') {
     losersMatch.player1IsWalkover = true;
   } else {
     losersMatch.player2IsWalkover = true;
@@ -503,6 +538,7 @@ export function generateBracket(
   format: Tournament['format'],
   participants: TournamentParticipant[],
   randomAdvancement = false,
+  mergeRound = 2,
 ): BracketMatch[] {
   if (participants.length < 2) {
     throw new Error('Минимум 2 участника для создания сетки');
@@ -516,6 +552,7 @@ export function generateBracket(
     case 'double_elimination':
       return generateDoubleEliminationBracket(participants, {
         randomAdvancement,
+        mergeRound,
       });
     case 'round_robin':
       return generateRoundRobinMatches(participants);
@@ -583,6 +620,7 @@ export function generateRoundRobinMatches(
 export function getBracketStats(
   format: 'single_elimination' | 'double_elimination' | 'round_robin',
   participantsCount: number,
+  mergeRound = 2,
 ): { totalMatches: number; totalRounds: number } {
   const bracketSize = getNextPowerOfTwo(participantsCount);
 
@@ -592,11 +630,14 @@ export function getBracketStats(
         totalMatches: bracketSize - 1,
         totalRounds: calculateRounds(bracketSize),
       };
-    case 'double_elimination':
+    case 'double_elimination': {
+      const k = calculateRounds(bracketSize);
+      const m = Math.max(2, Math.min(mergeRound, k));
       return {
-        totalMatches: 27,
-        totalRounds: 5,
+        totalMatches: 2 * bracketSize - bracketSize / 2 ** m - 1,
+        totalRounds: k + 1,
       };
+    }
     case 'round_robin': {
       const n = participantsCount;
       return {
@@ -617,6 +658,7 @@ export function getRoundName(
   totalRounds: number,
   format: string,
   bracketType = 'winners',
+  mergeRound = 2,
 ): string {
   if (format === 'round_robin') {
     return `Тур ${String(round)}`;
@@ -624,16 +666,19 @@ export function getRoundName(
 
   if (format === 'double_elimination') {
     if (bracketType === 'losers') {
-      if (round === 1) return 'Нижняя сетка, раунд 1';
-      if (round === 2) return 'Нижняя сетка, раунд 2';
       return `Нижняя сетка, раунд ${String(round)}`;
     }
-    if (round === 1) return '1/8 финала';
-    if (round === 2) return '1/4 финала';
-    if (round === 3) return 'Объединение';
-    if (round === 4) return 'Полуфинал';
-    if (round === 5) return 'Финал';
-    return `Раунд ${String(round)}`;
+    // Winners side has k+1 rounds: upper 1..M and merge playoff M+1..k+1.
+    const k = totalRounds - 1;
+    const m = Math.max(2, Math.min(mergeRound, k));
+    if (round === totalRounds && m === k) return 'Гранд-финал';
+    if (round === m + 1 && round !== totalRounds) return 'Объединение';
+    // Name by the number of matches in the round.
+    const matchCount =
+      round <= m ? 2 ** (k - round) : 2 ** (k - round + 1);
+    if (matchCount <= 1) return 'Финал';
+    if (matchCount === 2) return 'Полуфинал';
+    return `1/${String(matchCount)} финала`;
   }
 
   if (bracketType === 'losers') {

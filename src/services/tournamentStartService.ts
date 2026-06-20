@@ -54,6 +54,7 @@ export async function startTournamentFull(
     tournament.format,
     participants,
     tournament.randomAdvancement,
+    tournament.mergeRound,
   );
 
   // 4. Create matches in database

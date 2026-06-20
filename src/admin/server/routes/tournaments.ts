@@ -9,6 +9,7 @@ import { db } from '@/db/db.js';
 import {
   formats,
   maxParticipants,
+  mergeRounds,
   scheduleModes,
   statuses,
   tournamentParticipants,
@@ -96,6 +97,12 @@ export function createTournamentsRouter(botApi: Api) {
           .min(Math.min(...winScores))
           .max(Math.max(...winScores))
           .default(3),
+        mergeRound: z
+          .number()
+          .int()
+          .min(Math.min(...mergeRounds))
+          .max(Math.max(...mergeRounds))
+          .default(2),
         startDate: z.string().optional(),
         venueId: z.uuid(),
         tableIds: z.array(z.uuid()).optional(),
@@ -117,6 +124,7 @@ export function createTournamentsRouter(botApi: Api) {
           scheduleMode: body.scheduleMode,
           maxParticipants: body.maxParticipants as ITournamentMaxParticipants,
           winScore: body.winScore as ITournamentWinScore,
+          mergeRound: body.mergeRound,
           startDate: body.startDate ? new Date(body.startDate) : null,
           venueId: body.venueId as UUID,
           ...(body.tableIds ? { tableIds: body.tableIds as UUID[] } : {}),
@@ -162,6 +170,12 @@ export function createTournamentsRouter(botApi: Api) {
           .min(Math.min(...winScores))
           .max(Math.max(...winScores))
           .default(3),
+        mergeRound: z
+          .number()
+          .int()
+          .min(Math.min(...mergeRounds))
+          .max(Math.max(...mergeRounds))
+          .default(2),
         startDate: z.string().optional(),
         venueId: z.uuid(),
         tableIds: z.array(z.uuid()).optional(),
@@ -192,6 +206,7 @@ export function createTournamentsRouter(botApi: Api) {
           scheduleMode: body.scheduleMode,
           maxParticipants: body.maxParticipants as ITournamentMaxParticipants,
           winScore: body.winScore as ITournamentWinScore,
+          mergeRound: body.mergeRound,
           startDate: body.startDate ? new Date(body.startDate) : null,
           venueId: body.venueId as UUID,
           ...(body.tableIds ? { tableIds: body.tableIds as UUID[] } : {}),

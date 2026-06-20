@@ -117,6 +117,7 @@ export async function createMatchesForTournament(
     format,
     participants,
     tournament?.randomAdvancement ?? false,
+    tournament?.mergeRound ?? 2,
   );
   await createMatches(tournamentId, bracket);
   await startTournament(tournamentId);

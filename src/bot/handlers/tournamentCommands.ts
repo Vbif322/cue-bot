@@ -485,7 +485,11 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
     return;
   }
 
-  const stats = getBracketStats(tournament.format, result.participantsCount);
+  const stats = getBracketStats(
+    tournament.format,
+    result.participantsCount,
+    tournament.mergeRound,
+  );
 
   const keyboard = new InlineKeyboard()
     .text(
@@ -626,6 +630,13 @@ tournamentCommands.callbackQuery(/^tc:participants:(\d+)$/, async (ctx) => {
     ctx,
     participants,
   );
+});
+
+tournamentCommands.callbackQuery(/^tc:merge:(\d+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  const mergeRound = parseInt(val, 10);
+  await tournamentCreationFlow.handleMergeRoundSelection(ctx, mergeRound);
 });
 
 tournamentCommands.callbackQuery(/^tc:winscore:(\d+)$/, async (ctx) => {

@@ -41,6 +41,12 @@ export default function TournamentInfoTab({
         }
       />
       <InfoRow label="Участники" value={formatParticipants(tournament)} />
+      {tournament.format === 'double_elimination' && (
+        <InfoRow
+          label="Раунд объединения"
+          value={String(tournament.mergeRound)}
+        />
+      )}
       <InfoRow label="Win score" value={String(tournament.winScore)} />
       {tournament.startDate && (
         <InfoRow

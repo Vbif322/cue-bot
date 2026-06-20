@@ -22,6 +22,7 @@ export interface ICreationData {
       | 'format'
       | 'randomAdvancement'
       | 'maxParticipants'
+      | 'mergeRound'
       | 'winScore'
     >
   >;
@@ -44,7 +45,9 @@ export interface IRequiredCreationData extends Required<ICreationData> {
       | 'maxParticipants'
       | 'winScore'
     >
-  >;
+  > &
+    // mergeRound is only collected for double_elimination; optional here.
+    Partial<Pick<Tournament, 'mergeRound'>>;
 }
 
 export interface ICreationState {

@@ -120,16 +120,19 @@ export function formatMatchCard(
     telegramId: match.player2TelegramId,
   });
 
-  const rounds = calculateRounds(
+  const k = calculateRounds(
     getNextPowerOfTwo(
       tournament.confirmedParticipants ?? tournament.maxParticipants,
     ),
   );
+  // Double elimination has an extra (merge-playoff) round on the winners side.
+  const rounds = tournament.format === 'double_elimination' ? k + 1 : k;
   const roundName = getRoundName(
     match.round,
     rounds,
     tournament.format,
     match.bracketType ?? 'winners',
+    tournament.mergeRound,
   );
 
   let text = `🎱 *Матч #${String(match.position)}*\n`;

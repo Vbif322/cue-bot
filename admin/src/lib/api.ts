@@ -90,6 +90,7 @@ export const tournamentsApi = {
     scheduleMode?: TournamentScheduleMode;
     maxParticipants?: number;
     winScore?: number;
+    mergeRound?: number;
     startDate?: string;
     venueId: string;
     tableIds?: string[];
@@ -111,6 +112,7 @@ export const tournamentsApi = {
       scheduleMode?: TournamentScheduleMode;
       maxParticipants?: number;
       winScore?: number;
+      mergeRound?: number;
       startDate?: string;
       venueId: string;
       tableIds?: string[];

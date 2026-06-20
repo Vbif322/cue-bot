@@ -9,31 +9,42 @@ export interface Pool { bracketType: 'winners' | 'losers'; round: number }
 /**
  * Maps a (bracketType, round, role) of a finished DE match to the pool of
  * matches the player should be placed into. Returns null when there is no
- * advancement (eliminated, or champion).
+ * advancement (eliminated, or champion). Parameterized by `mergeRound` (M) and
+ * `bracketSize` (N=2^k) so it works for any bracket size and merge round.
+ *
+ * Winners side has rounds 1..k+1 (upper 1..M, merge playoff M+1..k+1). Losers
+ * bracket has rounds 1..2(M-1): odd = minor (play-down), even = major (absorbs
+ * an upper drop). At M=2,k=4 this reduces to the historical fixed layout.
  *
  * Single source of truth for double-elimination random-advancement transitions.
  */
 export function getRandomTargetPool(
   match: { bracketType: string | null; round: number },
   isWinner: boolean,
+  mergeRound: number,
+  bracketSize: number,
 ): Pool | null {
   const bt = match.bracketType;
   const r = match.round;
+  const k = Math.log2(bracketSize);
+  const m = Math.max(2, Math.min(mergeRound, k));
 
   if (bt === 'winners') {
     if (isWinner) {
-      if (r >= 1 && r <= 4) return { bracketType: 'winners', round: r + 1 };
-      return null; // R5 winner = champion
+      if (r < k + 1) return { bracketType: 'winners', round: r + 1 };
+      return null; // terminal winners round = champion
     }
+    // Only upper rounds 1..M drop a loser into the losers bracket.
     if (r === 1) return { bracketType: 'losers', round: 1 };
-    if (r === 2) return { bracketType: 'losers', round: 2 };
-    return null; // R3+ winners loser is eliminated
+    if (r >= 2 && r <= m) return { bracketType: 'losers', round: 2 * (r - 1) };
+    return null; // merge / upper round > M loser is eliminated
   }
 
   if (bt === 'losers') {
     if (!isWinner) return null;
-    if (r === 1) return { bracketType: 'losers', round: 2 };
-    if (r === 2) return { bracketType: 'winners', round: 3 }; // merge
+    const lastLb = 2 * (m - 1);
+    if (r < lastLb) return { bracketType: 'losers', round: r + 1 };
+    if (r === lastLb) return { bracketType: 'winners', round: m + 1 }; // merge
     return null;
   }
 

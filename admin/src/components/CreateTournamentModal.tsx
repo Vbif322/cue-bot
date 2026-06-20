@@ -2,7 +2,12 @@ import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { tournamentsApi, tablesApi, venuesApi } from '../lib/api.ts';
-import { formats, maxParticipants, winScores } from '@server/apiTypes';
+import {
+  formats,
+  maxParticipants,
+  validMergeRoundsForSize,
+  winScores,
+} from '@server/apiTypes';
 import type {
   ApiTournament,
   ITournamentFormat,
@@ -47,6 +52,7 @@ function TournamentFormModal({
       'single_day') as TournamentScheduleMode,
     maxParticipants: (tournament?.maxParticipants ?? 16) as number,
     winScore: (tournament?.winScore ?? 2) as number,
+    mergeRound: (tournament?.mergeRound ?? 2) as number,
     startDate: tournament?.startDate
       ? toLocalDatetimeInput(tournament.startDate)
       : '',
@@ -295,9 +301,17 @@ function TournamentFormModal({
               </label>
               <select
                 value={form.maxParticipants}
-                onChange={(e) =>
-                  setForm({ ...form, maxParticipants: Number(e.target.value) })
-                }
+                onChange={(e) => {
+                  const mp = Number(e.target.value);
+                  const valid = validMergeRoundsForSize(mp);
+                  const maxValid = valid[valid.length - 1] ?? 2;
+                  setForm({
+                    ...form,
+                    maxParticipants: mp,
+                    // Keep the merge round within the new bracket's valid range.
+                    mergeRound: Math.min(form.mergeRound, maxValid),
+                  });
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {maxParticipants.map((n) => (
@@ -326,6 +340,33 @@ function TournamentFormModal({
               </select>
             </div>
           </div>
+
+          {form.format === 'double_elimination' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Раунд объединения
+              </label>
+              <select
+                value={form.mergeRound}
+                onChange={(e) =>
+                  setForm({ ...form, mergeRound: Number(e.target.value) })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {validMergeRoundsForSize(form.maxParticipants).map(
+                  (m, i, arr) => (
+                    <option key={m} value={m}>
+                      {m === arr[arr.length - 1] ? `${m} (полный DE)` : m}
+                    </option>
+                  ),
+                )}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                После какого раунда верхней сетки нижняя объединяется с верхней.
+                2 — стандартная схема; максимум — полный double elimination.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

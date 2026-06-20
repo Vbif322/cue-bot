@@ -215,25 +215,91 @@ describe('generateSingleEliminationBracket', () => {
   });
 });
 
+/**
+ * Assert a generalized double-elimination bracket (bracket size N, merge round M)
+ * is structurally sound: right total/losers counts, exactly one terminal match,
+ * every pointer topological (target position strictly later) and targeting an
+ * existing slot, and no two pointers colliding on the same (position, slot).
+ * With no byes every non-seed slot is filled by exactly one pointer.
+ */
+function assertDoubleElimTopology(
+  matches: BracketMatch[],
+  bracketSize: number,
+  mergeRound: number,
+): void {
+  const N = bracketSize;
+  const M = mergeRound;
+
+  expect(matches).toHaveLength(2 * N - N / 2 ** M - 1);
+
+  const losers = matches.filter((m) => m.bracketType === 'losers');
+  expect(losers).toHaveLength(N - N / 2 ** (M - 1));
+  expect(new Set(losers.map((m) => m.round)).size).toBe(2 * (M - 1));
+
+  const byPos = new Map(matches.map((m) => [m.position, m]));
+
+  const terminal = matches.filter((m) => m.nextMatchId === undefined);
+  expect(terminal, 'exactly one terminal match').toHaveLength(1);
+  expect(terminal[0]?.bracketType).not.toBe('losers');
+
+  const occupied = new Set<string>();
+  const claim = (pos: number | undefined, slot: unknown): void => {
+    if (pos === undefined) throw new Error('pointer with no position');
+    expect(byPos.has(pos), `pointer to missing position ${String(pos)}`).toBe(true);
+    expect(slot === 'player1' || slot === 'player2', 'pointer missing slot').toBe(true);
+    const key = `${String(pos)}:${String(slot)}`;
+    expect(occupied.has(key), `slot collision at ${key}`).toBe(false);
+    occupied.add(key);
+  };
+
+  for (const m of matches) {
+    if (m.nextMatchId !== undefined) {
+      expect(m.nextMatchId, `winner pointer not topological at pos ${String(m.position)}`).toBeGreaterThan(m.position);
+      claim(m.nextMatchId, m.nextMatchPosition);
+    }
+    if (m.losersNextMatchPosition !== undefined) {
+      expect(m.losersNextMatchPosition, `loser pointer not topological at pos ${String(m.position)}`).toBeGreaterThan(m.position);
+      claim(m.losersNextMatchPosition, m.losersNextMatchSlot);
+    }
+  }
+
+  // Every non-(round-1-upper) slot is filled by exactly one pointer (no byes).
+  const round1Upper = matches.filter(
+    (m) => m.bracketType === 'winners' && m.round === 1,
+  ).length;
+  expect(occupied.size).toBe(2 * (matches.length - round1Upper));
+}
+
 describe('generateDoubleEliminationBracket', () => {
-  it('throws outside the 8..16 participant range', () => {
+  it('throws outside the 8..128 participant range', () => {
     expect(() => generateDoubleEliminationBracket(makeParticipants(7))).toThrow();
-    expect(() => generateDoubleEliminationBracket(makeParticipants(17))).toThrow();
+    expect(() => generateDoubleEliminationBracket(makeParticipants(129))).toThrow();
   });
 
-  it('produces the fixed 27-match layout for 16 players', () => {
+  it.each([
+    [8, 2],
+    [8, 3],
+    [16, 2],
+    [16, 3],
+    [16, 4],
+    [32, 2],
+    [32, 5],
+  ])('has sound topology for N=%i, mergeRound=%i', (n, m) => {
+    const matches = generateDoubleEliminationBracket(makeParticipants(n), {
+      mergeRound: m,
+    });
+    assertDoubleElimTopology(matches, n, m);
+  });
+
+  it('reproduces the historical 27-match layout for 16 players (mergeRound 2)', () => {
     const matches = generateDoubleEliminationBracket(makeParticipants(16));
     expect(matches).toHaveLength(27);
-    expect(matches.filter((m) => m.round === 1 && m.bracketType === 'winners')).toHaveLength(8);
+    expect(
+      matches.filter((m) => m.round === 1 && m.bracketType === 'winners'),
+    ).toHaveLength(8);
     expect(matches.filter((m) => m.bracketType === 'losers')).toHaveLength(8);
-    const finalMatch = matches.find((m) => m.position === 27);
-    if (!finalMatch) throw new Error('match at position 27 expected');
-    expect(finalMatch.round).toBe(5);
-  });
 
-  it('routes winners and losers per the documented layout (16 players)', () => {
-    const matches = generateDoubleEliminationBracket(makeParticipants(16));
-    const at = (pos: number) => {
+    const at = (pos: number): BracketMatch => {
       const m = matches.find((match) => match.position === pos);
       if (!m) throw new Error(`match at position ${String(pos)} not found`);
       return m;
@@ -243,37 +309,56 @@ describe('generateDoubleEliminationBracket', () => {
     expect(at(1).nextMatchPosition).toBe('player1');
     expect(at(2).nextMatchId).toBe(13);
     expect(at(2).nextMatchPosition).toBe('player2');
-    // R1 upper losers -> R1 lower (pos9)
+    // R1 upper losers -> R1 lower (pos9), with slots
     expect(at(1).losersNextMatchPosition).toBe(9);
+    expect(at(1).losersNextMatchSlot).toBe('player1');
     expect(at(2).losersNextMatchPosition).toBe(9);
-    // R2 upper loser -> R2 lower; R4 -> R5 final
+    expect(at(2).losersNextMatchSlot).toBe('player2');
+    // R2 upper loser -> R2 lower as player2; final at pos 27
     expect(at(13).losersNextMatchPosition).toBe(17);
+    expect(at(13).losersNextMatchSlot).toBe('player2');
     expect(at(25).nextMatchId).toBe(27);
     expect(at(26).nextMatchId).toBe(27);
+    expect(at(27).nextMatchId).toBeUndefined();
+    expect(at(27).round).toBe(5);
   });
 
-  it('marks empty seats as walkovers and resolves them at gen time (<16 players)', () => {
-    const matches = generateDoubleEliminationBracket(makeParticipants(8));
-    // 8 real players in 16 slots => 8 walkover seats spread across R1 upper.
+  it('is a full double elimination at mergeRound=k (8 players => 14 matches)', () => {
+    const matches = generateDoubleEliminationBracket(makeParticipants(8), {
+      mergeRound: 3,
+    });
+    expect(matches).toHaveLength(14); // 2N - N/2^k - 1 = 16 - 1 - 1
+    assertDoubleElimTopology(matches, 8, 3);
+    // The losers bracket ends in a single final-major match (1 LB survivor).
+    const lbRounds = matches.filter((m) => m.bracketType === 'losers');
+    const lastLb = Math.max(...lbRounds.map((m) => m.round));
+    expect(lbRounds.filter((m) => m.round === lastLb)).toHaveLength(1);
+  });
+
+  it('marks empty seats as walkovers and resolves them at gen time (byes)', () => {
+    // 12 players in a 16-slot bracket => 4 walkover seats across R1 upper.
+    const matches = generateDoubleEliminationBracket(makeParticipants(12));
     const r1 = matches.filter((m) => m.round === 1 && m.bracketType === 'winners');
     const walkoverSeats = r1.filter(
       (m) => m.player1IsWalkover === true || m.player2IsWalkover === true,
     );
     expect(walkoverSeats.length).toBeGreaterThan(0);
-    // A real-vs-walkover match must be auto-completed with the real player winning.
     const resolved = r1.find(
       (m) => m.isCompletedWalkover && m.walkoverWinnerId !== null,
     );
     expect(resolved).toBeDefined();
   });
 
-  it('clears deterministic pointers in random-advancement mode', () => {
+  it('clears all deterministic pointers in random-advancement mode', () => {
     const matches = generateDoubleEliminationBracket(makeParticipants(16), {
       randomAdvancement: true,
+      mergeRound: 3,
     });
     for (const m of matches) {
       expect(m.nextMatchId).toBeUndefined();
+      expect(m.nextMatchPosition).toBeUndefined();
       expect(m.losersNextMatchPosition).toBeUndefined();
+      expect(m.losersNextMatchSlot).toBeUndefined();
     }
   });
 });
@@ -333,9 +418,20 @@ describe('getBracketStats', () => {
     });
   });
 
-  it('double elimination: fixed 27 matches / 5 rounds', () => {
+  it('double elimination: 2N - N/2^M - 1 matches, k+1 rounds', () => {
+    // 10 players => bracket 16, mergeRound 2 (default) => historical 27 / 5.
     expect(getBracketStats('double_elimination', 10)).toEqual({
       totalMatches: 27,
+      totalRounds: 5,
+    });
+    // full DE on 8 (mergeRound 3 = k): 14 matches, 4 rounds.
+    expect(getBracketStats('double_elimination', 8, 3)).toEqual({
+      totalMatches: 14,
+      totalRounds: 4,
+    });
+    // full DE on 16 (mergeRound 4 = k): 30 matches, 5 rounds.
+    expect(getBracketStats('double_elimination', 16, 4)).toEqual({
+      totalMatches: 30,
       totalRounds: 5,
     });
   });
@@ -353,14 +449,27 @@ describe('getRoundName', () => {
     expect(getRoundName(2, 0, 'round_robin')).toBe('Тур 2');
   });
 
-  it('names double-elimination upper rounds', () => {
+  it('names double-elimination upper rounds (mergeRound 2)', () => {
+    expect(getRoundName(1, 5, 'double_elimination')).toBe('1/8 финала');
+    expect(getRoundName(2, 5, 'double_elimination')).toBe('1/4 финала');
     expect(getRoundName(3, 5, 'double_elimination')).toBe('Объединение');
+    expect(getRoundName(4, 5, 'double_elimination')).toBe('Полуфинал');
     expect(getRoundName(5, 5, 'double_elimination')).toBe('Финал');
+  });
+
+  it('names the grand final for a full double elimination (mergeRound=k)', () => {
+    // 16-player full DE: totalRounds = 5, mergeRound = 4 = k.
+    expect(getRoundName(5, 5, 'double_elimination', 'winners', 4)).toBe(
+      'Гранд-финал',
+    );
   });
 
   it('names double-elimination lower rounds', () => {
     expect(getRoundName(1, 5, 'double_elimination', 'losers')).toBe(
       'Нижняя сетка, раунд 1',
+    );
+    expect(getRoundName(3, 5, 'double_elimination', 'losers')).toBe(
+      'Нижняя сетка, раунд 3',
     );
   });
 
