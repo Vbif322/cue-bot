@@ -29,7 +29,7 @@ import {
 import { getUserRefereeTournaments } from './bot/permissions.js';
 import { buildMainMenuKeyboard } from './bot/ui/mainMenu.js';
 import { createAdminServer } from './admin/server/index.js';
-import { serve } from '@hono/node-server';
+import { serve, type ServerType } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { InlineKeyboard } from 'grammy';
 import { randomBytes } from 'crypto';
@@ -147,6 +147,8 @@ async function startBot() {
   );
 }
 
+let server: ServerType | undefined;
+
 async function start() {
   // Поднимаем HTTP-сервер первым, чтобы admin API был доступен независимо от бота.
   const app = createAdminServer();
@@ -158,7 +160,7 @@ async function start() {
   }
 
   const port = Number(process.env.ADMIN_PORT ?? 3000);
-  serve({ fetch: app.fetch, port });
+  server = serve({ fetch: app.fetch, port });
 
   await startBot();
 }
@@ -167,6 +169,55 @@ start().catch((err: unknown) => {
   console.error('Фатальная ошибка запуска:', err);
   process.exit(1);
 });
+
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+let shuttingDown = false;
+
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Получен ${signal}, завершаем работу...`);
+
+  // Страховка: если что-то зависнет при остановке, не блокируем выход навсегда.
+  const watchdog = setTimeout(() => {
+    console.error('Превышено время graceful shutdown, принудительный выход.');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  watchdog.unref();
+
+  // 1. Останавливаем приём новых апдейтов от Telegram.
+  try {
+    await bot.stop();
+    console.log('Бот остановлен');
+  } catch (err) {
+    console.error('Ошибка при остановке бота:', err);
+  }
+
+  // 2. Перестаём принимать новые HTTP-запросы, дожидаемся завершения текущих.
+  await new Promise<void>((resolve) => {
+    if (!server) {
+      resolve();
+      return;
+    }
+    server.close(() => {
+      console.log('HTTP-сервер закрыт');
+      resolve();
+    });
+  });
+
+  // 3. Дренируем пул соединений с БД.
+  try {
+    await db.$client.end();
+    console.log('Пул БД закрыт');
+  } catch (err) {
+    console.error('Ошибка при закрытии пула БД:', err);
+  }
+
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
 
 process.on('unhandledRejection', (reason) => {
   console.error('Необработанный rejection:', reason);
