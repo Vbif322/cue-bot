@@ -2,7 +2,10 @@ import { bot } from './bot/instance.js';
 import {
   authMiddleware,
   wizardGuardMiddleware,
+  rateLimitMiddleware,
+  botFloodLimiter,
 } from './bot/middleware/index.js';
+import { RateLimiter } from './lib/rateLimiter.js';
 import {
   roleCommands,
   tournamentCommands,
@@ -38,6 +41,9 @@ import { db } from './db/db.js';
 import { loginTokens } from './db/schema.js';
 import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
 
+// Flood protection runs first so spam is dropped before authMiddleware's per-update
+// user upsert (a DB transaction) ever runs.
+bot.use(rateLimitMiddleware);
 bot.use(authMiddleware);
 bot.use(wizardGuardMiddleware);
 bot.use(menuHandlers);
@@ -85,8 +91,17 @@ bot.command('start', async (ctx) => {
   await sendOnboarding(ctx);
 });
 
+// Stricter cooldown on token minting (1 per 30s per admin) so the loginTokens table
+// can't be spammed full. Admin-only command, so this is bloat protection, not anti-abuse.
+const dashboardLimiter = new RateLimiter({ capacity: 1, refillPerSec: 1 / 30 });
+
 bot.command('dashboard', async (ctx) => {
   if (ctx.dbUser.role !== 'admin') {
+    return;
+  }
+
+  if (!dashboardLimiter.hit(ctx.dbUser.id).allowed) {
+    await ctx.reply('Не так часто. Попробуйте через минуту.');
     return;
   }
 
@@ -150,8 +165,10 @@ async function startBot() {
 
 let server: ServerType | undefined;
 let dialogSessionSweep: ReturnType<typeof setInterval> | undefined;
+let rateLimitSweep: ReturnType<typeof setInterval> | undefined;
 
 const DIALOG_SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // раз в час
+const RATE_LIMIT_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // раз в 5 минут
 
 async function start() {
   // Поднимаем HTTP-сервер первым, чтобы admin API был доступен независимо от бота.
@@ -173,6 +190,13 @@ async function start() {
     });
   }, DIALOG_SESSION_SWEEP_INTERVAL_MS);
   dialogSessionSweep.unref();
+
+  // Освобождаем память от неактивных бакетов rate limiter'ов.
+  rateLimitSweep = setInterval(() => {
+    botFloodLimiter.prune();
+    dashboardLimiter.prune();
+  }, RATE_LIMIT_SWEEP_INTERVAL_MS);
+  rateLimitSweep.unref();
 
   await startBot();
 }
@@ -197,8 +221,9 @@ async function shutdown(signal: string) {
   }, SHUTDOWN_TIMEOUT_MS);
   watchdog.unref();
 
-  // 0. Останавливаем периодическую очистку диалоговых сессий.
+  // 0. Останавливаем периодические задачи очистки.
   if (dialogSessionSweep) clearInterval(dialogSessionSweep);
+  if (rateLimitSweep) clearInterval(rateLimitSweep);
 
   // 1. Останавливаем приём новых апдейтов от Telegram.
   try {
