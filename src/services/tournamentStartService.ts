@@ -96,41 +96,69 @@ export async function startTournamentFull(
   const tournament = await getTournament(tournamentId);
   if (!tournament) throw new Error('Турнир не найден');
 
-  // 1. Fill in missing seeds (preserves manual ones)
-  await fillMissingSeeds(tournamentId);
+  // Steps 1–5 run atomically in one transaction, serialized per-tournament by an
+  // advisory lock with an in-transaction "matches already exist" guard so two
+  // concurrent starts (bot + admin, or a retry) can't double-create matches or
+  // leave the tournament with matches but the wrong status. Same pattern as
+  // maybeStartPlayoffPhase below.
+  const { participantsCount, matchesCreated } = await db.transaction(
+    async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
+      );
+      const already = await tx.query.matches.findFirst({
+        where: eq(matches.tournamentId, tournamentId),
+      });
+      if (already) throw new Error('Турнир уже запущен');
 
-  // 2. Get participants ordered by seed
-  const participants = await getConfirmedParticipantsBySeed(tournamentId);
-  if (participants.some((p) => p.seed == null)) {
-    throw new Error('Не удалось проставить сиды всем участникам');
-  }
+      // 1. Fill in missing seeds (preserves manual ones)
+      await fillMissingSeeds(tournamentId, tx);
 
-  // 3. Generate bracket (for groups_playoff this is the GROUP phase only; the
-  // playoff is generated later by maybeStartPlayoffPhase once standings are known).
-  const bracket = generateBracket(
-    tournament.format,
-    participants,
-    tournament.randomAdvancement,
-    tournament.mergeRound,
-    tournament.format === 'groups_playoff' &&
-      tournament.groupsCount != null &&
-      tournament.participantsPerGroup != null &&
-      tournament.groupDraw != null
-      ? {
-          groupsCount: tournament.groupsCount,
-          participantsPerGroup: tournament.participantsPerGroup,
-          groupDraw: tournament.groupDraw,
-        }
-      : undefined,
+      // 2. Get participants ordered by seed
+      const participants = await getConfirmedParticipantsBySeed(
+        tournamentId,
+        tx,
+      );
+      if (participants.some((p) => p.seed == null)) {
+        throw new Error('Не удалось проставить сиды всем участникам');
+      }
+
+      // 3. Generate bracket — pure, no I/O. For groups_playoff this is the GROUP
+      // phase only; the playoff is generated later by maybeStartPlayoffPhase once
+      // standings are known.
+      const bracket = generateBracket(
+        tournament.format,
+        participants,
+        tournament.randomAdvancement,
+        tournament.mergeRound,
+        tournament.format === 'groups_playoff' &&
+          tournament.groupsCount != null &&
+          tournament.participantsPerGroup != null &&
+          tournament.groupDraw != null
+          ? {
+              groupsCount: tournament.groupsCount,
+              participantsPerGroup: tournament.participantsPerGroup,
+              groupDraw: tournament.groupDraw,
+            }
+          : undefined,
+      );
+
+      // 4. Create matches in database
+      await createMatches(tournamentId, bracket, tx);
+
+      // 5. Update tournament status to in_progress
+      await startTournament(tournamentId, tx);
+
+      return {
+        participantsCount: participants.length,
+        matchesCreated: bracket.length,
+      };
+    },
   );
 
-  // 4. Create matches in database
-  await createMatches(tournamentId, bracket);
-
-  // 5. Update tournament status to in_progress
-  await startTournament(tournamentId);
-
   // 6. Assign tables + notify first round (group round 1 for groups_playoff).
+  // Kept OUTSIDE the transaction: these are external Telegram/table calls that
+  // must not hold or roll back the DB transaction.
   await kickoffReadyMatches(
     tournamentId,
     tournament,
@@ -140,8 +168,8 @@ export async function startTournamentFull(
   );
 
   return {
-    participantsCount: participants.length,
-    matchesCreated: bracket.length,
+    participantsCount,
+    matchesCreated,
     tournamentName: tournament.name,
   };
 }

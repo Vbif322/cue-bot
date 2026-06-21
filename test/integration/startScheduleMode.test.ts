@@ -1,5 +1,5 @@
 import type { Api } from 'grammy';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { db } from '@/db/db.js';
@@ -79,5 +79,90 @@ describe('startTournamentFull table auto-assignment by schedule mode', () => {
     expect(rows.some((m) => m.tableId !== null && m.status === 'in_progress')).toBe(
       true,
     );
+  });
+});
+
+describe('startTournamentFull atomicity + idempotency (S4-6)', () => {
+  beforeEach(async () => {
+    await truncateAll();
+  });
+
+  it('successful start: matches created, status in_progress, seeds set', async () => {
+    const tournament = await setupTournament('per_match');
+    const api = createMockBotApi() as unknown as Api;
+
+    // Clear one seed so the in-transaction fillMissingSeeds path actually runs
+    // and the "every seed set" assertion below is meaningful.
+    await db
+      .update(tournamentParticipants)
+      .set({ seed: null })
+      .where(
+        and(
+          eq(tournamentParticipants.tournamentId, tournament.id),
+          eq(tournamentParticipants.seed, 1),
+        ),
+      );
+
+    const result = await startTournamentFull(tournament.id, api);
+
+    const rows = await db.query.matches.findMany({
+      where: eq(matches.tournamentId, tournament.id),
+    });
+    expect(rows.length).toBe(result.matchesCreated);
+    expect(rows.length).toBeGreaterThan(0);
+
+    const updated = await db.query.tournaments.findFirst({
+      where: (t, { eq: eqf }) => eqf(t.id, tournament.id),
+    });
+    expect(updated?.status).toBe('in_progress');
+
+    const participants = await db.query.tournamentParticipants.findMany({
+      where: eq(tournamentParticipants.tournamentId, tournament.id),
+    });
+    expect(participants.length).toBe(result.participantsCount);
+    expect(participants.every((p) => p.seed != null)).toBe(true);
+  });
+
+  it('concurrent starts: exactly one wins, no duplicate matches', async () => {
+    const tournament = await setupTournament('per_match');
+    const api = createMockBotApi() as unknown as Api;
+
+    const outcomes = await Promise.allSettled([
+      startTournamentFull(tournament.id, api),
+      startTournamentFull(tournament.id, api),
+    ]);
+
+    const fulfilled = outcomes.filter((o) => o.status === 'fulfilled');
+    const rejected = outcomes.filter((o) => o.status === 'rejected');
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
+    expect(rejected[0]?.reason).toMatchObject({
+      message: 'Турнир уже запущен',
+    });
+
+    const winner = fulfilled[0]?.value;
+    const rows = await db.query.matches.findMany({
+      where: eq(matches.tournamentId, tournament.id),
+    });
+    expect(rows.length).toBe(winner?.matchesCreated);
+  });
+
+  it('re-run after a successful start is rejected and leaves state unchanged', async () => {
+    const tournament = await setupTournament('per_match');
+    const api = createMockBotApi() as unknown as Api;
+
+    await startTournamentFull(tournament.id, api);
+    const before = await db.query.matches.findMany({
+      where: eq(matches.tournamentId, tournament.id),
+    });
+
+    await expect(startTournamentFull(tournament.id, api)).rejects.toThrow(
+      'Турнир уже запущен',
+    );
+
+    const after = await db.query.matches.findMany({
+      where: eq(matches.tournamentId, tournament.id),
+    });
+    expect(after.length).toBe(before.length);
   });
 });
