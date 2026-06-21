@@ -1,24 +1,22 @@
 import { Composer, InlineKeyboard } from "grammy";
-import { eq, and } from "drizzle-orm";
 import type { UUID } from "crypto";
-import { db } from "../../db/db.js";
-import { tournamentParticipants, users } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import {
   confirmParticipant,
   rejectParticipant,
   deleteParticipant,
+  getParticipantsByStatus,
   getTournament,
-} from "../../services/tournamentService.js";
+} from "@/services/tournamentService.js";
 import {
   notifyRegistrationConfirmed,
   notifyRegistrationRejected,
-} from "../../services/notificationService.js";
+} from "@/services/notificationService.js";
 import {
   escapeMarkdown,
   formatFullName,
   safeEditMessageText,
-} from "../../utils/messageHelpers.js";
+} from "@/utils/messageHelpers.js";
 import { bot } from "../instance.js";
 
 export const adminParticipantCommands = new Composer<BotContext>();
@@ -55,37 +53,14 @@ async function showParticipantManagement(
     return;
   }
 
-  const pending = await db
-    .select({
-      userId: tournamentParticipants.userId,
-      username: users.username,
-      name: users.name,
-      surname: users.surname,
-    })
-    .from(tournamentParticipants)
-    .innerJoin(users, eq(tournamentParticipants.userId, users.id))
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
-        eq(tournamentParticipants.status, "pending"),
-      ),
-    );
-
-  const confirmed = await db
-    .select({
-      userId: tournamentParticipants.userId,
-      username: users.username,
-      name: users.name,
-      surname: users.surname,
-    })
-    .from(tournamentParticipants)
-    .innerJoin(users, eq(tournamentParticipants.userId, users.id))
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
-        eq(tournamentParticipants.status, "confirmed"),
-      ),
-    );
+  const pending = await getParticipantsByStatus(
+    tournamentId as UUID,
+    "pending",
+  );
+  const confirmed = await getParticipantsByStatus(
+    tournamentId as UUID,
+    "confirmed",
+  );
 
   // Clear old keys for this tournament and populate fresh ones
   clearKeysForTournament(tournamentId);

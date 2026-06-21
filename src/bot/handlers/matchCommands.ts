@@ -4,10 +4,9 @@ import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import { PgSessionStore } from '@/services/dialogSessionStore.js';
-import { tournaments, users } from '@/db/schema.js';
+import { tournaments } from '@/db/schema.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
-import { groupLetter } from '@/utils/constants.js';
 import {
   getMatch,
   getPlayerActiveMatches,
@@ -17,17 +16,9 @@ import {
   disputeResult,
   setTechnicalResult,
   setMatchSchedule,
-  getMatchStats,
   startMatch,
 } from '@/services/matchService.js';
-import {
-  getRoundName,
-  calculateRounds,
-  getNextPowerOfTwo,
-} from '@/services/bracketGenerator.js';
-import { getGroupStandings } from '@/services/groupPhaseService.js';
-import { clinchedUserIds } from '@/services/standingsService.js';
-import type { GroupStanding } from '@/services/standingsService.js';
+import { getBracketReadModel } from '@/services/bracketReadService.js';
 import {
   notifyMatchStart,
   notifyMatchScheduled,
@@ -41,13 +32,14 @@ import {
   getMatchKeyboard,
   formatPlayerName,
   getMatchStatusEmoji,
-  type PlayerNameParts,
 } from '../ui/matchUI.js';
+import { buildBracketView } from '../ui/bracketUI.js';
 import {
   canManageTournament,
   canViewTournament,
   getUserRefereeTournaments,
 } from '../permissions.js';
+import { refreshMatchCard } from './helpers/matchCard.js';
 import type { BotContext } from '../types.js';
 
 export const matchCommands = new Composer<BotContext>();
@@ -225,7 +217,6 @@ matchCommands.callbackQuery(/^bracket:view:(.+)$/, async (ctx) => {
 matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
   const matchId = ctx.match[1];
   if (!matchId) return;
-  const userId = ctx.dbUser.id;
 
   const match = await getMatch(matchId as UUID);
   if (!match) {
@@ -249,15 +240,7 @@ matchCommands.callbackQuery(/^match:view:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery();
 
-  const text = formatMatchCard(match, tournament);
-  const canManage = await canManageTournament(ctx, match.tournamentId);
-  const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
-
-  await safeEditMessageText(ctx, {
-    text,
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
+  await refreshMatchCard(ctx, matchId as UUID);
 });
 
 // Назначить дату/время матча (поматчевое расписание)
@@ -311,17 +294,7 @@ matchCommands.callbackQuery(/^msch:clear:(.+)$/, async (ctx) => {
   await setMatchSchedule(matchIdUUID, null);
   await ctx.answerCallbackQuery({ text: 'Время сброшено' });
 
-  const updated = await getMatch(matchIdUUID);
-  const tournament = await db.query.tournaments.findFirst({
-    where: eq(tournaments.id, match.tournamentId),
-  });
-  if (updated && tournament) {
-    await safeEditMessageText(ctx, {
-      text: formatMatchCard(updated, tournament),
-      parse_mode: 'Markdown',
-      reply_markup: getMatchKeyboard(updated, ctx.dbUser.id, tournament, true),
-    });
-  }
+  await refreshMatchCard(ctx, matchIdUUID);
 });
 
 // Ввод даты/времени для назначаемого матча
@@ -420,20 +393,7 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
 
   if (tournament) {
     await notifyMatchStart(ctx.api, updatedMatch, tournament.name, userId);
-    const text = formatMatchCard(updatedMatch, tournament);
-    const canManage = await canManageTournament(ctx, updatedMatch.tournamentId);
-    const keyboard = getMatchKeyboard(
-      updatedMatch,
-      userId,
-      tournament,
-      canManage,
-    );
-
-    await safeEditMessageText(ctx, {
-      text,
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
+    await refreshMatchCard(ctx, matchIdUUID);
   }
 });
 
@@ -565,12 +525,7 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
 
   // Get fresh match data after reportResult (includes updated scores and status)
   const updatedMatch = await getMatch(matchIdUUID);
-  const tournament = updatedMatch
-    ? await db.query.tournaments.findFirst({
-        where: eq(tournaments.id, updatedMatch.tournamentId),
-      })
-    : null;
-  if (updatedMatch && tournament) {
+  if (updatedMatch) {
     // Send notification to opponent
     try {
       await notifyResultPending(ctx.api, updatedMatch, userId);
@@ -580,20 +535,7 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
     }
 
     // Show updated match UI
-    const text = formatMatchCard(updatedMatch, tournament);
-    const canManage = await canManageTournament(ctx, updatedMatch.tournamentId);
-    const keyboard = getMatchKeyboard(
-      updatedMatch,
-      userId,
-      tournament,
-      canManage,
-    );
-
-    await safeEditMessageText(ctx, {
-      text,
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
+    await refreshMatchCard(ctx, matchIdUUID);
   }
 });
 
@@ -618,13 +560,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
 
   // Show updated match and send notifications
   const match = await getMatch(matchIdUUID);
-  const tournament = match
-    ? await db.query.tournaments.findFirst({
-        where: eq(tournaments.id, match.tournamentId),
-      })
-    : null;
-
-  if (match && tournament) {
+  if (match) {
     // Send notification to both players
     try {
       await notifyResultConfirmed(ctx.api, match);
@@ -633,15 +569,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
       // Don't fail the whole operation if notification fails
     }
 
-    const text = formatMatchCard(match, tournament);
-    const canManage = await canManageTournament(ctx, match.tournamentId);
-    const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
-
-    await safeEditMessageText(ctx, {
-      text,
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
+    await refreshMatchCard(ctx, matchIdUUID);
   }
 });
 
@@ -668,13 +596,7 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
 
   // Show updated match and send notifications
   const match = await getMatch(matchIdUUID);
-  const tournament = match
-    ? await db.query.tournaments.findFirst({
-        where: eq(tournaments.id, match.tournamentId),
-      })
-    : null;
-
-  if (match && tournament) {
+  if (match) {
     // Notify both players about the dispute
     try {
       await notifyResultDisputed(ctx.api, match, userId);
@@ -683,16 +605,8 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
       // Don't fail the whole operation if notification fails
     }
 
-    const text =
-      formatMatchCard(match, tournament) +
-      '\n\n⚠️ Результат оспорен. Ожидайте решения судьи.';
-    const canManage = await canManageTournament(ctx, match.tournamentId);
-    const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
-
-    await safeEditMessageText(ctx, {
-      text,
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
+    await refreshMatchCard(ctx, matchIdUUID, {
+      extraText: '\n\n⚠️ Результат оспорен. Ожидайте решения судьи.',
     });
   }
 });
@@ -839,115 +753,10 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery('Технический результат установлен');
 
   // Show updated match
-  const match = await getMatch(matchIdUUID);
-  const tournament = match
-    ? await db.query.tournaments.findFirst({
-        where: eq(tournaments.id, match.tournamentId),
-      })
-    : null;
-
-  if (match && tournament) {
-    const text = formatMatchCard(match, tournament);
-    const canManage = await canManageTournament(ctx, match.tournamentId);
-    const keyboard = getMatchKeyboard(match, userId, tournament, canManage);
-
-    await safeEditMessageText(ctx, {
-      text,
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
-  }
+  await refreshMatchCard(ctx, matchIdUUID);
 });
 
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
-
-/**
- * Format a group's standings table. Players who have already CLINCHED a qualifying
- * spot (guaranteed top-`qualifiersPerGroup` regardless of remaining matches) are
- * marked with ✅. Shows wins and frame difference per player.
- */
-function formatGroupStandings(
-  group: GroupStanding,
-  qualifiersPerGroup: number,
-  totalMatches: number,
-  playerMap: Map<string, PlayerNameParts>,
-): string {
-  const clinched = clinchedUserIds(group.rows, totalMatches, qualifiersPerGroup);
-  let text = `*Группа ${groupLetter(group.groupIndex)}* (выходят ${String(qualifiersPerGroup)})\n`;
-  for (const row of group.rows) {
-    const parts = playerMap.get(row.userId);
-    const name = parts ? formatPlayerName(parts) : 'TBD';
-    const mark = clinched.has(row.userId) ? '✅' : '▫️';
-    const diff = row.frameDiff >= 0 ? `+${String(row.frameDiff)}` : String(row.frameDiff);
-    text += `${mark} ${String(row.rank)}. ${name} — ${String(row.wins)} поб., ${diff}\n`;
-  }
-  return text + '\n';
-}
-
-/**
- * Format a section of matches (upper or lower bracket) for display
- */
-function formatMatchSection(
-  sectionMatches: Awaited<ReturnType<typeof getTournamentMatches>>,
-  playerMap: Map<string, PlayerNameParts>,
-  tournament: { format: string; mergeRound: number },
-  totalRounds: number,
-  keyboard: InstanceType<typeof InlineKeyboard>,
-): string {
-  const byRound = new Map<number, typeof sectionMatches>();
-  for (const m of sectionMatches) {
-    const existing = byRound.get(m.round);
-    if (existing) {
-      existing.push(m);
-    } else {
-      byRound.set(m.round, [m]);
-    }
-  }
-
-  const rounds = Array.from(byRound.keys()).sort((a, b) => a - b);
-  let text = '';
-
-  for (const round of rounds) {
-    const roundMatches = byRound.get(round);
-    if (!roundMatches) continue;
-    const roundName = getRoundName(
-      round,
-      totalRounds,
-      tournament.format,
-      roundMatches[0]?.bracketType ?? 'winners',
-      tournament.mergeRound,
-      roundMatches[0]?.phase,
-      roundMatches[0]?.groupIndex ?? undefined,
-    );
-
-    text += `*${roundName}:*\n`;
-
-    for (const match of roundMatches) {
-      const p1 = match.player1Id ? playerMap.get(match.player1Id) : null;
-      const p2 = match.player2Id ? playerMap.get(match.player2Id) : null;
-
-      const player1Name = p1 ? formatPlayerName(p1) : 'TBD';
-      const player2Name = p2 ? formatPlayerName(p2) : 'TBD';
-
-      const emoji = getMatchStatusEmoji(match.status);
-      let score = '';
-
-      if (
-        match.status === 'completed' ||
-        match.status === 'pending_confirmation'
-      ) {
-        score = ` (${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')})`;
-      }
-
-      text += `#${String(match.position)} ${emoji} ${player1Name} vs ${player2Name}${score}\n`;
-      keyboard.text(`#${String(match.position)}`, `match:view:${match.id}`);
-    }
-    keyboard.row();
-    text += '\n';
-  }
-
-  return text;
-}
 
 /**
  * Show tournament bracket
@@ -957,13 +766,11 @@ async function showBracket(
   tournamentId: UUID,
   isEdit = false,
 ): Promise<void> {
-  const tournament = await db.query.tournaments.findFirst({
-    where: eq(tournaments.id, tournamentId),
-  });
+  const model = await getBracketReadModel(tournamentId);
 
   // Same response for "missing" and "forbidden" — don't leak a private
   // tournament's bracket to users without access.
-  if (!tournament || !(await canViewTournament(ctx, tournament))) {
+  if (!model || !(await canViewTournament(ctx, model.tournament))) {
     const msg = 'Турнир не найден';
     if (isEdit) {
       await safeEditMessageText(ctx, { text: msg });
@@ -973,10 +780,7 @@ async function showBracket(
     return;
   }
 
-  const allMatches = await getTournamentMatches(tournamentId);
-  const stats = await getMatchStats(tournamentId);
-
-  if (allMatches.length === 0) {
+  if (model.matches.length === 0) {
     const msg = 'Сетка турнира ещё не сформирована.';
     if (isEdit) {
       await safeEditMessageText(ctx, { text: msg });
@@ -986,166 +790,7 @@ async function showBracket(
     return;
   }
 
-  // Group matches by round
-  const matchesByRound = new Map<number, typeof allMatches>();
-  for (const match of allMatches) {
-    const existing = matchesByRound.get(match.round);
-    if (existing) {
-      existing.push(match);
-    } else {
-      matchesByRound.set(match.round, [match]);
-    }
-  }
-
-  // Get all player IDs from matches
-  const playerIds = new Set<UUID>();
-
-  for (const match of allMatches) {
-    if (match.player1Id) {
-      playerIds.add(match.player1Id);
-    }
-    if (match.player2Id) {
-      playerIds.add(match.player2Id);
-    }
-  }
-
-  const bracketSize = getNextPowerOfTwo(playerIds.size);
-  const totalRounds =
-    tournament.format === 'double_elimination'
-      ? calculateRounds(bracketSize) + 1
-      : calculateRounds(bracketSize);
-
-  let text = `📊 *Сетка турнира "${tournament.name}"*\n`;
-  text += `Завершено: ${String(stats.completed)}/${String(stats.total)} матчей\n\n`;
-
-  // Get all player names
-
-  const playerMap = new Map<string, PlayerNameParts>();
-  if (playerIds.size > 0) {
-    const players = await db.query.users.findMany({
-      where: inArray(users.id, Array.from(playerIds)),
-    });
-    for (const p of players) {
-      playerMap.set(p.id, {
-        username: p.username,
-        name: p.name,
-        surname: p.surname,
-        telegramId: p.telegram_id,
-      });
-    }
-  }
-
-  const keyboard = new InlineKeyboard();
-
-  if (tournament.format === 'double_elimination') {
-    // Split matches by bracket type
-    const winnersMatches = allMatches.filter(
-      (m) => m.bracketType === 'winners',
-    );
-    const losersMatches = allMatches.filter((m) => m.bracketType === 'losers');
-
-    text += `*═══ ВЕРХНЯЯ СЕТКА ═══*\n\n`;
-    text += formatMatchSection(
-      winnersMatches,
-      playerMap,
-      tournament,
-      totalRounds,
-      keyboard,
-    );
-
-    if (losersMatches.length > 0) {
-      text += `*═══ НИЖНЯЯ СЕТКА ═══*\n\n`;
-      text += formatMatchSection(
-        losersMatches,
-        playerMap,
-        tournament,
-        totalRounds,
-        keyboard,
-      );
-    }
-  } else if (tournament.format === 'groups_playoff') {
-    // Group phase: per-group standings table + that group's matches. Playoff
-    // phase (once generated): a single-elimination bracket sized by qualifiers.
-    const groupMatches = allMatches.filter((m) => m.phase === 'group');
-    const playoffMatches = allMatches.filter((m) => m.phase === 'playoff');
-    const qpg = tournament.qualifiersPerGroup ?? 0;
-
-    const standings = await getGroupStandings(tournamentId);
-    const totalMatches = (tournament.participantsPerGroup ?? 1) - 1;
-    for (const group of standings) {
-      text += formatGroupStandings(group, qpg, totalMatches, playerMap);
-      const groupSection = groupMatches.filter(
-        (m) => m.groupIndex === group.groupIndex,
-      );
-      text += formatMatchSection(
-        groupSection,
-        playerMap,
-        tournament,
-        0,
-        keyboard,
-      );
-    }
-
-    if (playoffMatches.length > 0) {
-      const playoffRounds = calculateRounds(
-        getNextPowerOfTwo((tournament.groupsCount ?? 0) * qpg),
-      );
-      text += `*═══ ПЛЕЙ-ОФФ ═══*\n\n`;
-      text += formatMatchSection(
-        playoffMatches,
-        playerMap,
-        tournament,
-        playoffRounds,
-        keyboard,
-      );
-    }
-  } else {
-    // Show rounds (existing logic for single_elimination and round_robin)
-    const rounds = Array.from(matchesByRound.keys()).sort((a, b) => a - b);
-
-    for (const round of rounds) {
-      const roundMatches = matchesByRound.get(round);
-      if (!roundMatches) continue;
-      const roundName = getRoundName(
-        round,
-        totalRounds,
-        tournament.format,
-        'winners',
-        tournament.mergeRound,
-        roundMatches[0]?.phase,
-        roundMatches[0]?.groupIndex ?? undefined,
-      );
-
-      text += `*${roundName}:*\n`;
-
-      for (const match of roundMatches) {
-        const p1 = match.player1Id ? playerMap.get(match.player1Id) : null;
-        const p2 = match.player2Id ? playerMap.get(match.player2Id) : null;
-
-        const player1Name = p1 ? formatPlayerName(p1) : 'TBD';
-        const player2Name = p2 ? formatPlayerName(p2) : 'TBD';
-
-        const emoji = getMatchStatusEmoji(match.status);
-        let score = '';
-
-        if (
-          match.status === 'completed' ||
-          match.status === 'pending_confirmation'
-        ) {
-          score = ` (${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')})`;
-        }
-
-        text += `${emoji} ${player1Name} vs ${player2Name}${score}\n`;
-
-        // Add button for each match
-        keyboard.text(`#${String(match.position)}`, `match:view:${match.id}`);
-      }
-      keyboard.row();
-      text += '\n';
-    }
-  }
-
-  keyboard.text('🔄 Обновить', `bracket:view:${tournamentId}`).row();
+  const { text, keyboard } = buildBracketView(model);
 
   if (isEdit) {
     await safeEditMessageText(ctx, {

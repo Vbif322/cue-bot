@@ -29,6 +29,7 @@ import type {
   ITournamentVisibility,
   ITournamentWinScore,
   IGroupDraw,
+  ParticipantStatus,
 } from '@/db/schema.js';
 import { validateGroupConfig } from '@/admin/server/tournamentOptions.js';
 import type {
@@ -267,6 +268,76 @@ export async function getConfirmedParticipants(
     name: p.name,
     seed: p.seed,
   }));
+}
+
+/** A tournament participant joined with the user fields the admin roster shows. */
+export interface ParticipantWithUser {
+  userId: UUID;
+  username: string;
+  name: string | null;
+  surname: string | null;
+}
+
+/**
+ * Get a tournament's participants in a given status with name/surname/username
+ * for display (admin participant-management screen).
+ */
+export async function getParticipantsByStatus(
+  tournamentId: UUID,
+  status: ParticipantStatus,
+): Promise<ParticipantWithUser[]> {
+  return db
+    .select({
+      userId: tournamentParticipants.userId,
+      username: users.username,
+      name: users.name,
+      surname: users.surname,
+    })
+    .from(tournamentParticipants)
+    .innerJoin(users, eq(tournamentParticipants.userId, users.id))
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.status, status),
+      ),
+    );
+}
+
+/** A tournament joined with the current user's participation row. */
+export interface UserTournamentParticipation {
+  tournament: typeof tournaments.$inferSelect;
+  participation: typeof tournamentParticipants.$inferSelect;
+}
+
+/**
+ * Get all tournaments a user is involved in (pending/confirmed/invited) together
+ * with their participation row, ordered by start date — backs the bot's «Мои
+ * турниры», which needs the per-tournament participation status.
+ */
+export async function getUserTournamentParticipations(
+  userId: UUID,
+): Promise<UserTournamentParticipation[]> {
+  return db
+    .select({
+      tournament: tournaments,
+      participation: tournamentParticipants,
+    })
+    .from(tournamentParticipants)
+    .innerJoin(
+      tournaments,
+      eq(tournamentParticipants.tournamentId, tournaments.id),
+    )
+    .where(
+      and(
+        eq(tournamentParticipants.userId, userId),
+        inArray(tournamentParticipants.status, [
+          'pending',
+          'confirmed',
+          'invited',
+        ]),
+      ),
+    )
+    .orderBy(tournaments.startDate);
 }
 
 /**
