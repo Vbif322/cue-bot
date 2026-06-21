@@ -20,7 +20,13 @@ export interface ICreationData {
       | 'scheduleMode'
       | 'discipline'
       | 'format'
+      | 'randomAdvancement'
       | 'maxParticipants'
+      | 'mergeRound'
+      | 'groupsCount'
+      | 'participantsPerGroup'
+      | 'qualifiersPerGroup'
+      | 'groupDraw'
       | 'winScore'
     >
   >;
@@ -39,10 +45,23 @@ export interface IRequiredCreationData extends Required<ICreationData> {
       | 'scheduleMode'
       | 'discipline'
       | 'format'
+      | 'randomAdvancement'
       | 'maxParticipants'
       | 'winScore'
     >
-  >;
+  > &
+    // mergeRound (double_elimination) and the group config (groups_playoff) are
+    // collected only for their formats; optional here.
+    Partial<
+      Pick<
+        Tournament,
+        | 'mergeRound'
+        | 'groupsCount'
+        | 'participantsPerGroup'
+        | 'qualifiersPerGroup'
+        | 'groupDraw'
+      >
+    >;
 }
 
 export interface ICreationState {

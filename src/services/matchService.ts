@@ -4,6 +4,7 @@ import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
+import type { Executor } from '@/db/db.js';
 import {
   matches,
   matchCorrections,
@@ -11,11 +12,9 @@ import {
   users,
   tables,
   tournamentTables,
+  type ITournamentFormat,
 } from '@/db/schema.js';
 import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
-
-/** A drizzle executor — either the root `db` or an open transaction handle. */
-type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Visitor invoked for each downstream match that holds a player advanced from a corrected match. */
 type DownstreamVisitor = (
@@ -27,10 +26,26 @@ type DownstreamVisitor = (
 import { completeTournament, getTournament } from './tournamentService.js';
 import { notifyMatchStart } from './notificationService.js';
 import type { BracketMatch } from './bracketGenerator.js';
+import { getNextPowerOfTwo } from './bracketGenerator.js';
 import {
   getRandomTargetPool,
   placeIntoRandomFreeSlot,
 } from './randomBracketAdvancement.js';
+import { errorMessage } from '@/utils/errors.js';
+
+/** Bracket dimensions the DE random-advancement pool map needs at runtime. */
+function deBracketDims(tournament: {
+  mergeRound: number;
+  confirmedParticipants: number | null;
+  maxParticipants: number;
+}): { mergeRound: number; bracketSize: number } {
+  return {
+    mergeRound: tournament.mergeRound,
+    bracketSize: getNextPowerOfTwo(
+      tournament.confirmedParticipants ?? tournament.maxParticipants,
+    ),
+  };
+}
 
 /**
  * Create matches in database from generated bracket
@@ -38,12 +53,13 @@ import {
 export async function createMatches(
   tournamentId: UUID,
   bracket: BracketMatch[],
+  executor: Executor = db,
 ): Promise<void> {
   const createdMatches: { position: number; id: UUID }[] = [];
 
   for (const match of bracket) {
     const isWalkover = match.isCompletedWalkover === true;
-    const [created] = await db
+    const [created] = await executor
       .insert(matches)
       .values({
         tournamentId,
@@ -54,8 +70,11 @@ export async function createMatches(
         player1IsWalkover: match.player1IsWalkover ?? false,
         player2IsWalkover: match.player2IsWalkover ?? false,
         bracketType: match.bracketType,
+        phase: match.phase ?? 'playoff',
+        groupIndex: match.groupIndex ?? null,
         nextMatchPosition: match.nextMatchPosition ?? null,
         losersNextMatchPosition: match.losersNextMatchPosition ?? null,
+        losersNextMatchSlot: match.losersNextMatchSlot ?? null,
         status: isWalkover ? 'completed' : 'scheduled',
         winnerId: isWalkover ? (match.walkoverWinnerId ?? null) : null,
         isTechnicalResult: isWalkover,
@@ -79,7 +98,7 @@ export async function createMatches(
       );
 
       if (currentMatch && nextMatch) {
-        await db
+        await executor
           .update(matches)
           .set({ nextMatchId: nextMatch.id })
           .where(eq(matches.id, currentMatch.id));
@@ -88,11 +107,6 @@ export async function createMatches(
   }
 }
 
-function determineInitialStatus(
-  _match: BracketMatch,
-): (typeof matches.$inferSelect)['status'] {
-  return 'scheduled';
-}
 
 /**
  * Get match by ID with player information and table name
@@ -458,7 +472,7 @@ export async function reportResult(
   if (player1Score !== winScore && player2Score !== winScore) {
     return {
       success: false,
-      error: `Один из игроков должен набрать ${winScore} побед`,
+      error: `Один из игроков должен набрать ${String(winScore)} побед`,
     };
   }
   if (player1Score === winScore && player2Score === winScore) {
@@ -628,7 +642,7 @@ export async function advanceWinner(
     where: eq(matches.id, matchId),
   });
 
-  if (!match || !match.winnerId) return;
+  if (!match?.winnerId) return;
 
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return;
@@ -636,8 +650,39 @@ export async function advanceWinner(
   const loserId =
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
-  if (tournament.format === 'double_elimination_random') {
-    await advanceWinnerRandom(match, loserId, botApi);
+  if (tournament.randomAdvancement) {
+    await advanceWinnerRandom(match, loserId, tournament, botApi);
+    return;
+  }
+
+  if (tournament.format === 'groups_playoff' && match.phase === 'group') {
+    // Group matches don't advance a winner anywhere (qualification is by
+    // standings). Free the table, and once the whole group phase is complete,
+    // generate + start the playoff. Dynamic import avoids a static import cycle
+    // with tournamentStartService.
+    if (match.tableId && botApi) {
+      await onTableFreed(match.tournamentId, match.tableId, botApi);
+    }
+    if (await allGroupMatchesComplete(match.tournamentId)) {
+      const { maybeStartPlayoffPhase } = await import(
+        './tournamentStartService.js'
+      );
+      await maybeStartPlayoffPhase(match.tournamentId, botApi);
+    }
+    return;
+  }
+  // groups_playoff playoff-phase matches fall through to the single-elimination
+  // nextMatchId wiring below.
+
+  if (tournament.format === 'round_robin') {
+    // RR-матчи не имеют nextMatchId: завершаем турнир только когда сыграны все матчи.
+    if (await checkTournamentCompletion(match.tournamentId)) {
+      await completeTournament(match.tournamentId);
+    }
+    // Стол освобождается после каждого матча независимо от завершения турнира.
+    if (match.tableId && botApi) {
+      await onTableFreed(match.tournamentId, match.tableId, botApi);
+    }
     return;
   }
 
@@ -694,18 +739,30 @@ export async function advanceWinner(
 }
 
 /**
- * Random-mode advancement: place winner (and, for winners-bracket matches,
- * the loser too) into a random free slot of the corresponding next-round pool.
- * Used only for tournaments with format === 'double_elimination_random'.
+ * Random-mode advancement: place winner (and, for double-elim winners-bracket
+ * matches, the loser too) into a random free slot of the corresponding
+ * next-round pool. Used for tournaments with `randomAdvancement = true`.
  */
 async function advanceWinnerRandom(
   match: Match,
   loserId: UUID | null,
+  tournament: {
+    format: ITournamentFormat;
+    mergeRound: number;
+    confirmedParticipants: number | null;
+    maxParticipants: number;
+  },
   botApi?: Api,
 ): Promise<void> {
   if (!match.winnerId) return;
 
-  const winnerPool = getRandomTargetPool(match, true);
+  if (tournament.format === 'single_elimination') {
+    await advanceWinnerRandomSingleElim(match, botApi);
+    return;
+  }
+
+  const { mergeRound, bracketSize } = deBracketDims(tournament);
+  const winnerPool = getRandomTargetPool(match, true, mergeRound, bracketSize);
 
   if (winnerPool === null) {
     await completeTournament(match.tournamentId);
@@ -728,7 +785,7 @@ async function advanceWinnerRandom(
   );
 
   if (match.bracketType === 'winners' && loserId) {
-    const loserPool = getRandomTargetPool(match, false);
+    const loserPool = getRandomTargetPool(match, false, mergeRound, bracketSize);
     if (loserPool) {
       const placedLoser = await placeIntoRandomFreeSlot(
         match.tournamentId,
@@ -750,24 +807,84 @@ async function advanceWinnerRandom(
 }
 
 /**
+ * Random-mode advancement for single elimination: place the winner into a
+ * random free slot of the next round (all matches are `winners`). The loser is
+ * simply eliminated. When the next round has no matches, the tournament is over.
+ */
+async function advanceWinnerRandomSingleElim(
+  match: Match,
+  botApi?: Api,
+): Promise<void> {
+  if (!match.winnerId) return;
+
+  const nextRound = match.round + 1;
+  const nextRoundMatches = await db.query.matches.findMany({
+    where: and(
+      eq(matches.tournamentId, match.tournamentId),
+      eq(matches.bracketType, 'winners'),
+      eq(matches.round, nextRound),
+    ),
+  });
+
+  if (nextRoundMatches.length === 0) {
+    await completeTournament(match.tournamentId);
+    if (match.tableId && botApi) {
+      await onTableFreed(match.tournamentId, match.tableId, botApi);
+    }
+    return;
+  }
+
+  const placed = await placeIntoRandomFreeSlot(
+    match.tournamentId,
+    { bracketType: 'winners', round: nextRound },
+    match.winnerId,
+  );
+  await maybeAutoResolveWalkover(
+    placed.matchId,
+    placed.slot,
+    match.winnerId,
+    botApi,
+  );
+
+  if (match.tableId && botApi) {
+    await onTableFreed(match.tournamentId, match.tableId, botApi);
+  }
+}
+
+/**
  * Where the loser of a winners-bracket match drops into the losers bracket.
- * Hardcoded to the 16-player double-elimination layout (mirrors the generator).
- * Returns null when the loser is eliminated (winners round > 2). Single source
- * of truth shared by advanceLoserToLosersBracket (forward) and the correction
- * rollback (reverse), so the two can never drift.
+ * Reads the routing the generator stored on the row (`losersNextMatchPosition` +
+ * `losersNextMatchSlot`), so it works for any bracket size / merge round. Returns
+ * null when the loser is eliminated (no drop stored). Single source of truth
+ * shared by advanceLoserToLosersBracket (forward) and the correction rollback
+ * (reverse), so the two can never drift.
  */
 export function loserTarget(
   match: Match,
 ): { position: number; slot: 'player1Id' | 'player2Id' } | null {
-  if (match.round > 2 || match.bracketType !== 'winners') return null;
+  if (match.bracketType !== 'winners') return null;
+  if (match.losersNextMatchPosition == null) return null;
 
-  if (match.round === 1) {
+  const slot = match.losersNextMatchSlot;
+  if (slot === 'player1' || slot === 'player2') {
     return {
-      position: 9 + Math.floor((match.position - 1) / 2),
-      slot: match.position % 2 === 1 ? 'player1Id' : 'player2Id',
+      position: match.losersNextMatchPosition,
+      slot: slot === 'player1' ? 'player1Id' : 'player2Id',
     };
   }
-  return { position: 17 + (match.position - 13), slot: 'player2Id' };
+
+  // Backward-compat fallback for rows created before `losersNextMatchSlot`
+  // existed (the historical fixed 16-slot, merge-round-2 layout): round 1 →
+  // odd position to player1 / even to player2; round 2 → player2.
+  return {
+    position: match.losersNextMatchPosition,
+    slot:
+      match.round === 1
+        ? match.position % 2 === 1
+          ? 'player1Id'
+          : 'player2Id'
+        : 'player2Id',
+  };
 }
 
 async function advanceLoserToLosersBracket(
@@ -787,7 +904,7 @@ async function advanceLoserToLosersBracket(
 
   if (!losersMatch) {
     console.error(
-      `Losers match not found at position ${target.position} for tournament ${match.tournamentId}`,
+      `Losers match not found at position ${String(target.position)} for tournament ${match.tournamentId}`,
     );
     return;
   }
@@ -844,6 +961,23 @@ async function maybeAutoResolveWalkover(
 }
 
 /**
+ * True once every group-phase match of a groups_playoff tournament is completed.
+ * Used to trigger the group→playoff transition.
+ */
+export async function allGroupMatchesComplete(
+  tournamentId: UUID,
+): Promise<boolean> {
+  const groupMatches = await db.query.matches.findMany({
+    where: and(
+      eq(matches.tournamentId, tournamentId),
+      eq(matches.phase, 'group'),
+    ),
+  });
+  if (groupMatches.length === 0) return false;
+  return groupMatches.every((m) => m.status === 'completed');
+}
+
+/**
  * Check if tournament is complete
  */
 export async function checkTournamentCompletion(
@@ -855,26 +989,41 @@ export async function checkTournamentCompletion(
   const allMatches = await getTournamentMatches(tournamentId);
   const completedMatches = allMatches.filter((m) => m.status === 'completed');
 
+  if (tournament.format === 'groups_playoff') {
+    // Not complete until the playoff exists and its final (highest-round playoff
+    // match) is done. Before the playoff is generated there are only group rows,
+    // so this returns false and the tournament does not complete at end of groups.
+    const playoff = allMatches.filter((m) => m.phase === 'playoff');
+    if (playoff.length === 0) return false;
+    const maxRound = playoff.reduce((max, m) => Math.max(max, m.round), 0);
+    return playoff.find((m) => m.round === maxRound)?.status === 'completed';
+  }
+
   if (tournament.format === 'single_elimination') {
-    const finalMatch = allMatches.find(
-      (m) => !m.nextMatchId && m.bracketType === 'winners',
+    // The final is the single highest-round winners match. Detecting it by the
+    // absence of `nextMatchId` breaks under random advancement (pointers are
+    // stripped from every match), so key off the max round instead.
+    const winnersMatches = allMatches.filter(
+      (m) => m.bracketType === 'winners',
     );
+    const maxRound = winnersMatches.reduce((max, m) => Math.max(max, m.round), 0);
+    const finalMatch = winnersMatches.find((m) => m.round === maxRound);
     return finalMatch?.status === 'completed';
   }
 
-  if (
-    tournament.format === 'double_elimination' ||
-    tournament.format === 'double_elimination_random'
-  ) {
-    const grandFinal = allMatches.find((m) => m.bracketType === 'grand_final');
-    return grandFinal?.status === 'completed';
+  if (tournament.format === 'double_elimination') {
+    // The terminal match is the single highest-round winners match (the merge
+    // playoff final / grand final). Keying off max round is robust to any bracket
+    // size, merge round, and random advancement (where pointers are stripped).
+    const winnersMatches = allMatches.filter(
+      (m) => m.bracketType === 'winners',
+    );
+    const maxRound = winnersMatches.reduce((max, m) => Math.max(max, m.round), 0);
+    const finalMatch = winnersMatches.find((m) => m.round === maxRound);
+    return finalMatch?.status === 'completed';
   }
 
-  if (tournament.format === 'round_robin') {
-    return completedMatches.length === allMatches.length;
-  }
-
-  return false;
+  return completedMatches.length === allMatches.length;
 }
 
 /**
@@ -905,6 +1054,15 @@ export async function startMatch(
   matchId: UUID,
 ): Promise<{ success: boolean; error?: string; match?: Match }> {
   try {
+    const match = await getMatch(matchId);
+    if (!match) return { success: false, error: 'Матч не найден' };
+    if (match.status !== 'scheduled') {
+      return {
+        success: false,
+        error: 'Матч можно начать только из статуса «Запланирован»',
+      };
+    }
+
     const updatedMatch = await db
       .update(matches)
       .set({
@@ -912,16 +1070,16 @@ export async function startMatch(
         startedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(matches.id, matchId))
+      .where(and(eq(matches.id, matchId), eq(matches.status, 'scheduled')))
       .returning();
 
     if (!updatedMatch[0]) {
-      return { success: false, error: 'Не удалось обновить матч' };
+      return { success: false, error: 'Статус матча изменился, обновите страницу' };
     }
 
     return { success: true, match: updatedMatch[0] };
   } catch (error) {
-    return { success: false, error: JSON.stringify(error) };
+    return { success: false, error: errorMessage(error) };
   }
 }
 
@@ -947,7 +1105,7 @@ export async function setMatchSchedule(
 
     return { success: true, match: updatedMatch[0] };
   } catch (error) {
-    return { success: false, error: JSON.stringify(error) };
+    return { success: false, error: errorMessage(error) };
   }
 }
 
@@ -963,7 +1121,7 @@ export function validateCorrectionScores(
   winScore: number,
 ): string | null {
   if (player1Score !== winScore && player2Score !== winScore) {
-    return `Один из игроков должен набрать ${winScore} побед`;
+    return `Один из игроков должен набрать ${String(winScore)} побед`;
   }
   if (player1Score === winScore && player2Score === winScore) {
     return 'Оба игрока не могут выиграть';
@@ -1003,7 +1161,13 @@ async function findPlayerSlotInPool(
 async function walkDownstream(
   exec: Executor,
   match: Match,
-  tournament: { format: string },
+  tournament: {
+    format: ITournamentFormat;
+    randomAdvancement: boolean;
+    mergeRound: number;
+    confirmedParticipants: number | null;
+    maxParticipants: number;
+  },
   visit: DownstreamVisitor,
 ): Promise<void> {
   if (!match.winnerId) return;
@@ -1011,14 +1175,21 @@ async function walkDownstream(
   const loserId =
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
-  const placements: Array<{
+  const { mergeRound, bracketSize } = deBracketDims(tournament);
+
+  const placements: {
     match: Match;
     slot: 'player1' | 'player2';
     player: UUID;
-  }> = [];
+  }[] = [];
 
-  if (tournament.format === 'double_elimination_random') {
-    const winnerPool = getRandomTargetPool(match, true);
+  if (tournament.randomAdvancement) {
+    // Single elimination uses a plain next-round pool; double elimination uses
+    // the merge-round-aware getRandomTargetPool.
+    const winnerPool =
+      tournament.format === 'single_elimination'
+        ? { bracketType: 'winners' as const, round: match.round + 1 }
+        : getRandomTargetPool(match, true, mergeRound, bracketSize);
     if (winnerPool) {
       const found = await findPlayerSlotInPool(
         exec,
@@ -1034,8 +1205,12 @@ async function walkDownstream(
         });
       }
     }
-    if (match.bracketType === 'winners' && loserId) {
-      const loserPool = getRandomTargetPool(match, false);
+    if (
+      tournament.format === 'double_elimination' &&
+      match.bracketType === 'winners' &&
+      loserId
+    ) {
+      const loserPool = getRandomTargetPool(match, false, mergeRound, bracketSize);
       if (loserPool) {
         const found = await findPlayerSlotInPool(
           exec,
@@ -1137,19 +1312,54 @@ async function resetDownstream(
   affected.push(match.id);
 }
 
-export type CorrectionPreview = {
+export interface CorrectionPreview {
   valid: boolean;
   error?: string;
   winnerChanged: boolean;
   affectedCount: number;
   willReshuffle: boolean;
   tournamentWillReopen: boolean;
-};
+}
 
 /**
  * Read-only dry run: validate a proposed correction and count how many
  * downstream matches would be reset, without writing anything.
  */
+/**
+ * Whether a corrected match feeds a bracket cascade (winner advances via
+ * nextMatchId / loser drop). Round-robin and groups_playoff group-phase matches
+ * do not — their corrections are plain score edits, no downstream rollback.
+ */
+function matchHasBracketCascade(
+  format: ITournamentFormat,
+  match: { phase: string },
+): boolean {
+  if (format === 'round_robin') return false;
+  if (format === 'groups_playoff' && match.phase === 'group') return false;
+  return true;
+}
+
+/**
+ * Group-phase results lock once the playoff has been generated: recomputing
+ * qualifiers mid-playoff would invalidate already-played bracket matches. Returns
+ * an error string if the correction must be blocked, else null.
+ */
+async function groupResultLockError(
+  format: ITournamentFormat,
+  match: { tournamentId: UUID; phase: string },
+): Promise<string | null> {
+  if (format !== 'groups_playoff' || match.phase !== 'group') return null;
+  const playoffExists = await db.query.matches.findFirst({
+    where: and(
+      eq(matches.tournamentId, match.tournamentId),
+      eq(matches.phase, 'playoff'),
+    ),
+  });
+  return playoffExists
+    ? 'Групповой этап завершён, результаты группы изменить нельзя'
+    : null;
+}
+
 export async function previewCorrection(
   matchId: UUID,
   newPlayer1Score: number,
@@ -1178,6 +1388,9 @@ export async function previewCorrection(
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return { valid: false, error: 'Турнир не найден', ...empty };
 
+  const lockError = await groupResultLockError(tournament.format, match);
+  if (lockError) return { valid: false, error: lockError, ...empty };
+
   const scoreError = validateCorrectionScores(
     newPlayer1Score,
     newPlayer2Score,
@@ -1188,9 +1401,10 @@ export async function previewCorrection(
   const newWinnerId =
     newPlayer1Score > newPlayer2Score ? match.player1Id : match.player2Id;
   const winnerChanged = newWinnerId !== match.winnerId;
+  const hasCascade = matchHasBracketCascade(tournament.format, match);
 
   let affectedCount = 0;
-  if (winnerChanged && tournament.format !== 'round_robin') {
+  if (winnerChanged && hasCascade) {
     const ids = new Set<UUID>();
     await walkDownstream(db, match, tournament, (m) => {
       ids.add(m.id);
@@ -1202,12 +1416,9 @@ export async function previewCorrection(
     valid: true,
     winnerChanged,
     affectedCount,
-    willReshuffle:
-      tournament.format === 'double_elimination_random' && winnerChanged,
+    willReshuffle: tournament.randomAdvancement && winnerChanged,
     tournamentWillReopen:
-      winnerChanged &&
-      tournament.status === 'completed' &&
-      tournament.format !== 'round_robin',
+      winnerChanged && tournament.status === 'completed' && hasCascade,
   };
 }
 
@@ -1247,6 +1458,9 @@ export async function correctMatchResult(
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return { success: false, error: 'Турнир не найден' };
 
+  const lockError = await groupResultLockError(tournament.format, match);
+  if (lockError) return { success: false, error: lockError };
+
   const scoreError = validateCorrectionScores(
     newPlayer1Score,
     newPlayer2Score,
@@ -1257,7 +1471,8 @@ export async function correctMatchResult(
   const newWinnerId =
     newPlayer1Score > newPlayer2Score ? match.player1Id : match.player2Id;
   const winnerChanged = newWinnerId !== match.winnerId;
-  const needsRollback = winnerChanged && tournament.format !== 'round_robin';
+  const needsRollback =
+    winnerChanged && matchHasBracketCascade(tournament.format, match);
   const affected: UUID[] = [];
 
   await db.transaction(async (tx) => {

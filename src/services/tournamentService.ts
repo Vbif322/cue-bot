@@ -13,6 +13,7 @@ import { randomBytes } from 'crypto';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
+import type { Executor } from '@/db/db.js';
 import {
   matches,
   tournamentTables,
@@ -24,11 +25,13 @@ import {
 import type {
   ITournamentDiscipline,
   ITournamentFormat,
-  ITournamentMaxParticipants,
   ITournamentScheduleMode,
   ITournamentVisibility,
   ITournamentWinScore,
+  IGroupDraw,
+  ParticipantStatus,
 } from '@/db/schema.js';
+import { validateGroupConfig } from '@/admin/server/tournamentOptions.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
@@ -44,35 +47,48 @@ export interface StartTournamentResult {
   participantsCount: number;
 }
 
-export interface CreateTournamentDraftInput {
+/** Group + playoff config fields, shared by the create/update inputs. */
+export interface GroupConfigInput {
+  groupsCount?: number | null;
+  participantsPerGroup?: number | null;
+  qualifiersPerGroup?: number | null;
+  groupDraw?: IGroupDraw | null;
+}
+
+export interface CreateTournamentDraftInput extends GroupConfigInput {
   venueId: UUID;
 
   name: string;
   description?: string | null;
   discipline: ITournamentDiscipline;
   format: ITournamentFormat;
+  randomAdvancement?: boolean;
   visibility?: ITournamentVisibility;
   scheduleMode?: ITournamentScheduleMode;
   startDate?: Date | null;
-  maxParticipants: ITournamentMaxParticipants;
+  // Plain integer: discrete enum values for SE/DE/RR, derived total for groups_playoff.
+  maxParticipants: number;
   winScore: ITournamentWinScore;
+  mergeRound?: number;
   rules?: string | null;
   createdBy: UUID;
 
   tableIds?: UUID[];
 }
 
-export interface UpdateTournamentDraftInput {
+export interface UpdateTournamentDraftInput extends GroupConfigInput {
   venueId: UUID;
 
   name: string;
   description?: string | null;
   format: ITournamentFormat;
+  randomAdvancement?: boolean;
   visibility?: ITournamentVisibility;
   scheduleMode?: ITournamentScheduleMode;
   startDate?: Date | null;
-  maxParticipants: ITournamentMaxParticipants;
+  maxParticipants: number;
   winScore: ITournamentWinScore;
+  mergeRound?: number;
   rules?: string | null;
 
   tableIds?: UUID[];
@@ -157,9 +173,43 @@ export async function canStartTournament(
   if (count < 2) {
     return {
       canStart: false,
-      error: `Недостаточно участников для запуска турнира (минимум 2, сейчас ${count})`,
+      error: `Недостаточно участников для запуска турнира (минимум 2, сейчас ${String(count)})`,
       participantsCount: count,
     };
+  }
+
+  if (tournament.format === 'groups_playoff') {
+    const groupErr = validateGroupConfig({
+      groupsCount: tournament.groupsCount ?? 0,
+      participantsPerGroup: tournament.participantsPerGroup ?? 0,
+      qualifiersPerGroup: tournament.qualifiersPerGroup ?? 0,
+    });
+    if (groupErr) {
+      return { canStart: false, error: groupErr, participantsCount: count };
+    }
+    const groups = tournament.groupsCount ?? 0;
+    const perGroup = tournament.participantsPerGroup ?? 0;
+    const qpg = tournament.qualifiersPerGroup ?? 0;
+    const totalSlots = groups * perGroup;
+
+    // Under-filled groups are padded with walkovers; only the upper bound is hard.
+    if (count > totalSlots) {
+      return {
+        canStart: false,
+        error: `Слишком много участников: максимум ${String(totalSlots)} (${String(groups)}×${String(perGroup)}), сейчас ${String(count)}`,
+        participantsCount: count,
+      };
+    }
+    // Every group must still have enough real players to fill its qualifying spots
+    // (a walkover can't qualify). The smallest group has floor(count / groups).
+    const minGroupSize = Math.floor(count / groups);
+    if (minGroupSize < qpg) {
+      return {
+        canStart: false,
+        error: `Недостаточно участников: в наименьшей группе будет ${String(minGroupSize)}, а из группы выходит ${String(qpg)}. Добавьте участников или уменьшите число выходящих.`,
+        participantsCount: count,
+      };
+    }
   }
 
   const seedError = validateSeeds(participants, count);
@@ -178,10 +228,10 @@ export function validateSeeds(
   for (const p of participants) {
     if (p.seed == null) continue;
     if (p.seed < 1 || p.seed > count) {
-      return `Сид ${p.seed} выходит за диапазон 1..${count}`;
+      return `Сид ${String(p.seed)} выходит за диапазон 1..${String(count)}`;
     }
     if (seen.has(p.seed)) {
-      return `Сид ${p.seed} задан нескольким участникам`;
+      return `Сид ${String(p.seed)} задан нескольким участникам`;
     }
     seen.add(p.seed);
   }
@@ -220,31 +270,101 @@ export async function getConfirmedParticipants(
   }));
 }
 
+/** A tournament participant joined with the user fields the admin roster shows. */
+export interface ParticipantWithUser {
+  userId: UUID;
+  username: string;
+  name: string | null;
+  surname: string | null;
+}
+
+/**
+ * Get a tournament's participants in a given status with name/surname/username
+ * for display (admin participant-management screen).
+ */
+export async function getParticipantsByStatus(
+  tournamentId: UUID,
+  status: ParticipantStatus,
+): Promise<ParticipantWithUser[]> {
+  return db
+    .select({
+      userId: tournamentParticipants.userId,
+      username: users.username,
+      name: users.name,
+      surname: users.surname,
+    })
+    .from(tournamentParticipants)
+    .innerJoin(users, eq(tournamentParticipants.userId, users.id))
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.status, status),
+      ),
+    );
+}
+
+/** A tournament joined with the current user's participation row. */
+export interface UserTournamentParticipation {
+  tournament: typeof tournaments.$inferSelect;
+  participation: typeof tournamentParticipants.$inferSelect;
+}
+
+/**
+ * Get all tournaments a user is involved in (pending/confirmed/invited) together
+ * with their participation row, ordered by start date — backs the bot's «Мои
+ * турниры», which needs the per-tournament participation status.
+ */
+export async function getUserTournamentParticipations(
+  userId: UUID,
+): Promise<UserTournamentParticipation[]> {
+  return db
+    .select({
+      tournament: tournaments,
+      participation: tournamentParticipants,
+    })
+    .from(tournamentParticipants)
+    .innerJoin(
+      tournaments,
+      eq(tournamentParticipants.tournamentId, tournaments.id),
+    )
+    .where(
+      and(
+        eq(tournamentParticipants.userId, userId),
+        inArray(tournamentParticipants.status, [
+          'pending',
+          'confirmed',
+          'invited',
+        ]),
+      ),
+    )
+    .orderBy(tournaments.startDate);
+}
+
 /**
  * Start tournament - change status to in_progress
  */
-export async function startTournament(tournamentId: UUID): Promise<void> {
+export async function startTournament(
+  tournamentId: UUID,
+  executor: Executor = db,
+): Promise<void> {
   // Get tournament to check format
   const tournament = await getTournament(tournamentId);
   if (!tournament) {
     throw new Error('Tournament not found');
   }
 
-  // Validate double elimination requires exactly 16 participants
-  if (
-    tournament.format === 'double_elimination' ||
-    tournament.format === 'double_elimination_random'
-  ) {
+  // Validate double elimination participant count (8–128).
+  if (tournament.format === 'double_elimination') {
     const participants = await getConfirmedParticipants(tournamentId);
-    if (participants.length < 8) {
+    if (participants.length < 8 || participants.length > 128) {
       throw new Error(
-        'Double elimination поддерживает не менее 8 участников. ' +
-          `Текущее количество: ${participants.length}`,
+        'Double elimination поддерживает 8–128 участников. ' +
+          `Текущее количество: ${String(participants.length)}`,
       );
     }
   }
 
-  await db
+  await executor
     .update(tournaments)
     .set({
       status: 'in_progress',
@@ -288,12 +408,18 @@ export async function createTournamentDraft(
         description: input.description ?? null,
         discipline: input.discipline,
         format: input.format,
+        randomAdvancement: input.randomAdvancement ?? false,
         visibility: input.visibility ?? 'public',
         scheduleMode: input.scheduleMode ?? 'single_day',
         status: 'draft',
         startDate: input.startDate ?? null,
         maxParticipants: input.maxParticipants,
         winScore: input.winScore,
+        mergeRound: input.mergeRound ?? 2,
+        groupsCount: input.groupsCount ?? null,
+        participantsPerGroup: input.participantsPerGroup ?? null,
+        qualifiersPerGroup: input.qualifiersPerGroup ?? null,
+        groupDraw: input.groupDraw ?? null,
         rules: input.rules ?? null,
         createdBy: input.createdBy,
       })
@@ -376,7 +502,7 @@ export async function updateTournamentDraft(
 
   if (input.maxParticipants < activeCount) {
     throw new Error(
-      `Нельзя установить лимит участников меньше текущего числа участников (${activeCount})`,
+      `Нельзя установить лимит участников меньше текущего числа участников (${String(activeCount)})`,
     );
   }
 
@@ -388,11 +514,17 @@ export async function updateTournamentDraft(
         name: input.name,
         description: input.description ?? null,
         format: input.format,
+        randomAdvancement: input.randomAdvancement ?? false,
         visibility: input.visibility ?? 'public',
         scheduleMode: input.scheduleMode ?? 'single_day',
         startDate: input.startDate ?? null,
         maxParticipants: input.maxParticipants,
         winScore: input.winScore,
+        mergeRound: input.mergeRound ?? 2,
+        groupsCount: input.groupsCount ?? null,
+        participantsPerGroup: input.participantsPerGroup ?? null,
+        qualifiersPerGroup: input.qualifiersPerGroup ?? null,
+        groupDraw: input.groupDraw ?? null,
         rules: input.rules ?? null,
         updatedAt: new Date(),
       })
@@ -510,8 +642,9 @@ export async function ensureInviteCode(tournamentId: UUID): Promise<string> {
  */
 export async function getConfirmedParticipantsBySeed(
   tournamentId: UUID,
+  executor: Executor = db,
 ): Promise<TournamentParticipant[]> {
-  const rows = await db
+  const rows = await executor
     .select({
       userId: tournamentParticipants.userId,
       username: users.username,
@@ -541,7 +674,10 @@ export async function getConfirmedParticipantsBySeed(
  * Contract: caller must validate via canStartTournament beforehand. After this
  * call every confirmed participant has a unique seed in 1..N.
  */
-export async function fillMissingSeeds(tournamentId: UUID): Promise<void> {
+export async function fillMissingSeeds(
+  tournamentId: UUID,
+  executor?: Executor,
+): Promise<void> {
   const participants = await getConfirmedParticipants(tournamentId);
   const N = participants.length;
   if (N === 0) return;
@@ -559,7 +695,11 @@ export async function fillMissingSeeds(tournamentId: UUID): Promise<void> {
 
   const unseeded = participants.filter((p) => p.seed == null);
 
-  await db.transaction(async (tx) => {
+  // Use the caller's transaction when supplied; otherwise wrap our own seed
+  // writes in a transaction so they apply all-or-nothing. Note: a standalone
+  // caller like randomizeSeeds clears seeds in a separate statement first, so
+  // its clear+fill is NOT atomic as a whole — only these writes are.
+  const apply = async (tx: Executor): Promise<void> => {
     for (const participant of unseeded) {
       const seed = shuffledFree.pop();
       if (seed == null) break;
@@ -573,7 +713,10 @@ export async function fillMissingSeeds(tournamentId: UUID): Promise<void> {
           ),
         );
     }
-  });
+  };
+
+  if (executor) await apply(executor);
+  else await db.transaction(apply);
 }
 
 /**
@@ -651,7 +794,7 @@ export async function getTournaments(options?: {
     includesDrafts = true,
     statuses,
     includePrivate = false,
-  } = options || {};
+  } = options ?? {};
 
   const statusWhere = statuses
     ? inArray(tournaments.status, statuses)
@@ -683,7 +826,7 @@ export async function getUserTournaments(
   userId: UUID,
   options?: { limit?: number },
 ): Promise<TournamentReadModel[]> {
-  const { limit = 10 } = options || {};
+  const { limit = 10 } = options ?? {};
 
   return db
     .select(tournamentReadColumns)
@@ -813,6 +956,36 @@ export async function cancelTournament(tournamentId: UUID): Promise<void> {
 }
 
 /**
+ * Legal forward transitions of the documented tournament state machine. A
+ * status change is allowed only if the target is listed for the current status;
+ * `completed`/`cancelled` are terminal. `in_progress`/`completed` are reachable
+ * here but are set only via the dedicated start/auto-complete flows — the admin
+ * `PATCH /status` route additionally blocks them as manual targets.
+ */
+export const TOURNAMENT_STATUS_TRANSITIONS: Record<
+  TournamentStatus,
+  TournamentStatus[]
+> = {
+  draft: ['registration_open', 'cancelled'],
+  registration_open: ['registration_closed', 'cancelled'],
+  registration_closed: ['in_progress', 'cancelled'],
+  in_progress: ['completed', 'cancelled'],
+  completed: [],
+  cancelled: [],
+};
+
+/**
+ * Check whether a tournament may move from `from` to `to` per the documented
+ * state machine.
+ */
+export function canTransitionTournamentStatus(
+  from: TournamentStatus,
+  to: TournamentStatus,
+): boolean {
+  return TOURNAMENT_STATUS_TRANSITIONS[from].includes(to);
+}
+
+/**
  * Statuses in which tournament settings may still be edited: before the bracket
  * is generated (which happens only at start), so no live structure can desync.
  */
@@ -888,4 +1061,91 @@ export async function rejectParticipant(
     )
     .returning({ userId: tournamentParticipants.userId });
   return result.length > 0;
+}
+
+export type RegisterOutcome =
+  | { ok: true; status: 'pending' | 'confirmed'; reregistered: boolean }
+  | {
+      ok: false;
+      reason: 'not_found' | 'registration_closed' | 'already_registered' | 'full';
+    };
+
+/**
+ * Atomically register a user into a tournament, enforcing the participant cap.
+ *
+ * Serialized per-tournament by a transaction-scoped advisory lock (same pattern
+ * as `startTournamentFull`) so the count check and the insert can't race: two
+ * concurrent registrations on the same tournament are ordered, and the second
+ * sees the first's row before re-checking `maxParticipants`. This closes the
+ * TOCTOU window that previously let registrations exceed the cap.
+ *
+ * Performs no Telegram/HTTP side effects — callers do those after it returns.
+ */
+export async function registerParticipant(
+  tournamentId: UUID,
+  userId: UUID,
+  opts: { desiredStatus: 'pending' | 'confirmed'; requireOpen: boolean },
+): Promise<RegisterOutcome> {
+  return db.transaction(async (tx): Promise<RegisterOutcome> => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
+    );
+
+    const tournament = await tx.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournamentId),
+    });
+    if (!tournament) return { ok: false, reason: 'not_found' };
+
+    if (opts.requireOpen && tournament.status !== 'registration_open') {
+      return { ok: false, reason: 'registration_closed' };
+    }
+
+    const existing = await tx.query.tournamentParticipants.findFirst({
+      where: and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    });
+    if (existing && existing.status !== 'cancelled') {
+      return { ok: false, reason: 'already_registered' };
+    }
+
+    const [active] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tournamentParticipants)
+      .where(
+        and(
+          eq(tournamentParticipants.tournamentId, tournamentId),
+          inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+        ),
+      );
+    if ((active?.count ?? 0) >= tournament.maxParticipants) {
+      return { ok: false, reason: 'full' };
+    }
+
+    if (existing) {
+      // Re-registration after cancellation: revive the existing row.
+      await tx
+        .update(tournamentParticipants)
+        .set({ status: opts.desiredStatus, createdAt: new Date() })
+        .where(
+          and(
+            eq(tournamentParticipants.tournamentId, tournamentId),
+            eq(tournamentParticipants.userId, userId),
+          ),
+        );
+    } else {
+      await tx.insert(tournamentParticipants).values({
+        tournamentId,
+        userId,
+        status: opts.desiredStatus,
+      });
+    }
+
+    return {
+      ok: true,
+      status: opts.desiredStatus,
+      reregistered: existing != null,
+    };
+  });
 }

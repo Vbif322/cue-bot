@@ -2,6 +2,8 @@
 import type {
   ApiTournament,
   ApiTournamentParticipant,
+  ApiGroupStanding,
+  ApiPlayerStanding,
   ApiMatch,
   ApiMatchStats,
   ApiUser,
@@ -13,11 +15,14 @@ import type {
   TournamentVisibility,
   TournamentScheduleMode,
   ITournamentFormat,
+  IGroupDraw,
 } from '@server/apiTypes';
 
 export type {
   ApiTournament,
   ApiTournamentParticipant,
+  ApiGroupStanding,
+  ApiPlayerStanding,
   ApiMatch,
   ApiMatchStats,
   ApiUser,
@@ -29,7 +34,16 @@ export type {
   TournamentVisibility,
   TournamentScheduleMode,
   ITournamentFormat,
+  IGroupDraw,
 };
+
+/** Group + playoff config fields, shared by create/update payloads. */
+interface GroupConfigFields {
+  groupsCount?: number;
+  participantsPerGroup?: number;
+  qualifiersPerGroup?: number;
+  groupDraw?: IGroupDraw;
+}
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -62,18 +76,6 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 // ── Auth ────────────────────────────────────────────────────────────────────
 
 export const auth = {
-  requestCode: (username: string) =>
-    apiFetch<{ ok: boolean }>('/api/auth/request-code', {
-      method: 'POST',
-      body: JSON.stringify({ username }),
-    }),
-
-  verifyCode: (username: string, code: string) =>
-    apiFetch<{ user: { id: string; username: string; role: string } }>(
-      '/api/auth/verify-code',
-      { method: 'POST', body: JSON.stringify({ username, code }) },
-    ),
-
   logout: () =>
     apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 
@@ -92,19 +94,24 @@ export const tournamentsApi = {
 
   tables: (id: string) => apiFetch<ApiTable[]>(`/api/tournaments/${id}/tables`),
 
+  standings: (id: string) =>
+    apiFetch<ApiGroupStanding[]>(`/api/tournaments/${id}/standings`),
+
   create: (data: {
     name: string;
     description?: string;
     rules?: string;
     format: ITournamentFormat;
+    randomAdvancement?: boolean;
     visibility?: TournamentVisibility;
     scheduleMode?: TournamentScheduleMode;
     maxParticipants?: number;
     winScore?: number;
+    mergeRound?: number;
     startDate?: string;
     venueId: string;
     tableIds?: string[];
-  }) =>
+  } & GroupConfigFields) =>
     apiFetch<ApiTournament>('/api/tournaments', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -117,14 +124,16 @@ export const tournamentsApi = {
       description?: string;
       rules?: string;
       format: ITournamentFormat;
+      randomAdvancement?: boolean;
       visibility?: TournamentVisibility;
       scheduleMode?: TournamentScheduleMode;
       maxParticipants?: number;
       winScore?: number;
+      mergeRound?: number;
       startDate?: string;
       venueId: string;
       tableIds?: string[];
-    },
+    } & GroupConfigFields,
   ) =>
     apiFetch<ApiTournament>(`/api/tournaments/${id}`, {
       method: 'PATCH',
@@ -315,6 +324,9 @@ export const usersApi = {
     apiFetch<{ ok: boolean }>(`/api/users/${userId}/referee/${tournamentId}`, {
       method: 'DELETE',
     }),
+
+  delete: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
 };
 
 // ── Tables ────────────────────────────────────────────────────────────────────

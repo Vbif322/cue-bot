@@ -1,3 +1,4 @@
+import { InlineKeyboard } from 'grammy';
 import { describe, expect, it } from 'vitest';
 
 import { getMatchKeyboard } from '@/bot/ui/matchUI.js';
@@ -6,9 +7,10 @@ import type { tournaments } from '@/db/schema.js';
 
 type TournamentRow = typeof tournaments.$inferSelect;
 
-const callbacks = (kb: {
-  inline_keyboard: Array<Array<{ callback_data?: string }>>;
-}) => kb.inline_keyboard.flat().map((b) => b.callback_data);
+const callbacks = (kb: InlineKeyboard) =>
+  kb.inline_keyboard
+    .flat()
+    .map((b) => ('callback_data' in b ? b.callback_data : undefined));
 
 const match = {
   id: 'm1',

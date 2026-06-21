@@ -1,10 +1,10 @@
 import type { ApiTournament, ApiTable } from '../../lib/api.ts';
 import { TournamentStatusBadge } from '../StatusBadge.tsx';
 import {
-  FORMAT_LABELS,
   VISIBILITY_LABELS,
   SCHEDULE_MODE_LABELS,
   formatParticipants,
+  formatLabelWithMode,
 } from '../../lib/tournamentLabels.ts';
 
 export default function TournamentInfoTab({
@@ -20,7 +20,13 @@ export default function TournamentInfoTab({
         label="Статус"
         value={<TournamentStatusBadge status={tournament.status} />}
       />
-      <InfoRow label="Формат" value={FORMAT_LABELS[tournament.format]} />
+      <InfoRow
+        label="Формат"
+        value={formatLabelWithMode(
+          tournament.format,
+          tournament.randomAdvancement,
+        )}
+      />
       <InfoRow
         label="Видимость"
         value={
@@ -35,6 +41,12 @@ export default function TournamentInfoTab({
         }
       />
       <InfoRow label="Участники" value={formatParticipants(tournament)} />
+      {tournament.format === 'double_elimination' && (
+        <InfoRow
+          label="Раунд объединения"
+          value={String(tournament.mergeRound)}
+        />
+      )}
       <InfoRow label="Win score" value={String(tournament.winScore)} />
       {tournament.startDate && (
         <InfoRow

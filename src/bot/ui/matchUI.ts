@@ -120,26 +120,45 @@ export function formatMatchCard(
     telegramId: match.player2TelegramId,
   });
 
-  const rounds = calculateRounds(
+  const k = calculateRounds(
     getNextPowerOfTwo(
       tournament.confirmedParticipants ?? tournament.maxParticipants,
     ),
   );
+  // Double elimination has an extra (merge-playoff) round on the winners side.
+  // groups_playoff playoff rounds are sized by the qualifier total, not the full
+  // participant count; group-phase rounds are named by group letter (rounds arg
+  // is ignored there).
+  let rounds = k;
+  if (tournament.format === 'double_elimination') {
+    rounds = k + 1;
+  } else if (
+    tournament.format === 'groups_playoff' &&
+    tournament.groupsCount != null &&
+    tournament.qualifiersPerGroup != null
+  ) {
+    rounds = calculateRounds(
+      getNextPowerOfTwo(tournament.groupsCount * tournament.qualifiersPerGroup),
+    );
+  }
   const roundName = getRoundName(
     match.round,
     rounds,
     tournament.format,
-    match.bracketType || 'winners',
+    match.bracketType ?? 'winners',
+    tournament.mergeRound,
+    match.phase,
+    match.groupIndex ?? undefined,
   );
 
-  let text = `🎱 *Матч #${match.position}*\n`;
+  let text = `🎱 *Матч #${String(match.position)}*\n`;
   text += `${roundName}\n\n`;
   text += `${player1}\n`;
   text += `vs\n`;
   text += `${player2}\n\n`;
 
   if (match.status === 'completed' || match.status === 'pending_confirmation') {
-    text += `Счёт: ${match.player1Score ?? 0} : ${match.player2Score ?? 0}\n`;
+    text += `Счёт: ${String(match.player1Score ?? 0)} : ${String(match.player2Score ?? 0)}\n`;
   }
 
   if (match.winnerId && match.status === 'completed') {
@@ -176,7 +195,7 @@ export function formatMatchCard(
   }
 
   if (match.isTechnicalResult) {
-    text += `\n⚠️ Технический результат: ${match.technicalReason || 'не указана причина'}`;
+    text += `\n⚠️ Технический результат: ${match.technicalReason ?? 'не указана причина'}`;
   }
 
   return text;
@@ -191,6 +210,34 @@ export function getResultConfirmKeyboard(matchId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text('✅ Подтвердить', `match:confirm:${matchId}`)
     .text('❌ Оспорить', `match:dispute:${matchId}`);
+}
+
+/**
+ * Inline keyboard attached to match notifications so the recipient can act in a
+ * single tap instead of navigating via `/my_matches`. Reuses the existing match
+ * callbacks (`match:start` / `match:report` / `match:view` / `bracket:view`),
+ * whose handlers edit the notification message in place via `safeEditMessageText`.
+ *
+ * `options.action` controls the primary button:
+ *   - `'start'`  → «▶️ Начать матч» (для назначенного матча),
+ *   - `'report'` → «📝 Внести результат» (для уже идущего матча),
+ *   - не указан   → только навигационные кнопки.
+ */
+export function getMatchNotificationKeyboard(
+  match: MatchWithPlayers,
+  options: { action?: 'start' | 'report' } = {},
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (options.action === 'start') {
+    keyboard.text('▶️ Начать матч', `match:start:${match.id}`).row();
+  } else if (options.action === 'report') {
+    keyboard.text('📝 Внести результат', `match:report:${match.id}`).row();
+  }
+  keyboard
+    .text('📋 Открыть матч', `match:view:${match.id}`)
+    .text('📊 К сетке', `bracket:view:${match.tournamentId}`)
+    .row();
+  return keyboard;
 }
 
 /**

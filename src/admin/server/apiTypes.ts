@@ -9,13 +9,24 @@ export type {
   TournamentScheduleMode,
   ApiTournament,
   ApiTournamentParticipant,
+  ApiPlayerStanding,
+  ApiGroupStanding,
 } from '../../bot/@types/tournament.js';
 export { formats, type ITournamentFormat } from './formats.js';
 export {
   maxParticipants,
   winScores,
+  mergeRounds,
+  groupDraws,
+  groupsCountOptions,
+  participantsPerGroupOptions,
+  validMergeRoundsForSize,
+  validateGroupConfig,
+  qualifiersOptionsForGroupSize,
   type ITournamentMaxParticipants,
   type ITournamentWinScore,
+  type ITournamentMergeRound,
+  type IGroupDraw,
 } from './tournamentOptions.js';
 export type {
   MatchStatus,

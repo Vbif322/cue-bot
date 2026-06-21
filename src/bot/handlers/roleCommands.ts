@@ -1,5 +1,5 @@
 import { Composer } from 'grammy';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -14,9 +14,9 @@ export const roleCommands = new Composer<BotContext>();
 
 // /set_admin <telegram_id или @username> - назначить админа
 roleCommands.command('set_admin', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
-  if (!args || args.length === 0) {
+  if (args.length === 0) {
     await ctx.reply(
       'Использование: /set_admin <telegram_id или @username>\n' +
         'Пример: /set_admin 123456789\n' +
@@ -25,13 +25,14 @@ roleCommands.command('set_admin', adminOnly(), async (ctx) => {
     return;
   }
 
-  const target = args[0]!;
+  const target = args[0];
+  if (!target) return;
   let targetUser;
 
   if (target.startsWith('@')) {
     const username = target.slice(1);
     targetUser = await db.query.users.findFirst({
-      where: eq(users.username, username),
+      where: and(eq(users.username, username), isNotNull(users.telegram_id)),
     });
   } else {
     targetUser = await db.query.users.findFirst({
@@ -66,9 +67,9 @@ roleCommands.command('set_admin', adminOnly(), async (ctx) => {
 
 // /remove_admin <telegram_id или @username> - снять админа
 roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
-  if (!args || args.length === 0) {
+  if (args.length === 0) {
     await ctx.reply(
       'Использование: /remove_admin <telegram_id или @username>\n' +
         'Пример: /remove_admin @username',
@@ -76,12 +77,16 @@ roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
     return;
   }
 
-  const target = args[0]!;
+  const target = args[0];
+  if (!target) return;
   let targetUser;
 
   if (target.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
-      where: eq(users.username, target.slice(1)),
+      where: and(
+        eq(users.username, target.slice(1)),
+        isNotNull(users.telegram_id),
+      ),
     });
   } else {
     targetUser = await db.query.users.findFirst({
@@ -121,9 +126,9 @@ roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
 
 // /assign_referee <tournament_id> <telegram_id/@username>
 roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
-  if (!args || args.length < 2) {
+  if (args.length < 2) {
     await ctx.reply(
       'Использование: /assign_referee <tournament_id> <telegram_id или @username>\n' +
         'Пример: /assign_referee abc-123 @username',
@@ -145,7 +150,10 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
   let targetUser;
   if (targetArg.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
-      where: eq(users.username, targetArg.slice(1)),
+      where: and(
+        eq(users.username, targetArg.slice(1)),
+        isNotNull(users.telegram_id),
+      ),
     });
   } else {
     targetUser = await db.query.users.findFirst({
@@ -197,9 +205,9 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
 
 // /remove_referee <tournament_id> <telegram_id/@username>
 roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
-  if (!args || args.length < 2) {
+  if (args.length < 2) {
     await ctx.reply(
       'Использование: /remove_referee <tournament_id> <telegram_id или @username>\n' +
         'Пример: /remove_referee abc-123 @username',
@@ -221,7 +229,10 @@ roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
   let targetUser;
   if (targetArg.startsWith('@')) {
     targetUser = await db.query.users.findFirst({
-      where: eq(users.username, targetArg.slice(1)),
+      where: and(
+        eq(users.username, targetArg.slice(1)),
+        isNotNull(users.telegram_id),
+      ),
     });
   } else {
     targetUser = await db.query.users.findFirst({

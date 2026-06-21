@@ -66,6 +66,6 @@ describe('DateTimeHelper.formatDate', () => {
 
   it('honours a custom format', () => {
     const date = new Date(Date.UTC(2024, 2, 15, 14, 30));
-    expect(h.formatDate(date, 'yyyy')).toBe('2024');
+    expect(h.formatDate(date, 'YYYY')).toBe('2024');
   });
 });

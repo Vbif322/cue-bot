@@ -23,7 +23,7 @@ const tournamentCreationFlow = new TournamentCreationFlow(
 
 registerWizard({
   name: 'создание турнира',
-  isActive: (userId) => tournamentCreationStateStore.has(userId),
+  namespace: 'tc',
   callbackPrefix: 'tc:',
 });
 

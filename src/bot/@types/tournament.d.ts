@@ -40,3 +40,24 @@ export type ApiTournamentParticipant = Pick<
   username: string | null;
   name: string | null;
 };
+
+/** One row of a groups_playoff group standing, enriched with player display info. */
+export interface ApiPlayerStanding {
+  userId: UUID;
+  rank: number;
+  played: number;
+  wins: number;
+  losses: number;
+  framesWon: number;
+  framesLost: number;
+  frameDiff: number;
+  username: string | null;
+  name: string | null;
+  /** Mathematically guaranteed a top-`qualifiersPerGroup` finish in the group. */
+  clinched: boolean;
+}
+
+export interface ApiGroupStanding {
+  groupIndex: number;
+  rows: ApiPlayerStanding[];
+}

@@ -10,8 +10,8 @@ import type { ITournamentFormat } from '@/admin/server/formats.js';
 export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Олимпийская система',
   double_elimination: 'Двойная элиминация',
-  double_elimination_random: 'Двойная элиминация (рандом)',
   round_robin: 'Круговая система',
+  groups_playoff: 'Группа + плей-офф',
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -41,6 +41,18 @@ export function formatFormat(format: string): string {
   return (FORMAT_LABELS as Record<string, string>)[format] ?? format;
 }
 
+/**
+ * Format label with an optional "(рандом)" suffix when random pairing after each
+ * round is enabled. `randomAdvancement` is orthogonal to the bracket format.
+ */
+export function formatFormatWithMode(
+  format: string,
+  randomAdvancement: boolean,
+): string {
+  const label = formatFormat(format);
+  return randomAdvancement ? `${label} (рандом)` : label;
+}
+
 export function formatStatus(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
@@ -51,4 +63,11 @@ export function formatVisibility(visibility: string): string {
 
 export function formatScheduleMode(scheduleMode: string): string {
   return SCHEDULE_MODE_LABELS[scheduleMode] ?? scheduleMode;
+}
+
+/** Latin letter label for a 0-based group index (0 → A, 1 → B, …). */
+export function groupLetter(index: number): string {
+  return index >= 0 && index < 26
+    ? String.fromCharCode(65 + index)
+    : `#${String(index + 1)}`;
 }

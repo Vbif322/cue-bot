@@ -10,7 +10,7 @@ export async function wizardGuardMiddleware(
   const userId = ctx.from?.id;
   if (!userId) return next();
 
-  const activeWizard = getActiveWizard(userId);
+  const activeWizard = await getActiveWizard(userId);
   if (!activeWizard) return next();
 
   // /cancel всегда разрешён — чтобы пользователь мог выйти из wizard

@@ -49,8 +49,8 @@ export async function getTable(id: UUID): Promise<Table | null> {
  */
 export async function createTable(name: string, venueId: UUID): Promise<Table> {
   const [table] = await db.insert(tables).values({ name, venueId }).returning();
-
-  return table!;
+  if (!table) throw new Error('Failed to insert table');
+  return table;
 }
 
 /**
@@ -99,7 +99,7 @@ export async function setTournamentTables(
   tournamentId: UUID,
   tableIds: UUID[],
 ): Promise<void> {
-  const uniqueTableIds = Array.from(new Set(tableIds)) as UUID[];
+  const uniqueTableIds = Array.from(new Set(tableIds));
 
   await db.transaction(async (tx) => {
     await tx

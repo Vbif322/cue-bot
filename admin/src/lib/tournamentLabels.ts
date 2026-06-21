@@ -10,17 +10,36 @@ import type {
 export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elimination',
   double_elimination: 'Double Elimination',
-  double_elimination_random: 'Double Elimination (random)',
   round_robin: 'Round Robin',
+  groups_playoff: 'Groups + Playoff',
 };
 
 /** Compact variant used in dense list views. */
 export const FORMAT_LABELS_SHORT: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elim.',
   double_elimination: 'Double Elim.',
-  double_elimination_random: 'Double Elim. (random)',
   round_robin: 'Round Robin',
+  groups_playoff: 'Groups+PO',
 };
+
+/**
+ * Format label with a "(random)" suffix when random pairing after each round is
+ * enabled. `randomAdvancement` is orthogonal to the bracket format.
+ */
+export function formatLabelWithMode(
+  format: ITournamentFormat,
+  randomAdvancement: boolean,
+): string {
+  const label = FORMAT_LABELS[format];
+  return randomAdvancement ? `${label} (random)` : label;
+}
+
+/** Latin letter label for a 0-based group index (0 → A, 1 → B, …). */
+export function groupLetter(index: number): string {
+  return index >= 0 && index < 26
+    ? String.fromCharCode(65 + index)
+    : `#${index + 1}`;
+}
 
 export const VISIBILITY_LABELS: Record<TournamentVisibility, string> = {
   public: 'Открытый',

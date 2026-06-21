@@ -20,7 +20,7 @@ describe('phase 0b db harness', () => {
     const result = await db.execute(
       sql`SELECT tablename FROM pg_tables WHERE schemaname = 'prod'`,
     );
-    const names = (result.rows as Array<{ tablename: string }>).map(
+    const names = (result.rows as { tablename: string }[]).map(
       (r) => r.tablename,
     );
     expect(names).toEqual(
@@ -41,6 +41,9 @@ describe('phase 0b db harness', () => {
     const result = await db.execute(
       sql`SELECT count(*)::int AS c FROM "prod"."users"`,
     );
-    expect((result.rows as Array<{ c: number }>)[0]!.c).toBe(0);
+    const firstRow = (result.rows as { c: number }[])[0];
+    expect(firstRow).toBeDefined();
+    if (!firstRow) return;
+    expect(firstRow.c).toBe(0);
   });
 });

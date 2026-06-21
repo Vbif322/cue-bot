@@ -12,3 +12,8 @@ if (!DATABASE_URL) {
 export const db = drizzle(DATABASE_URL, {
   schema,
 });
+
+/** A drizzle executor — either the root `db` or an open transaction handle. */
+export type Executor =
+  | typeof db
+  | Parameters<Parameters<typeof db.transaction>[0]>[0];

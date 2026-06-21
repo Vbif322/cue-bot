@@ -1,7 +1,7 @@
 import { integer, primaryKey, uuid, varchar } from 'drizzle-orm/pg-core';
 import type { UUID } from 'crypto';
 
-import { createdAt, prodSchema } from '../schemaHelpers.js';
+import { createdAt, enumCheck, prodSchema } from '../schemaHelpers.js';
 import { tournaments } from './tournaments.js';
 import { users } from './users.js';
 
@@ -30,5 +30,12 @@ export const tournamentParticipants = prodSchema.table(
     seed: integer(),
     createdAt,
   },
-  (table) => [primaryKey({ columns: [table.tournamentId, table.userId] })],
+  (table) => [
+    primaryKey({ columns: [table.tournamentId, table.userId] }),
+    enumCheck(
+      'tournament_participants_status_check',
+      table.status,
+      participantStatus,
+    ),
+  ],
 );

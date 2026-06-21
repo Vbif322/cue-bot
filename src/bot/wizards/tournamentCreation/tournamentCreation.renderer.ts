@@ -32,24 +32,41 @@ export interface ITournamentCreationRenderer {
   showVenueStep(
     ctx: BotContext,
     scheduleMode: Tournament['scheduleMode'],
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
+    venues: Pick<Venue, 'id' | 'name'>[],
   ): Promise<void>; // Step 5
   showDisciplineStep(ctx: BotContext, venueName: Venue['name']): Promise<void>; // Step 6
   showFormatStep(
     ctx: BotContext,
     discipline: Tournament['discipline'],
   ): Promise<void>; // Step 7
+  showRandomModeStep(
+    ctx: BotContext,
+    format: Tournament['format'],
+  ): Promise<void>; // unnumbered (elimination only)
   showMaxParticipantsStep(
     ctx: BotContext,
     format: Tournament['format'],
+    randomAdvancement?: boolean,
   ): Promise<void>; // Step 8
+  showMergeRoundStep(
+    ctx: BotContext,
+    maxParticipants: Tournament['maxParticipants'],
+  ): Promise<void>; // unnumbered (double_elimination only)
+  // Unnumbered groups_playoff sub-steps.
+  showGroupsCountStep(ctx: BotContext): Promise<void>;
+  showParticipantsPerGroupStep(ctx: BotContext, groupsCount: number): Promise<void>;
+  showQualifiersPerGroupStep(
+    ctx: BotContext,
+    participantsPerGroup: number,
+  ): Promise<void>;
+  showGroupDrawStep(ctx: BotContext, qualifiersPerGroup: number): Promise<void>;
   showWinScoreStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
   ): Promise<void>; // Step 9
   showTablesStep(
     ctx: BotContext,
-    tables: Array<Pick<Table, 'id' | 'name'>>,
+    tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
     winScore?: Tournament['winScore'],
   ): Promise<void>; // Step 10
@@ -67,6 +84,10 @@ export interface ITournamentCreationRenderer {
   showNoVenues(ctx: BotContext): Promise<void>;
   showCorruptedSession(ctx: BotContext): Promise<void>;
   showIncorrectMaxParticipants(ctx: BotContext): Promise<void>;
+  showIncorrectMergeRound(ctx: BotContext): Promise<void>;
+  showIncorrectGroupsCount(ctx: BotContext): Promise<void>;
+  showIncorrectParticipantsPerGroup(ctx: BotContext): Promise<void>;
+  showIncorrectQualifiersPerGroup(ctx: BotContext): Promise<void>;
   showIncorrectWinScore(ctx: BotContext): Promise<void>;
   showSavedStateError(ctx: BotContext): Promise<void>;
 
@@ -90,7 +111,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
   async showNameStep(ctx: BotContext): Promise<void> {
     const message = `
-    Шаг 1 / ${STEPS_COUNT}
+    Шаг 1 / ${String(STEPS_COUNT)}
     Введите название турнира
     `.trim();
 
@@ -110,7 +131,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 2 / ${STEPS_COUNT}
+    Шаг 2 / ${String(STEPS_COUNT)}
     Введите дату турнира
     `.trim();
 
@@ -130,7 +151,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 3 / ${STEPS_COUNT}
+    Шаг 3 / ${String(STEPS_COUNT)}
     Выберите видимость турнира
     `.trim();
 
@@ -152,7 +173,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 4 / ${STEPS_COUNT}
+    Шаг 4 / ${String(STEPS_COUNT)}
     Выберите режим расписания матчей
     `.trim();
 
@@ -164,7 +185,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
   async showVenueStep(
     ctx: BotContext,
     scheduleMode: Tournament['scheduleMode'],
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
+    venues: Pick<Venue, 'id' | 'name'>[],
   ): Promise<void> {
     const resultMessage = `
     Установлен режим расписания: ${formatScheduleMode(scheduleMode)}
@@ -175,7 +196,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 5 / ${STEPS_COUNT}
+    Шаг 5 / ${String(STEPS_COUNT)}
     Выберите площадку
     `.trim();
 
@@ -197,7 +218,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 6 / ${STEPS_COUNT}
+    Шаг 6 / ${String(STEPS_COUNT)}
     Выберите дисциплину
     `.trim();
 
@@ -219,7 +240,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 7 / ${STEPS_COUNT}
+    Шаг 7 / ${String(STEPS_COUNT)}
     Выберите формат турнира
     `.trim();
 
@@ -228,9 +249,27 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
+  async showRandomModeStep(
+    ctx: BotContext,
+    format: Tournament['format'],
+  ): Promise<void> {
+    const resultMessageRandom = `Установленный формат: ${formatFormat(format)}`;
+
+    await safeEditMessageText(ctx, {
+      text: resultMessageRandom,
+    });
+
+    const promptMessage = 'Случайные пары после каждого раунда?';
+
+    await ctx.reply(promptMessage, {
+      reply_markup: this.keyboards.buildRandomModeKeyboard(),
+    });
+  }
+
   async showMaxParticipantsStep(
     ctx: BotContext,
     format: Tournament['format'],
+    randomAdvancement?: boolean,
   ): Promise<void> {
     const resultMessage = `
     Установленный формат: ${formatFormat(format)}
@@ -240,8 +279,16 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
       text: resultMessage,
     });
 
+    // Elimination path arrives here from the random-mode step: re-confirm the
+    // random choice instead of the (already-confirmed) format.
+    if (randomAdvancement !== undefined) {
+      await safeEditMessageText(ctx, {
+        text: `Случайные пары: ${randomAdvancement ? 'Да' : 'Нет'}`,
+      });
+    }
+
     const message = `
-    Шаг 8 / ${STEPS_COUNT}
+    Шаг 8 / ${String(STEPS_COUNT)}
     Введите максимальное количество участников
     `.trim();
 
@@ -250,12 +297,12 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
-  async showWinScoreStep(
+  async showMergeRoundStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
   ): Promise<void> {
     const resultMessage = `
-    Установленное максимальное количество участников: ${maxParticipants}
+    Установленное максимальное количество участников: ${String(maxParticipants)}
     `;
 
     await safeEditMessageText(ctx, {
@@ -263,7 +310,81 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 9 / ${STEPS_COUNT}
+    Раунд объединения (double elimination)
+    После какого раунда верхней сетки нижняя сетка объединяется с верхней?
+    2 — стандартная схема (второй шанс только в ранних раундах).
+    Максимальное значение — полный double elimination.
+    `.trim();
+
+    await ctx.reply(message, {
+      reply_markup: this.keyboards.buildMergeRoundKeyboard(maxParticipants),
+    });
+  }
+
+  async showGroupsCountStep(ctx: BotContext): Promise<void> {
+    await safeEditMessageText(ctx, {
+      text: 'Установленный формат: Группа + плей-офф',
+    });
+
+    await ctx.reply('Сколько групп в турнире?', {
+      reply_markup: this.keyboards.buildGroupsCountKeyboard(),
+    });
+  }
+
+  async showParticipantsPerGroupStep(
+    ctx: BotContext,
+    groupsCount: number,
+  ): Promise<void> {
+    await safeEditMessageText(ctx, {
+      text: `Количество групп: ${String(groupsCount)}`,
+    });
+
+    await ctx.reply('Сколько участников в каждой группе?', {
+      reply_markup: this.keyboards.buildParticipantsPerGroupKeyboard(),
+    });
+  }
+
+  async showQualifiersPerGroupStep(
+    ctx: BotContext,
+    participantsPerGroup: number,
+  ): Promise<void> {
+    await safeEditMessageText(ctx, {
+      text: `Участников в группе: ${String(participantsPerGroup)}`,
+    });
+
+    await ctx.reply('Сколько участников выходит из каждой группы в плей-офф?', {
+      reply_markup:
+        this.keyboards.buildQualifiersPerGroupKeyboard(participantsPerGroup),
+    });
+  }
+
+  async showGroupDrawStep(
+    ctx: BotContext,
+    qualifiersPerGroup: number,
+  ): Promise<void> {
+    await safeEditMessageText(ctx, {
+      text: `Выходит из группы: ${String(qualifiersPerGroup)}`,
+    });
+
+    await ctx.reply('Как распределить участников по группам?', {
+      reply_markup: this.keyboards.buildGroupDrawKeyboard(),
+    });
+  }
+
+  async showWinScoreStep(
+    ctx: BotContext,
+    maxParticipants: Tournament['maxParticipants'],
+  ): Promise<void> {
+    const resultMessage = `
+    Установленное максимальное количество участников: ${String(maxParticipants)}
+    `;
+
+    await safeEditMessageText(ctx, {
+      text: resultMessage,
+    });
+
+    const message = `
+    Шаг 9 / ${String(STEPS_COUNT)}
     Введите количество побед при которых игра будет завершена
     `.trim();
 
@@ -274,12 +395,12 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
   async showTablesStep(
     ctx: BotContext,
-    tables: Array<Pick<Table, 'id' | 'name'>>,
+    tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
     winScore?: Tournament['winScore'],
   ): Promise<void> {
     if (winScore !== undefined) {
-      const resultMessage = `Установленное количество побед: ${winScore}`;
+      const resultMessage = `Установленное количество побед: ${String(winScore)}`;
 
       await safeEditMessageText(ctx, {
         text: resultMessage,
@@ -288,7 +409,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     if (tables.length === 0) {
       const message = `
-      Шаг 10 / ${STEPS_COUNT}
+      Шаг 10 / ${String(STEPS_COUNT)}
       У выбранной площадки нет столов
       `.trim();
 
@@ -301,7 +422,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     }
 
     const message = `
-    Шаг 10 / ${STEPS_COUNT}
+    Шаг 10 / ${String(STEPS_COUNT)}
     Выберите столы для турнира на этой площадке или пропустите шаг
     `.trim();
 
@@ -401,6 +522,34 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
+  async showIncorrectMergeRound(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректный раунд объединения',
+      show_alert: true,
+    });
+  }
+
+  async showIncorrectGroupsCount(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректное количество групп',
+      show_alert: true,
+    });
+  }
+
+  async showIncorrectParticipantsPerGroup(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректное количество участников в группе',
+      show_alert: true,
+    });
+  }
+
+  async showIncorrectQualifiersPerGroup(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректное количество выходящих из группы',
+      show_alert: true,
+    });
+  }
+
   async showIncorrectWinScore(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
       text: 'Некорректное значение для количества побед',
@@ -436,9 +585,16 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     const formattedFormat = formatFormat(tournament.format);
 
+    const formattedRandom = tournament.randomAdvancement ? 'Да' : 'Нет';
+
     const formattedVisibility = formatVisibility(tournament.visibility);
 
     const formattedScheduleMode = formatScheduleMode(tournament.scheduleMode);
+
+    const mergeRoundLine =
+      tournament.format === 'double_elimination'
+        ? `\n    - Раунд объединения: ${String(tournament.mergeRound ?? 2)}`
+        : '';
 
     const message = `
     Данные турнира:
@@ -451,9 +607,10 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     - Площадка: ${venue.name}
     - Дисциплина: ${formattedDiscipline}
     - Формат: ${formattedFormat}
-    - Участников: ${tournament.maxParticipants}
-    - Количество необходимых побед: ${tournament.winScore}
-    - Количество выбранных столов: ${tables.length}
+    - Случайные пары: ${formattedRandom}
+    - Участников: ${String(tournament.maxParticipants)}${mergeRoundLine}
+    - Количество необходимых побед: ${String(tournament.winScore)}
+    - Количество выбранных столов: ${String(tables.length)}
     `.trim();
 
     await safeEditMessageText(ctx, {
@@ -469,7 +626,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     await safeEditMessageText(ctx, {
       text:
         `${getMatchStatusEmoji('cancelled')} Ошибка при создании турнира:\n` +
-        `${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
+        (error instanceof Error ? error.message : 'Неизвестная ошибка'),
     });
   }
 }

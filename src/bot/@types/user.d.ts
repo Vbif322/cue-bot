@@ -2,8 +2,8 @@ import type { users } from '../../db/schema.ts';
 
 export type UserRole = (typeof users.$inferSelect)['role'];
 
-/** DB row without birthday (not exposed via API) */
-export type ApiUser = Omit<typeof users.$inferSelect, 'birthday'>;
+/** User row shape returned by the admin API (allow-listed via `toApiUser`). */
+export type ApiUser = typeof users.$inferSelect;
 
 /** Aggregated statistics for a single user, shown on the admin user page. */
 export interface ApiUserStats {

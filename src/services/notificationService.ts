@@ -12,11 +12,82 @@ import {
 } from '@/db/schema.js';
 import type { INotification } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
-import { formatPlayerName, getResultConfirmKeyboard } from '@/bot/ui/matchUI.js';
+import {
+  formatPlayerName,
+  getResultConfirmKeyboard,
+  getMatchNotificationKeyboard,
+} from '@/bot/ui/matchUI.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 
 type NotificationType = (typeof notifications.$inferInsert)['type'];
+
+/**
+ * Extract both players' display names from a match in one call. Each name is
+ * produced by `formatPlayerName`, so it is already Markdown-safe — do NOT pass
+ * the result through `escapeMarkdown` again.
+ */
+function playerNamesOf(match: MatchWithPlayers): {
+  player1Name: string;
+  player2Name: string;
+} {
+  return {
+    player1Name: formatPlayerName({
+      username: match.player1Username ?? null,
+      name: match.player1Name,
+      surname: match.player1Surname,
+      telegramId: match.player1TelegramId,
+    }),
+    player2Name: formatPlayerName({
+      username: match.player2Username ?? null,
+      name: match.player2Name,
+      surname: match.player2Surname,
+      telegramId: match.player2TelegramId,
+    }),
+  };
+}
+
+/**
+ * Send a per-player notification to both players of a match. Empty slots (TBD
+ * bracket positions) and `skipUserId` are skipped. `build` receives the target
+ * player's id, their opponent's (Markdown-safe) name, and whether they are
+ * player 1, and returns the notification's type/title/message. Players are
+ * notified in `player1, player2` order.
+ */
+async function notifyBothPlayers(
+  api: Api,
+  match: MatchWithPlayers,
+  build: (ctx: {
+    playerId: UUID;
+    opponentName: string;
+    isPlayer1: boolean;
+  }) => { type: NotificationType; title: string; message: string },
+  options: { keyboard?: InlineKeyboard; skipUserId?: string } = {},
+): Promise<void> {
+  const { player1Name, player2Name } = playerNamesOf(match);
+
+  for (const playerId of [match.player1Id, match.player2Id]) {
+    if (!playerId) continue;
+    if (options.skipUserId && playerId === options.skipUserId) continue;
+
+    const isPlayer1 = playerId === match.player1Id;
+    const opponentName = isPlayer1 ? player2Name : player1Name;
+    const data = build({ playerId, opponentName, isPlayer1 });
+
+    await createAndSendNotification(
+      api,
+      {
+        userId: playerId,
+        type: data.type,
+        title: data.title,
+        message: data.message,
+        tournamentId: match.tournamentId,
+        matchId: match.id,
+      },
+      options.keyboard,
+    );
+  }
+}
 
 /**
  * Create a notification record in the database
@@ -66,7 +137,7 @@ export async function sendNotification(
     where: eq(users.id, notification.userId),
   });
 
-  if (!user || !user.telegram_id) {
+  if (!user?.telegram_id) {
     return false;
   }
 
@@ -125,48 +196,18 @@ export async function notifyMatchAssigned(
   match: MatchWithPlayers,
   tournamentName: string,
 ): Promise<void> {
-  const player1Name = formatPlayerName({
-    username: match.player1Username ?? null,
-    name: match.player1Name,
-    surname: match.player1Surname,
-    telegramId: match.player1TelegramId,
-  });
-  const player2Name = formatPlayerName({
-    username: match.player2Username ?? null,
-    name: match.player2Name,
-    surname: match.player2Surname,
-    telegramId: match.player2TelegramId,
-  });
+  const safeName = escapeMarkdown(tournamentName);
 
-  // Notify player 1
-  if (match.player1Id) {
-    await createAndSendNotification(api, {
-      userId: match.player1Id,
+  await notifyBothPlayers(
+    api,
+    match,
+    ({ opponentName }) => ({
       type: 'bracket_formed',
       title: 'Назначен матч',
-      message:
-        `Турнир: ${tournamentName}\n` +
-        `Ваш соперник: ${player2Name}\n\n` +
-        `Используйте /my\\_matches для просмотра деталей.`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
-  }
-
-  // Notify player 2
-  if (match.player2Id) {
-    await createAndSendNotification(api, {
-      userId: match.player2Id,
-      type: 'bracket_formed',
-      title: 'Назначен матч',
-      message:
-        `Турнир: ${tournamentName}\n` +
-        `Ваш соперник: ${player1Name}\n\n` +
-        `Используйте /my\\_matches для просмотра деталей.`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
-  }
+      message: `Турнир: ${safeName}\n` + `Ваш соперник: ${opponentName}`,
+    }),
+    { keyboard: getMatchNotificationKeyboard(match, { action: 'start' }) },
+  );
 }
 
 /**
@@ -182,48 +223,20 @@ export async function notifyMatchScheduled(
 ): Promise<void> {
   const when = DateTimeHelperInstance.formatDate(scheduledAt);
   const safeName = escapeMarkdown(tournamentName);
-  const player1Name = formatPlayerName({
-    username: match.player1Username ?? null,
-    name: match.player1Name,
-    surname: match.player1Surname,
-    telegramId: match.player1TelegramId,
-  });
-  const player2Name = formatPlayerName({
-    username: match.player2Username ?? null,
-    name: match.player2Name,
-    surname: match.player2Surname,
-    telegramId: match.player2TelegramId,
-  });
 
-  if (match.player1Id) {
-    await createAndSendNotification(api, {
-      userId: match.player1Id,
+  await notifyBothPlayers(
+    api,
+    match,
+    ({ opponentName }) => ({
       type: 'match_reminder',
       title: 'Матч назначен',
       message:
         `Турнир: ${safeName}\n` +
-        `Соперник: ${player2Name}\n` +
-        `Дата и время: ${when}\n\n` +
-        `Используйте /my\\_matches для просмотра деталей.`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
-  }
-
-  if (match.player2Id) {
-    await createAndSendNotification(api, {
-      userId: match.player2Id,
-      type: 'match_reminder',
-      title: 'Матч назначен',
-      message:
-        `Турнир: ${safeName}\n` +
-        `Соперник: ${player1Name}\n` +
-        `Дата и время: ${when}\n\n` +
-        `Используйте /my\\_matches для просмотра деталей.`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
-  }
+        `Соперник: ${opponentName}\n` +
+        `Дата и время: ${when}`,
+    }),
+    { keyboard: getMatchNotificationKeyboard(match) },
+  );
 }
 
 /**
@@ -235,37 +248,24 @@ export async function notifyMatchStart(
   tournamentName: string,
   startedBy: string,
 ): Promise<void> {
-  const player1Name = formatPlayerName({
-    username: match.player1Username ?? null,
-    name: match.player1Name,
-    surname: match.player1Surname,
-    telegramId: match.player1TelegramId,
-  });
-  const player2Name = formatPlayerName({
-    username: match.player2Username ?? null,
-    name: match.player2Name,
-    surname: match.player2Surname,
-    telegramId: match.player2TelegramId,
-  });
+  const safeName = escapeMarkdown(tournamentName);
 
-  for (const playerId of [match.player1Id, match.player2Id]) {
-    if (!playerId || playerId === startedBy) continue;
-
-    const opponentName =
-      playerId === match.player1Id ? player2Name : player1Name;
-
-    await createAndSendNotification(api, {
-      userId: playerId,
+  await notifyBothPlayers(
+    api,
+    match,
+    ({ opponentName }) => ({
       type: 'match_reminder',
       title: 'Матч!',
       message:
-        `Турнир: ${tournamentName}\n` +
+        `Турнир: ${safeName}\n` +
         `Ваш соперник: ${opponentName}\n\n` +
         `Начался матч!`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
-  }
+    }),
+    {
+      keyboard: getMatchNotificationKeyboard(match, { action: 'report' }),
+      skipUserId: startedBy,
+    },
+  );
 }
 
 /**
@@ -282,21 +282,9 @@ export async function notifyResultPending(
 
   if (!opponentId) return;
   // TODO Писать в чью пользу счет
-  const reporterName = formatPlayerName(
-    match.player1Id === reportedByUserId
-      ? {
-          username: match.player1Username ?? null,
-          name: match.player1Name,
-          surname: match.player1Surname,
-          telegramId: match.player1TelegramId,
-        }
-      : {
-          username: match.player2Username ?? null,
-          name: match.player2Name,
-          surname: match.player2Surname,
-          telegramId: match.player2TelegramId,
-        },
-  );
+  const { player1Name, player2Name } = playerNamesOf(match);
+  const reporterName =
+    match.player1Id === reportedByUserId ? player1Name : player2Name;
   await createAndSendNotification(
     api,
     {
@@ -304,7 +292,7 @@ export async function notifyResultPending(
       type: 'result_confirmation_request',
       title: 'Подтвердите результат матча',
       message:
-        `${reporterName} внёс результат: ${match.player1Score}:${match.player2Score}\n\n` +
+        `${reporterName} внёс результат: ${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')}\n\n` +
         `Подтвердите или оспорьте результат.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
@@ -329,22 +317,14 @@ export async function notifyResultConfirmed(
 
   const message =
     `Результат матча подтверждён!\n\n` +
-    `Счёт: ${match.player1Score}:${match.player2Score}\n` +
+    `Счёт: ${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')}\n` +
     `Победитель: ${winnerName}`;
 
-  // Notify both players
-  for (const playerId of [match.player1Id, match.player2Id]) {
-    if (!playerId) continue;
-
-    await createAndSendNotification(api, {
-      userId: playerId,
-      type: 'result_confirmed',
-      title: 'Результат подтверждён',
-      message,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
-  }
+  await notifyBothPlayers(api, match, () => ({
+    type: 'result_confirmed',
+    title: 'Результат подтверждён',
+    message,
+  }));
 }
 
 /**
@@ -355,40 +335,20 @@ export async function notifyResultDisputed(
   match: MatchWithPlayers,
   disputedByUserId: UUID,
 ): Promise<void> {
-  const disputerName = formatPlayerName(
-    match.player1Id === disputedByUserId
-      ? {
-          username: match.player1Username ?? null,
-          name: match.player1Name,
-          surname: match.player1Surname,
-          telegramId: match.player1TelegramId,
-        }
-      : {
-          username: match.player2Username ?? null,
-          name: match.player2Name,
-          surname: match.player2Surname,
-          telegramId: match.player2TelegramId,
-        },
-  );
+  const { player1Name, player2Name } = playerNamesOf(match);
+  const disputerName =
+    match.player1Id === disputedByUserId ? player1Name : player2Name;
 
   const message =
     `${disputerName} оспорил результат матча.\n\n` +
     `Матч возвращён в статус "в процессе".\n` +
     `Обратитесь к судье турнира для разрешения ситуации.`;
 
-  // Notify both players
-  for (const playerId of [match.player1Id, match.player2Id]) {
-    if (!playerId) continue;
-
-    await createAndSendNotification(api, {
-      userId: playerId,
-      type: 'result_dispute',
-      title: 'Результат оспорен',
-      message,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
-  }
+  await notifyBothPlayers(api, match, () => ({
+    type: 'result_dispute',
+    title: 'Результат оспорен',
+    message,
+  }));
 }
 
 /**
@@ -417,17 +377,19 @@ export async function notifyTournamentCompleted(
     if (match.player2Id) participantIds.add(match.player2Id);
   }
 
+  const safeName = escapeMarkdown(tournament.name);
+
   // Send notification to all participants
-  for (const oderId of participantIds) {
-    const isWinner = oderId === winnerId;
+  for (const participantId of participantIds) {
+    const isWinner = participantId === winnerId;
 
     await createAndSendNotification(api, {
-      userId: oderId,
+      userId: participantId,
       type: 'tournament_results',
       title: isWinner ? 'Поздравляем с победой!' : 'Турнир завершён',
       message: isWinner
-        ? `Вы победили в турнире "${tournament.name}"!`
-        : `Турнир "${tournament.name}" завершён.\nПобедитель: ${winnerName}`,
+        ? `Вы победили в турнире "${safeName}"!`
+        : `Турнир "${safeName}" завершён.\nПобедитель: ${winnerName}`,
       tournamentId,
     });
   }
@@ -450,12 +412,14 @@ export async function notifyTournamentCancelled(
     ),
   });
 
+  const safeName = escapeMarkdown(tournamentName);
+
   for (const participant of participants) {
     await createAndSendNotification(api, {
       userId: participant.userId,
       type: 'tournament_cancelled',
       title: 'Турнир отменён',
-      message: `Турнир "${tournamentName}" отменён администратором.`,
+      message: `Турнир "${safeName}" отменён администратором.`,
       tournamentId,
     });
   }
@@ -474,56 +438,18 @@ export async function notifyDisqualification(
     where: eq(tournaments.id, tournamentId),
   });
 
+  const safeName = escapeMarkdown(tournament?.name ?? 'Неизвестный');
+  const safeReason = escapeMarkdown(reason);
+
   await createAndSendNotification(api, {
     userId,
     type: 'disqualification',
     title: 'Дисквалификация',
     message:
-      `Вы были дисквалифицированы из турнира "${tournament?.name || 'Неизвестный'}".\n\n` +
-      `Причина: ${reason}`,
+      `Вы были дисквалифицированы из турнира "${safeName}".\n\n` +
+      `Причина: ${safeReason}`,
     tournamentId,
   });
-}
-
-/**
- * Send match reminder
- */
-export async function sendMatchReminder(
-  api: Api,
-  match: MatchWithPlayers,
-  tournamentName: string,
-): Promise<void> {
-  const player1Name = formatPlayerName({
-    username: match.player1Username ?? null,
-    name: match.player1Name,
-    surname: match.player1Surname,
-    telegramId: match.player1TelegramId,
-  });
-  const player2Name = formatPlayerName({
-    username: match.player2Username ?? null,
-    name: match.player2Name,
-    surname: match.player2Surname,
-    telegramId: match.player2TelegramId,
-  });
-
-  for (const playerId of [match.player1Id, match.player2Id]) {
-    if (!playerId) continue;
-
-    const opponentName =
-      playerId === match.player1Id ? player2Name : player1Name;
-
-    await createAndSendNotification(api, {
-      userId: playerId,
-      type: 'match_reminder',
-      title: 'Напоминание о матче',
-      message:
-        `Турнир: ${tournamentName}\n` +
-        `Ваш соперник: ${opponentName}\n\n` +
-        `Не забудьте сыграть матч и внести результат!`,
-      tournamentId: match.tournamentId,
-      matchId: match.id,
-    });
-  }
 }
 
 /**
@@ -540,7 +466,7 @@ export async function notifyRegistrationConfirmed(
     type: 'registration_confirmed',
     title: 'Регистрация подтверждена',
     message:
-      `Ваша заявка на турнир "${tournamentName}" подтверждена администратором.\n\n` +
+      `Ваша заявка на турнир "${escapeMarkdown(tournamentName)}" подтверждена администратором.\n\n` +
       `Используйте /my\\_tournaments для просмотра ваших турниров.`,
     tournamentId: tournamentId as UUID,
   });
@@ -559,7 +485,7 @@ export async function notifyRegistrationRejected(
     userId: userId as UUID,
     type: 'registration_rejected',
     title: 'Заявка отклонена',
-    message: `Ваша заявка на турнир "${tournamentName}" была отклонена администратором.`,
+    message: `Ваша заявка на турнир "${escapeMarkdown(tournamentName)}" была отклонена администратором.`,
     tournamentId: tournamentId as UUID,
   });
 }
@@ -579,7 +505,7 @@ export async function markAsRead(notificationId: UUID): Promise<void> {
  */
 export async function getUnreadNotifications(
   userId: UUID,
-): Promise<Array<INotification>> {
+): Promise<INotification[]> {
   return db.query.notifications.findMany({
     where: and(
       eq(notifications.userId, userId),

@@ -16,6 +16,6 @@ export function makeParticipant(
 /** `n` participants labelled p1..pN, each seeded 1..N in order. */
 export function makeParticipants(n: number): TournamentParticipant[] {
   return Array.from({ length: n }, (_, i) =>
-    makeParticipant(`p${i + 1}`, i + 1),
+    makeParticipant(`p${String(i + 1)}`, i + 1),
   );
 }

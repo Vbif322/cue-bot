@@ -5,8 +5,8 @@
 export const formats = [
   'single_elimination',
   'double_elimination',
-  'double_elimination_random',
   'round_robin',
+  'groups_playoff',
 ] as const;
 
 export type ITournamentFormat = (typeof formats)[number];

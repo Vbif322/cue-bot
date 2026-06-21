@@ -19,10 +19,10 @@ declare module 'hono' {
 }
 
 const rawJwtSecret = process.env.JWT_SECRET;
-if (!rawJwtSecret && process.env.NODE_ENV === 'production') {
-  throw new Error('JWT_SECRET environment variable is required in production');
+if (!rawJwtSecret) {
+  throw new Error('JWT_SECRET environment variable is required');
 }
-export const JWT_SECRET = rawJwtSecret ?? 'dev-secret-change-in-production';
+export const JWT_SECRET = rawJwtSecret;
 
 export function signToken(payload: AdminUser): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
@@ -30,7 +30,7 @@ export function signToken(payload: AdminUser): string {
 
 export const requireAdmin = createMiddleware(async (c, next) => {
   const cookie = c.req.header('Cookie') ?? '';
-  const tokenMatch = cookie.match(/admin_token=([^;]+)/);
+  const tokenMatch = /admin_token=([^;]+)/.exec(cookie);
   const token = tokenMatch?.[1];
 
   if (!token) {
@@ -45,7 +45,7 @@ export const requireAdmin = createMiddleware(async (c, next) => {
       where: eq(users.id, payload.id),
     });
 
-    if (!user || user.role !== 'admin') {
+    if (user?.role !== 'admin') {
       return c.json({ error: 'Forbidden' }, 403);
     }
 

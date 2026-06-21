@@ -1,15 +1,37 @@
-- При начале матча через админку присылать уведомления
-- Веб-версия клиентского приложения → детализировано в разделе «Веб для игроков (M1)» ниже; этапы продукта — в ROADMAP.md
-- Проверить, почему не все пользователи имеют ссылки в сетке
-- Сворачивание раундов в админке
+# TODO
+
+Приоритеты по аудиту от 2026-06-12 (`audit/FINDINGS.md`, сводка —
+`audit/stage-8-synthesis.md`)
+
+## P2 — Техдолг / UX (Low)
+
+- Сворачивание раундов в админке (моё)
+- S7-3 Тесты конкурентности; S7-4 пороги покрытия + git-хуки
+- Прочий Low-долг (детали — `audit/FINDINGS.md`): S0-4, S1-6, S1-7,
+  S2-7…S2-10, S3-5…S3-7, S4-4, S4-5, S5-4, S5-5, S6-2, S6-3, S7-5
+
+## Архитектура / инфраструктура
+
+- Дизайн-система: вынести переиспользуемые UI-компоненты из `admin/src/components/`
+  (StatusBadge, Layout, модалки, `tournament-detail/*`) в общий пакет монорепо
+  (`packages/shared`/`packages/ui`, см. M1) — для переиспользования в админке и
+  будущем SPA игрока (`app/`).
+- Webhook вместо long-polling: перевести бота с `bot.start()` (`src/index.ts`) на
+  `webhookCallback` (grammY) на существующем Hono-сервере — публичный URL + secret,
+  `setWebhook`, убрать polling-ретраи; в dev оставить polling-фолбэк.
 
 ## Веб для игроков (M1) — см. ROADMAP.md
 
-- [ ] Монорепо: npm workspaces (admin, app, packages/shared), один lockfile
-- [ ] Идентичность: таблица user_identities + миграция и бэкфилл telegram-аккаунтов
-- [ ] Email/пароль: bcryptjs, JWT в куке app_token, middleware requireUser
-- [ ] Почта: mailService (nodemailer/SMTP) + таблица email_tokens (верификация/сброс)
-- [ ] Извлечь регистрацию/отмену/приглашения из хендлеров бота в tournamentService
-- [ ] API игрока /api/app/\* (auth, me, tournaments, matches, notifications)
-- [ ] SPA app/ (лента турниров, карточка+сетка, мои турниры/матчи, профиль, уведомления)
-- [ ] Раздача статики: игрок на /, админка переезжает на /admin
+Предусловия из аудита: S2-2 (идентичность — согласовать `user_identities` с переходом на telegram_id).
+
+- Монорепо: npm workspaces (admin, app, packages/shared), один lockfile
+- Идентичность: таблица user_identities + миграция и бэкфилл telegram-аккаунтов
+- Email/пароль: bcryptjs, JWT в куке app_token, middleware requireUser
+- Почта: mailService (nodemailer/SMTP) + таблица email_tokens (верификация/сброс)
+- Извлечь регистрацию/отмену/приглашения из хендлеров бота в tournamentService
+- API игрока /api/app/\* (auth, me, tournaments, matches, notifications)
+- SPA app/ (лента турниров, карточка+сетка, мои турниры/матчи, профиль, уведомления)
+- Раздача статики: игрок на /, админка переезжает на /admin
+- Вход через Telegram на сайте (Login Widget / Mini App initData) в дополнение к
+  email/паролю; переиспользовать код-/токен-мост (`src/admin/server/auth.ts`,
+  `loginCodes`/`loginTokens`) и `user_identities`. Связано с M6.
