@@ -5,11 +5,7 @@ import { matchesApi } from '../../lib/api.ts';
 import type { ApiMatch } from '../../lib/api.ts';
 import { MatchStatusBadge } from '../StatusBadge.tsx';
 import { formatUtc } from '../../lib/datetime.ts';
-
-const GROUP_LETTERS = 'АБВГДЕЖЗИКЛМНОП';
-function groupLetter(index: number): string {
-  return GROUP_LETTERS[index] ?? `#${index + 1}`;
-}
+import { groupLetter } from '../../lib/tournamentLabels.ts';
 
 function playoffRoundName(round: number, maxRound: number): string {
   switch (maxRound - round) {

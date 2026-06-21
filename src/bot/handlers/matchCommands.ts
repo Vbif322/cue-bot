@@ -6,6 +6,7 @@ import { db } from '@/db/db.js';
 import { tournaments, users } from '@/db/schema.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
+import { groupLetter } from '@/utils/constants.js';
 import {
   getMatch,
   getPlayerActiveMatches,
@@ -856,14 +857,6 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
 });
 
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
-
-/**
- * Letter label for a 0-based group index (0 → A, 1 → Б, …).
- */
-const GROUP_LETTERS = 'АБВГДЕЖЗИКЛМНОП';
-function groupLetter(index: number): string {
-  return GROUP_LETTERS[index] ?? `#${String(index + 1)}`;
-}
 
 /**
  * Format a group's standings table. Players who have already CLINCHED a qualifying
