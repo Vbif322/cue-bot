@@ -7,7 +7,6 @@
 
 Данные / БД:
 
-- S5-1 Индексы на горячие колонки matches/notifications (seq scan на горячем пути)
 - S5-3 enum-колонки без CHECK/pg-enum
 
 Безопасность:
