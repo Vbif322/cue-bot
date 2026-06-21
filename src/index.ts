@@ -36,6 +36,7 @@ import { randomBytes } from 'crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { db } from './db/db.js';
 import { loginTokens } from './db/schema.js';
+import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
 
 bot.use(authMiddleware);
 bot.use(wizardGuardMiddleware);
@@ -148,6 +149,9 @@ async function startBot() {
 }
 
 let server: ServerType | undefined;
+let dialogSessionSweep: ReturnType<typeof setInterval> | undefined;
+
+const DIALOG_SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // раз в час
 
 async function start() {
   // Поднимаем HTTP-сервер первым, чтобы admin API был доступен независимо от бота.
@@ -161,6 +165,14 @@ async function start() {
 
   const port = Number(process.env.ADMIN_PORT ?? 3000);
   server = serve({ fetch: app.fetch, port });
+
+  // Периодически удаляем просроченные диалоговые сессии, чтобы таблица не росла.
+  dialogSessionSweep = setInterval(() => {
+    sweepExpiredDialogSessions().catch((err: unknown) => {
+      console.error('Ошибка очистки диалоговых сессий:', err);
+    });
+  }, DIALOG_SESSION_SWEEP_INTERVAL_MS);
+  dialogSessionSweep.unref();
 
   await startBot();
 }
@@ -184,6 +196,9 @@ async function shutdown(signal: string) {
     process.exit(1);
   }, SHUTDOWN_TIMEOUT_MS);
   watchdog.unref();
+
+  // 0. Останавливаем периодическую очистку диалоговых сессий.
+  if (dialogSessionSweep) clearInterval(dialogSessionSweep);
 
   // 1. Останавливаем приём новых апдейтов от Telegram.
   try {

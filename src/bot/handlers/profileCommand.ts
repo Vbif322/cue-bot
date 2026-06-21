@@ -114,7 +114,7 @@ const FIELD_LABELS: Record<'name' | 'surname', string> = {
 profileCommands.callbackQuery(/^pe:edit:(name|surname)$/, async (ctx) => {
   const userId = ctx.from.id;
   const field = ctx.match[1] as 'name' | 'surname';
-  profileEditStateStore.start(userId, field);
+  await profileEditStateStore.start(userId, field);
 
   await ctx.answerCallbackQuery();
   await ctx.reply(
@@ -125,16 +125,16 @@ profileCommands.callbackQuery(/^pe:edit:(name|surname)$/, async (ctx) => {
 
 profileCommands.command('cancel', async (ctx) => {
   const userId = ctx.from?.id;
-  if (!userId || !profileEditStateStore.has(userId)) return;
+  if (!userId || !(await profileEditStateStore.has(userId))) return;
 
-  profileEditStateStore.clear(userId);
+  await profileEditStateStore.clear(userId);
   await ctx.reply('Редактирование профиля отменено.');
 });
 
 profileCommands.on('message:text', async (ctx, next) => {
   const userId = ctx.from.id;
 
-  const state = profileEditStateStore.get(userId);
+  const state = await profileEditStateStore.get(userId);
   if (!state) return next();
 
   const raw = ctx.message.text.trim();
@@ -145,7 +145,7 @@ profileCommands.on('message:text', async (ctx, next) => {
       [state.field]: value,
     });
     ctx.dbUser = updated;
-    profileEditStateStore.clear(userId);
+    await profileEditStateStore.clear(userId);
     await ctx.reply('✅ Профиль обновлён.');
     await showProfile(ctx);
   } catch (error) {

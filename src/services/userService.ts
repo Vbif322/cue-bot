@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { users, loginTokens } from '@/db/schema.js';
+import { users, loginTokens, dialogSessions } from '@/db/schema.js';
 import type { DbUser } from '@/bot/types.js';
 import type { ApiUser } from '@/bot/@types/user.js';
 
@@ -103,6 +103,12 @@ export async function updateUserProfile(
  */
 export async function anonymizeUser(userId: UUID): Promise<void> {
   await db.transaction(async (tx) => {
+    // Читаем telegram_id ДО обнуления: диалоговые сессии ключуются им.
+    const existing = await tx.query.users.findFirst({
+      columns: { telegram_id: true },
+      where: eq(users.id, userId),
+    });
+
     await tx
       .update(users)
       .set({
@@ -118,5 +124,12 @@ export async function anonymizeUser(userId: UUID): Promise<void> {
       .where(eq(users.id, userId));
 
     await tx.delete(loginTokens).where(eq(loginTokens.userId, userId));
+
+    // Обрываем активные wizard/диалоговые сессии этого telegram-аккаунта.
+    if (existing?.telegram_id != null) {
+      await tx
+        .delete(dialogSessions)
+        .where(eq(dialogSessions.key, existing.telegram_id));
+    }
   });
 }
