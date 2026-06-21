@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { db } from '../../db/db.js';
 import { users, loginTokens } from '../../db/schema.js';
 import { signToken, JWT_SECRET, type AdminUser } from './middleware.js';
+import { createIpRateLimit } from './middleware/rateLimit.js';
 
 // Secure-флаг ставим только в production: на http://localhost браузер иначе
 // молча отбросил бы cookie в dev.
@@ -18,7 +19,16 @@ const COOKIE_OPTS = {
 export function createAuthRouter() {
   const auth = new Hono();
 
-  auth.get('/token', async (c) => {
+  // Throttle token redemption per IP (10/min) to blunt brute-force / abuse of the
+  // login link. On overflow redirect to the login page rather than a bare 429, to
+  // match the route's existing auth-redirect UX.
+  const tokenRateLimit = createIpRateLimit({
+    capacity: 10,
+    refillPerSec: 10 / 60,
+    onLimit: (c) => c.redirect('/login?error=ratelimit'),
+  });
+
+  auth.get('/token', tokenRateLimit, async (c) => {
     const t = c.req.query('t');
     if (!t) {
       return c.redirect('/login?error=invalid');
