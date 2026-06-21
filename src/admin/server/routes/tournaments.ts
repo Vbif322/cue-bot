@@ -38,6 +38,7 @@ import {
   deleteParticipant,
   setParticipantSeed,
   randomizeSeeds,
+  registerParticipant,
 } from '@/services/tournamentService.js';
 import {
   notifyRegistrationConfirmed,
@@ -424,10 +425,23 @@ export function createTournamentsRouter(botApi: Api) {
         userId = body.userId as UUID;
       }
 
-      await db
-        .insert(tournamentParticipants)
-        .values({ tournamentId, userId, status: 'confirmed' })
-        .onConflictDoNothing();
+      // Atomic, cap-enforcing registration (advisory-locked per tournament).
+      // Admin may add to non-open tournaments, so registration status isn't
+      // required to be open here — only the participant limit is enforced.
+      const outcome = await registerParticipant(tournamentId, userId, {
+        desiredStatus: 'confirmed',
+        requireOpen: false,
+      });
+
+      if (!outcome.ok) {
+        if (outcome.reason === 'not_found') {
+          return c.json({ error: 'Турнир не найден' }, 404);
+        }
+        if (outcome.reason === 'full') {
+          return c.json({ error: 'Все места заняты' }, 409);
+        }
+        // already_registered → idempotent success (matches prior onConflictDoNothing)
+      }
 
       return c.json({ ok: true });
     },

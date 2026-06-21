@@ -991,3 +991,90 @@ export async function rejectParticipant(
     .returning({ userId: tournamentParticipants.userId });
   return result.length > 0;
 }
+
+export type RegisterOutcome =
+  | { ok: true; status: 'pending' | 'confirmed'; reregistered: boolean }
+  | {
+      ok: false;
+      reason: 'not_found' | 'registration_closed' | 'already_registered' | 'full';
+    };
+
+/**
+ * Atomically register a user into a tournament, enforcing the participant cap.
+ *
+ * Serialized per-tournament by a transaction-scoped advisory lock (same pattern
+ * as `startTournamentFull`) so the count check and the insert can't race: two
+ * concurrent registrations on the same tournament are ordered, and the second
+ * sees the first's row before re-checking `maxParticipants`. This closes the
+ * TOCTOU window that previously let registrations exceed the cap.
+ *
+ * Performs no Telegram/HTTP side effects — callers do those after it returns.
+ */
+export async function registerParticipant(
+  tournamentId: UUID,
+  userId: UUID,
+  opts: { desiredStatus: 'pending' | 'confirmed'; requireOpen: boolean },
+): Promise<RegisterOutcome> {
+  return db.transaction(async (tx): Promise<RegisterOutcome> => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
+    );
+
+    const tournament = await tx.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournamentId),
+    });
+    if (!tournament) return { ok: false, reason: 'not_found' };
+
+    if (opts.requireOpen && tournament.status !== 'registration_open') {
+      return { ok: false, reason: 'registration_closed' };
+    }
+
+    const existing = await tx.query.tournamentParticipants.findFirst({
+      where: and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    });
+    if (existing && existing.status !== 'cancelled') {
+      return { ok: false, reason: 'already_registered' };
+    }
+
+    const [active] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tournamentParticipants)
+      .where(
+        and(
+          eq(tournamentParticipants.tournamentId, tournamentId),
+          inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+        ),
+      );
+    if ((active?.count ?? 0) >= tournament.maxParticipants) {
+      return { ok: false, reason: 'full' };
+    }
+
+    if (existing) {
+      // Re-registration after cancellation: revive the existing row.
+      await tx
+        .update(tournamentParticipants)
+        .set({ status: opts.desiredStatus, createdAt: new Date() })
+        .where(
+          and(
+            eq(tournamentParticipants.tournamentId, tournamentId),
+            eq(tournamentParticipants.userId, userId),
+          ),
+        );
+    } else {
+      await tx.insert(tournamentParticipants).values({
+        tournamentId,
+        userId,
+        status: opts.desiredStatus,
+      });
+    }
+
+    return {
+      ok: true,
+      status: opts.desiredStatus,
+      reregistered: existing != null,
+    };
+  });
+}
