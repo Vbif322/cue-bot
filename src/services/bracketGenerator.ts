@@ -2,6 +2,7 @@ import type { UUID } from 'crypto';
 
 import type { Tournament } from '@/bot/@types/tournament.js';
 import type { TournamentParticipant } from '@/bot/@types/tournament.js';
+import { groupLetter } from '@/utils/constants.js';
 
 export interface BracketMatch {
   round: number;
@@ -862,8 +863,7 @@ export function getRoundName(
   groupIndex?: number,
 ): string {
   if (format === 'groups_playoff' && phase === 'group') {
-    const letter =
-      groupIndex == null ? '' : ` ${String.fromCharCode(65 + groupIndex)}`;
+    const letter = groupIndex == null ? '' : ` ${groupLetter(groupIndex)}`;
     return `Группа${letter}, тур ${String(round)}`;
   }
 

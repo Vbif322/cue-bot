@@ -1,11 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { tournamentsApi } from '../../lib/api.ts';
 import type { ApiTournament, ApiPlayerStanding } from '../../lib/api.ts';
-
-const GROUP_LETTERS = 'АБВГДЕЖЗИКЛМНОП';
-function groupLetter(index: number): string {
-  return GROUP_LETTERS[index] ?? `#${index + 1}`;
-}
+import { groupLetter } from '../../lib/tournamentLabels.ts';
 
 function playerName(row: ApiPlayerStanding): string {
   return row.name ?? (row.username ? `@${row.username}` : '—');

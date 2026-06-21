@@ -34,6 +34,13 @@ export function formatLabelWithMode(
   return randomAdvancement ? `${label} (random)` : label;
 }
 
+/** Latin letter label for a 0-based group index (0 → A, 1 → B, …). */
+export function groupLetter(index: number): string {
+  return index >= 0 && index < 26
+    ? String.fromCharCode(65 + index)
+    : `#${index + 1}`;
+}
+
 export const VISIBILITY_LABELS: Record<TournamentVisibility, string> = {
   public: 'Открытый',
   private: 'Закрытый (по приглашению)',

@@ -64,3 +64,10 @@ export function formatVisibility(visibility: string): string {
 export function formatScheduleMode(scheduleMode: string): string {
   return SCHEDULE_MODE_LABELS[scheduleMode] ?? scheduleMode;
 }
+
+/** Latin letter label for a 0-based group index (0 → A, 1 → B, …). */
+export function groupLetter(index: number): string {
+  return index >= 0 && index < 26
+    ? String.fromCharCode(65 + index)
+    : `#${String(index + 1)}`;
+}
