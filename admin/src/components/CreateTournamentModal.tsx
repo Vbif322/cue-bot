@@ -2,13 +2,28 @@ import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { tournamentsApi, tablesApi, venuesApi } from '../lib/api.ts';
-import { formats, maxParticipants, winScores } from '@server/apiTypes';
+import {
+  formats,
+  maxParticipants,
+  validMergeRoundsForSize,
+  winScores,
+  groupDraws,
+  groupsCountOptions,
+  participantsPerGroupOptions,
+  qualifiersOptionsForGroupSize,
+} from '@server/apiTypes';
 import type {
   ApiTournament,
   ITournamentFormat,
+  IGroupDraw,
   TournamentVisibility,
   TournamentScheduleMode,
 } from '../lib/api.ts';
+
+const GROUP_DRAW_LABELS: Record<IGroupDraw, string> = {
+  snake: 'Змейкой (по сеяным)',
+  random: 'Случайно',
+};
 import {
   FORMAT_LABELS,
   VISIBILITY_LABELS,
@@ -41,11 +56,17 @@ function TournamentFormModal({
     description: tournament?.description ?? '',
     rules: tournament?.rules ?? '',
     format: (tournament?.format ?? 'single_elimination') as ITournamentFormat,
+    randomAdvancement: tournament?.randomAdvancement ?? false,
     visibility: (tournament?.visibility ?? 'public') as TournamentVisibility,
     scheduleMode: (tournament?.scheduleMode ??
       'single_day') as TournamentScheduleMode,
     maxParticipants: (tournament?.maxParticipants ?? 16) as number,
     winScore: (tournament?.winScore ?? 2) as number,
+    mergeRound: (tournament?.mergeRound ?? 2) as number,
+    groupsCount: (tournament?.groupsCount ?? 4) as number,
+    participantsPerGroup: (tournament?.participantsPerGroup ?? 4) as number,
+    qualifiersPerGroup: (tournament?.qualifiersPerGroup ?? 2) as number,
+    groupDraw: (tournament?.groupDraw ?? 'snake') as IGroupDraw,
     startDate: tournament?.startDate
       ? toLocalDatetimeInput(tournament.startDate)
       : '',
@@ -89,11 +110,18 @@ function TournamentFormModal({
 
   const save = useMutation({
     mutationFn: () => {
+      const isGroups = form.format === 'groups_playoff';
       const payload = {
         ...form,
         description: form.description || undefined,
         rules: form.rules || undefined,
         startDate: form.startDate || undefined,
+        // Group config is only sent for groups_playoff; the server derives
+        // maxParticipants (groups × perGroup) for that format.
+        groupsCount: isGroups ? form.groupsCount : undefined,
+        participantsPerGroup: isGroups ? form.participantsPerGroup : undefined,
+        qualifiersPerGroup: isGroups ? form.qualifiersPerGroup : undefined,
+        groupDraw: isGroups ? form.groupDraw : undefined,
         ...(selectedTableIds.length > 0 ? { tableIds: selectedTableIds } : {}),
       };
       return isEdit
@@ -204,12 +232,16 @@ function TournamentFormModal({
             </label>
             <select
               value={form.format}
-              onChange={(e) =>
+              onChange={(e) => {
+                const format = e.target.value as typeof form.format;
                 setForm({
                   ...form,
-                  format: e.target.value as typeof form.format,
-                })
-              }
+                  format,
+                  // Random pairing is meaningless for round-robin.
+                  randomAdvancement:
+                    format === 'round_robin' ? false : form.randomAdvancement,
+                });
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {formats.map((f) => (
@@ -219,6 +251,23 @@ function TournamentFormModal({
               ))}
             </select>
           </div>
+
+          {form.format !== 'round_robin' &&
+            form.format !== 'groups_playoff' && (
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={form.randomAdvancement}
+                  onChange={(e) =>
+                    setForm({ ...form, randomAdvancement: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Случайные пары после каждого раунда
+              </label>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -268,24 +317,34 @@ function TournamentFormModal({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Макс. участников
-              </label>
-              <select
-                value={form.maxParticipants}
-                onChange={(e) =>
-                  setForm({ ...form, maxParticipants: Number(e.target.value) })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {maxParticipants.map((n) => (
-                  <option key={n} value={n} disabled={n < minParticipants}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {form.format !== 'groups_playoff' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Макс. участников
+                </label>
+                <select
+                  value={form.maxParticipants}
+                  onChange={(e) => {
+                    const mp = Number(e.target.value);
+                    const valid = validMergeRoundsForSize(mp);
+                    const maxValid = valid[valid.length - 1] ?? 2;
+                    setForm({
+                      ...form,
+                      maxParticipants: mp,
+                      // Keep the merge round within the new bracket's valid range.
+                      mergeRound: Math.min(form.mergeRound, maxValid),
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {maxParticipants.map((n) => (
+                    <option key={n} value={n} disabled={n < minParticipants}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Win score
@@ -305,6 +364,131 @@ function TournamentFormModal({
               </select>
             </div>
           </div>
+
+          {form.format === 'double_elimination' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Раунд объединения
+              </label>
+              <select
+                value={form.mergeRound}
+                onChange={(e) =>
+                  setForm({ ...form, mergeRound: Number(e.target.value) })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {validMergeRoundsForSize(form.maxParticipants).map(
+                  (m, i, arr) => (
+                    <option key={m} value={m}>
+                      {m === arr[arr.length - 1] ? `${m} (полный DE)` : m}
+                    </option>
+                  ),
+                )}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                После какого раунда верхней сетки нижняя объединяется с верхней.
+                2 — стандартная схема; максимум — полный double elimination.
+              </p>
+            </div>
+          )}
+
+          {form.format === 'groups_playoff' && (
+            <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Групп
+                  </label>
+                  <select
+                    value={form.groupsCount}
+                    onChange={(e) =>
+                      setForm({ ...form, groupsCount: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {groupsCountOptions.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    В группе
+                  </label>
+                  <select
+                    value={form.participantsPerGroup}
+                    onChange={(e) => {
+                      const ppg = Number(e.target.value);
+                      const valid = qualifiersOptionsForGroupSize(ppg);
+                      const maxQ = valid[valid.length - 1] ?? 1;
+                      setForm({
+                        ...form,
+                        participantsPerGroup: ppg,
+                        // Keep qualifiers within 1..(size-1).
+                        qualifiersPerGroup: Math.min(form.qualifiersPerGroup, maxQ),
+                      });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {participantsPerGroupOptions.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Выходят
+                  </label>
+                  <select
+                    value={form.qualifiersPerGroup}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        qualifiersPerGroup: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {qualifiersOptionsForGroupSize(form.participantsPerGroup).map(
+                      (n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Жеребьёвка
+                </label>
+                <select
+                  value={form.groupDraw}
+                  onChange={(e) =>
+                    setForm({ ...form, groupDraw: e.target.value as IGroupDraw })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {groupDraws.map((d) => (
+                    <option key={d} value={d}>
+                      {GROUP_DRAW_LABELS[d]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-xs text-gray-500">
+                Максимум участников:{' '}
+                {form.groupsCount * form.participantsPerGroup} (недостающие места
+                в группах заполнятся walkover). Из каждой группы в плей-офф
+                (олимпийка) выходит {form.qualifiersPerGroup}.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

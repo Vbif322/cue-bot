@@ -54,9 +54,10 @@ tournamentCommands.command('create_tournament', adminOnly(), async (ctx) => {
  * /cancel - Cancel tournament creation
  */
 tournamentCommands.command('cancel', async (ctx) => {
-  const userId = ctx.from!.id;
+  const userId = ctx.from?.id;
+  if (!userId) return;
 
-  const cancelStatus = tournamentCreationFlow.cancelCreation(userId);
+  const cancelStatus = await tournamentCreationFlow.cancelCreation(userId);
 
   if (cancelStatus) {
     await ctx.reply('Создание турнира отменено.');
@@ -155,10 +156,11 @@ tournamentCommands.command('tournaments', (ctx) => showTournamentsList(ctx));
  * /delete_tournament [id] - Delete a tournament
  */
 tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text?.split(' ').slice(1);
+  const args = ctx.message?.text.split(' ').slice(1) ?? [];
+  const firstArg = args[0];
 
   // If no ID provided, show selection menu
-  if (!args || args.length === 0 || args[0]?.trim() === '') {
+  if (!firstArg || firstArg.trim() === '') {
     const deletableTournaments = await db.query.tournaments.findMany({
       where: inArray(tournaments.status, ['draft', 'cancelled']),
       orderBy: (t, { desc }) => [desc(t.createdAt)],
@@ -187,7 +189,7 @@ tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
   }
 
   // Delete tournament by ID
-  await handleTournamentDeletion(ctx, args[0]! as UUID);
+  await handleTournamentDeletion(ctx, firstArg as UUID);
 });
 
 // ============================================================================
@@ -199,7 +201,7 @@ tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
  */
 tournamentCommands.callbackQuery(/^tlist:(current|archive|my)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
-  await renderTournamentsList(ctx, ctx.match![1] as TournamentTab, {
+  await renderTournamentsList(ctx, ctx.match[1] as TournamentTab, {
     edit: true,
   });
 });
@@ -208,9 +210,10 @@ tournamentCommands.callbackQuery(/^tlist:(current|archive|my)$/, async (ctx) => 
  * Show tournament info when selected from list
  */
 tournamentCommands.callbackQuery(/^tournament_info:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
   await ctx.answerCallbackQuery();
-  await showTournamentDetails(ctx, tournamentId, true);
+  await showTournamentDetails(ctx, tournamentId as UUID, true);
 });
 
 /**
@@ -222,13 +225,14 @@ tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]! as UUID;
-  await updateTournamentStatus(tournamentId, 'registration_open');
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  await updateTournamentStatus(tournamentId as UUID, 'registration_open');
 
   await ctx.answerCallbackQuery('Регистрация открыта');
   await safeEditMessageText(ctx, {
     text:
-      ctx.callbackQuery.message?.text +
+      (ctx.callbackQuery.message?.text ?? '') +
       `\n\n${getMatchStatusEmoji('completed')} Регистрация открыта!`,
   });
 });
@@ -242,18 +246,19 @@ tournamentCommands.callbackQuery(/^tournament_close_reg:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]! as UUID;
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
 
   try {
     // Close registration and get participant count
-    const count = await closeRegistrationWithCount(tournamentId);
+    const count = await closeRegistrationWithCount(tournamentId as UUID);
 
     await ctx.answerCallbackQuery('Регистрация закрыта');
     await safeEditMessageText(ctx, {
       text:
-        ctx.callbackQuery.message?.text +
+        (ctx.callbackQuery.message?.text ?? '') +
         '\n\n🔒 Регистрация закрыта!\n' +
-        `Участников: ${count}`,
+        `Участников: ${String(count)}`,
     });
   } catch (error) {
     console.error('Error closing registration:', error);
@@ -273,8 +278,9 @@ tournamentCommands.callbackQuery(/^tournament_delete:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]! as UUID;
-  await deleteTournament(tournamentId);
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  await deleteTournament(tournamentId as UUID);
 
   await ctx.answerCallbackQuery('Турнир удалён');
   await safeEditMessageText(ctx, {
@@ -293,8 +299,9 @@ tournamentCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]! as UUID;
-    const tournament = await getTournament(tournamentId);
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
+    const tournament = await getTournament(tournamentId as UUID);
 
     if (!tournament) {
       await ctx.answerCallbackQuery({
@@ -328,7 +335,7 @@ tournamentCommands.callbackQuery(
       text:
         `Вы уверены, что хотите удалить турнир?\n\n` +
         `📋 *${tournament.name}*\n` +
-        `Статус: ${STATUS_LABELS[tournament.status as keyof typeof STATUS_LABELS] || tournament.status}`,
+        `Статус: ${STATUS_LABELS[tournament.status as keyof typeof STATUS_LABELS] ?? tournament.status}`,
       parse_mode: 'Markdown',
       reply_markup: keyboard,
     });
@@ -356,8 +363,9 @@ tournamentCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]! as UUID;
-    const tournament = await getTournament(tournamentId);
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
+    const tournament = await getTournament(tournamentId as UUID);
 
     if (!tournament) {
       await ctx.answerCallbackQuery({
@@ -389,7 +397,7 @@ tournamentCommands.callbackQuery(
         `Вы уверены, что хотите отменить турнир?\n` +
         `Участники получат уведомление, а незавершённые матчи будут отменены.\n\n` +
         `📋 *${tournament.name}*\n` +
-        `Статус: ${STATUS_LABELS[tournament.status as keyof typeof STATUS_LABELS] || tournament.status}`,
+        `Статус: ${STATUS_LABELS[tournament.status as keyof typeof STATUS_LABELS] ?? tournament.status}`,
       parse_mode: 'Markdown',
       reply_markup: keyboard,
     });
@@ -405,8 +413,9 @@ tournamentCommands.callbackQuery(/^tournament_cancel:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]! as UUID;
-  const tournament = await getTournament(tournamentId);
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  const tournament = await getTournament(tournamentId as UUID);
 
   if (!tournament) {
     await ctx.answerCallbackQuery({ text: 'Турнир не найден', show_alert: true });
@@ -421,8 +430,8 @@ tournamentCommands.callbackQuery(/^tournament_cancel:(.+)$/, async (ctx) => {
     return;
   }
 
-  await cancelTournament(tournamentId);
-  await notifyTournamentCancelled(ctx.api, tournamentId, tournament.name);
+  await cancelTournament(tournamentId as UUID);
+  await notifyTournamentCancelled(ctx.api, tournamentId as UUID, tournament.name);
 
   await ctx.answerCallbackQuery('Турнир отменён');
   await safeEditMessageText(ctx, {
@@ -453,12 +462,13 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
     return;
   }
 
-  const tournamentId = ctx.match![1]! as UUID;
-  const result = await canStartTournament(tournamentId);
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  const result = await canStartTournament(tournamentId as UUID);
 
   if (!result.canStart) {
     await ctx.answerCallbackQuery({
-      text: result.error || 'Невозможно запустить турнир',
+      text: result.error ?? 'Невозможно запустить турнир',
       show_alert: true,
     });
     return;
@@ -466,7 +476,7 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery();
 
-  const tournament = await getTournament(tournamentId);
+  const tournament = await getTournament(tournamentId as UUID);
 
   if (!tournament) {
     await safeEditMessageText(ctx, {
@@ -476,11 +486,19 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
   }
 
   const stats = getBracketStats(
-    tournament.format as
-      | 'single_elimination'
-      | 'double_elimination'
-      | 'round_robin',
+    tournament.format,
     result.participantsCount,
+    tournament.mergeRound,
+    tournament.format === 'groups_playoff' &&
+      tournament.groupsCount != null &&
+      tournament.participantsPerGroup != null &&
+      tournament.qualifiersPerGroup != null
+      ? {
+          groupsCount: tournament.groupsCount,
+          participantsPerGroup: tournament.participantsPerGroup,
+          qualifiersPerGroup: tournament.qualifiersPerGroup,
+        }
+      : undefined,
   );
 
   const keyboard = new InlineKeyboard()
@@ -497,10 +515,10 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
   await safeEditMessageText(ctx, {
     text:
       `🚀 *Запуск турнира "${tournament.name}"*\n\n` +
-      `Участников: ${result.participantsCount}\n` +
-      `Формат: ${FORMAT_LABELS[tournament.format] || tournament.format}\n` +
-      `Матчей будет создано: ${stats.totalMatches}\n` +
-      `Раундов: ${stats.totalRounds}\n\n` +
+      `Участников: ${String(result.participantsCount)}\n` +
+      `Формат: ${FORMAT_LABELS[tournament.format]}\n` +
+      `Матчей будет создано: ${String(stats.totalMatches)}\n` +
+      `Раундов: ${String(stats.totalRounds)}\n\n` +
       `⚠️ После запуска:\n` +
       `• Сиды будут назначены случайным образом\n` +
       `• Сетка будет сформирована автоматически\n` +
@@ -522,20 +540,21 @@ tournamentCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]! as UUID;
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
 
     // Double-check if tournament can be started
-    const result = await canStartTournament(tournamentId);
+    const result = await canStartTournament(tournamentId as UUID);
 
     if (!result.canStart) {
       await ctx.answerCallbackQuery({
-        text: result.error || 'Невозможно запустить турнир',
+        text: result.error ?? 'Невозможно запустить турнир',
         show_alert: true,
       });
       return;
     }
 
-    const tournament = await getTournament(tournamentId);
+    const tournament = await getTournament(tournamentId as UUID);
 
     if (!tournament) {
       await ctx.answerCallbackQuery({
@@ -548,7 +567,7 @@ tournamentCommands.callbackQuery(
     await ctx.answerCallbackQuery('Запуск турнира...');
 
     try {
-      const startResult = await startTournamentFull(tournamentId, ctx.api);
+      const startResult = await startTournamentFull(tournamentId as UUID, ctx.api);
 
       const keyboard = new InlineKeyboard()
         .text('📊 Посмотреть сетку', `bracket:view:${tournamentId}`)
@@ -557,8 +576,8 @@ tournamentCommands.callbackQuery(
       await safeEditMessageText(ctx, {
         text:
           `${getMatchStatusEmoji('completed')} *Турнир "${startResult.tournamentName}" запущен!*\n\n` +
-          `Участников: ${startResult.participantsCount}\n` +
-          `Матчей создано: ${startResult.matchesCreated}\n\n` +
+          `Участников: ${String(startResult.participantsCount)}\n` +
+          `Матчей создано: ${String(startResult.matchesCreated)}\n\n` +
           `Сетка сформирована, участники получили уведомления.\n` +
           `Используйте /my\\_match для просмотра своего текущего матча.`,
         parse_mode: 'Markdown',
@@ -578,46 +597,99 @@ tournamentCommands.callbackQuery(
 // ============================================================================
 
 tournamentCommands.callbackQuery(/^tc:visibility:(.+)$/, async (ctx) => {
-  await tournamentCreationFlow.handleVisibilitySelection(ctx, ctx.match![1]!);
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleVisibilitySelection(ctx, val);
 });
 
 tournamentCommands.callbackQuery(/^tc:schedule:(.+)$/, async (ctx) => {
-  await tournamentCreationFlow.handleScheduleModeSelection(ctx, ctx.match![1]!);
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleScheduleModeSelection(ctx, val);
 });
 
 tournamentCommands.callbackQuery(/^tc:discipline:(.+)$/, async (ctx) => {
-  await tournamentCreationFlow.handleDisciplineSelection(ctx, ctx.match![1]!);
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleDisciplineSelection(ctx, val);
 });
 
 tournamentCommands.callbackQuery(/^tc:venue:(.+)$/, async (ctx) => {
-  await tournamentCreationFlow.handleVenueSelection(
-    ctx,
-    ctx.match![1]! as UUID,
-  );
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleVenueSelection(ctx, val as UUID);
 });
 
 tournamentCommands.callbackQuery(/^tc:format:(.+)$/, async (ctx) => {
-  await tournamentCreationFlow.handleFormatSelection(ctx, ctx.match![1]!);
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleFormatSelection(ctx, val);
+});
+
+tournamentCommands.callbackQuery(/^tc:random:(true|false)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleRandomModeSelection(ctx, val === 'true');
 });
 
 tournamentCommands.callbackQuery(/^tc:participants:(\d+)$/, async (ctx) => {
-  const participants = parseInt(ctx.match![1]!, 10);
+  const val = ctx.match[1];
+  if (!val) return;
+  const participants = parseInt(val, 10);
   await tournamentCreationFlow.handleMaxParticipantsSelection(
     ctx,
     participants,
   );
 });
 
+tournamentCommands.callbackQuery(/^tc:merge:(\d+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  const mergeRound = parseInt(val, 10);
+  await tournamentCreationFlow.handleMergeRoundSelection(ctx, mergeRound);
+});
+
+tournamentCommands.callbackQuery(/^tc:groups:(\d+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleGroupsCountSelection(ctx, parseInt(val, 10));
+});
+
+tournamentCommands.callbackQuery(/^tc:ppg:(\d+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleParticipantsPerGroupSelection(
+    ctx,
+    parseInt(val, 10),
+  );
+});
+
+tournamentCommands.callbackQuery(/^tc:qpg:(\d+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleQualifiersPerGroupSelection(
+    ctx,
+    parseInt(val, 10),
+  );
+});
+
+tournamentCommands.callbackQuery(/^tc:draw:(snake|random)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleGroupDrawSelection(ctx, val);
+});
+
 tournamentCommands.callbackQuery(/^tc:winscore:(\d+)$/, async (ctx) => {
-  const winScore = parseInt(ctx.match![1]!, 10);
+  const val = ctx.match[1];
+  if (!val) return;
+  const winScore = parseInt(val, 10);
   await tournamentCreationFlow.handleWinScoreSelection(ctx, winScore);
 });
 
 tournamentCommands.callbackQuery(/^tc:tables_toggle:(.+)$/, async (ctx) => {
-  await tournamentCreationFlow.handleTableSelectionToggle(
-    ctx,
-    ctx.match![1]! as UUID,
-  );
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleTableSelectionToggle(ctx, val as UUID);
 });
 
 tournamentCommands.callbackQuery('tc:tables_all', async (ctx) => {
@@ -638,7 +710,7 @@ tournamentCommands.callbackQuery('tc:tables_skip', async (ctx) => {
 
 tournamentCommands.on('message:text', async (ctx, next) => {
   const userId = ctx.from.id;
-  const state = tournamentCreationFlow.getCreationState(userId);
+  const state = await tournamentCreationFlow.getCreationState(userId);
 
   if (!state) {
     return next();
@@ -667,7 +739,7 @@ tournamentCommands.on('message:text', async (ctx, next) => {
 async function showTournamentDetails(
   ctx: BotContext,
   tournamentId: UUID,
-  editMessage: boolean = false,
+  editMessage = false,
 ): Promise<void> {
   const tournament = await getTournament(tournamentId);
 

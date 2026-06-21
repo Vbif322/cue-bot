@@ -2,7 +2,10 @@ import { bot } from './bot/instance.js';
 import {
   authMiddleware,
   wizardGuardMiddleware,
+  rateLimitMiddleware,
+  botFloodLimiter,
 } from './bot/middleware/index.js';
+import { RateLimiter } from './lib/rateLimiter.js';
 import {
   roleCommands,
   tournamentCommands,
@@ -29,13 +32,18 @@ import {
 import { getUserRefereeTournaments } from './bot/permissions.js';
 import { buildMainMenuKeyboard } from './bot/ui/mainMenu.js';
 import { createAdminServer } from './admin/server/index.js';
-import { serve } from '@hono/node-server';
+import { serve, type ServerType } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { InlineKeyboard } from 'grammy';
 import { randomBytes } from 'crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { db } from './db/db.js';
 import { loginTokens } from './db/schema.js';
+import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
 
+// Flood protection runs first so spam is dropped before authMiddleware's per-update
+// user upsert (a DB transaction) ever runs.
+bot.use(rateLimitMiddleware);
 bot.use(authMiddleware);
 bot.use(wizardGuardMiddleware);
 bot.use(menuHandlers);
@@ -49,7 +57,8 @@ bot.use(helpCommands);
 bot.use(profileCommands);
 
 bot.command('start', async (ctx) => {
-  const chatId = ctx.from!.id;
+  if (!ctx.from) return;
+  const chatId = ctx.from.id;
 
   if (ctx.dbUser.role === 'admin') {
     await setAdminCommands(bot, chatId);
@@ -82,8 +91,17 @@ bot.command('start', async (ctx) => {
   await sendOnboarding(ctx);
 });
 
+// Stricter cooldown on token minting (1 per 30s per admin) so the loginTokens table
+// can't be spammed full. Admin-only command, so this is bloat protection, not anti-abuse.
+const dashboardLimiter = new RateLimiter({ capacity: 1, refillPerSec: 1 / 30 });
+
 bot.command('dashboard', async (ctx) => {
   if (ctx.dbUser.role !== 'admin') {
+    return;
+  }
+
+  if (!dashboardLimiter.hit(ctx.dbUser.id).allowed) {
+    await ctx.reply('Не так часто. Попробуйте через минуту.');
     return;
   }
 
@@ -107,10 +125,53 @@ bot.catch((err) => {
   console.error('Bot error:', err);
 });
 
-async function start() {
-  await setupCommands(bot);
-  bot.start();
+const MAX_BOT_START_RETRIES = 5;
+const BOT_START_RETRY_DELAY_MS = 5000;
 
+// bot.start() резолвится только при bot.stop(), а его внутренний polling уже сам
+// ретраит транзиентные ошибки. Незакрытый зазор — начальная инициализация
+// (getMe / setMyCommands), поэтому ретраим именно её, а сам polling не ждём.
+async function startBot() {
+  for (let attempt = 1; attempt <= MAX_BOT_START_RETRIES; attempt++) {
+    try {
+      await bot.init();
+      await setupCommands(bot);
+
+      void bot
+        .start({
+          onStart: (info) => {
+            console.log(`Бот @${info.username} запущен`);
+          },
+        })
+        .catch((err: unknown) => {
+          console.error('Long polling остановлен с ошибкой:', err);
+        });
+      return;
+    } catch (err) {
+      console.error(
+        `Не удалось запустить бота (попытка ${String(attempt)}/${String(MAX_BOT_START_RETRIES)}):`,
+        err,
+      );
+      if (attempt < MAX_BOT_START_RETRIES) {
+        await sleep(BOT_START_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  console.error(
+    'Бот не запустился после всех попыток; admin API продолжает работать без бота.',
+  );
+}
+
+let server: ServerType | undefined;
+let dialogSessionSweep: ReturnType<typeof setInterval> | undefined;
+let rateLimitSweep: ReturnType<typeof setInterval> | undefined;
+
+const DIALOG_SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // раз в час
+const RATE_LIMIT_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // раз в 5 минут
+
+async function start() {
+  // Поднимаем HTTP-сервер первым, чтобы admin API был доступен независимо от бота.
   const app = createAdminServer();
 
   // Serve static files from admin/dist in production
@@ -120,7 +181,89 @@ async function start() {
   }
 
   const port = Number(process.env.ADMIN_PORT ?? 3000);
-  serve({ fetch: app.fetch, port });
+  server = serve({ fetch: app.fetch, port });
+
+  // Периодически удаляем просроченные диалоговые сессии, чтобы таблица не росла.
+  dialogSessionSweep = setInterval(() => {
+    sweepExpiredDialogSessions().catch((err: unknown) => {
+      console.error('Ошибка очистки диалоговых сессий:', err);
+    });
+  }, DIALOG_SESSION_SWEEP_INTERVAL_MS);
+  dialogSessionSweep.unref();
+
+  // Освобождаем память от неактивных бакетов rate limiter'ов.
+  rateLimitSweep = setInterval(() => {
+    botFloodLimiter.prune();
+    dashboardLimiter.prune();
+  }, RATE_LIMIT_SWEEP_INTERVAL_MS);
+  rateLimitSweep.unref();
+
+  await startBot();
 }
 
-start();
+start().catch((err: unknown) => {
+  console.error('Фатальная ошибка запуска:', err);
+  process.exit(1);
+});
+
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+let shuttingDown = false;
+
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Получен ${signal}, завершаем работу...`);
+
+  // Страховка: если что-то зависнет при остановке, не блокируем выход навсегда.
+  const watchdog = setTimeout(() => {
+    console.error('Превышено время graceful shutdown, принудительный выход.');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  watchdog.unref();
+
+  // 0. Останавливаем периодические задачи очистки.
+  if (dialogSessionSweep) clearInterval(dialogSessionSweep);
+  if (rateLimitSweep) clearInterval(rateLimitSweep);
+
+  // 1. Останавливаем приём новых апдейтов от Telegram.
+  try {
+    await bot.stop();
+    console.log('Бот остановлен');
+  } catch (err) {
+    console.error('Ошибка при остановке бота:', err);
+  }
+
+  // 2. Перестаём принимать новые HTTP-запросы, дожидаемся завершения текущих.
+  await new Promise<void>((resolve) => {
+    if (!server) {
+      resolve();
+      return;
+    }
+    server.close(() => {
+      console.log('HTTP-сервер закрыт');
+      resolve();
+    });
+  });
+
+  // 3. Дренируем пул соединений с БД.
+  try {
+    await db.$client.end();
+    console.log('Пул БД закрыт');
+  } catch (err) {
+    console.error('Ошибка при закрытии пула БД:', err);
+  }
+
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Необработанный rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Необработанное исключение:', err);
+  process.exit(1);
+});

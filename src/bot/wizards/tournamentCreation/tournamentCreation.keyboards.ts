@@ -5,8 +5,12 @@ import {
   maxParticipants,
   formats,
   scheduleModes,
+  validMergeRoundsForSize,
   visibilities,
   winScores,
+  groupsCountOptions,
+  participantsPerGroupOptions,
+  qualifiersOptionsForGroupSize,
 } from '@/db/schema/tournaments.js';
 import {
   formatDiscipline,
@@ -22,16 +26,22 @@ import type { Table } from '../../@types/table.js';
 
 export interface ITournamentCreationKeyboards {
   buildVenuesKeyboard(
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
+    venues: Pick<Venue, 'id' | 'name'>[],
   ): InlineKeyboard;
   buildVisibilityKeyboard(): InlineKeyboard;
   buildScheduleModeKeyboard(): InlineKeyboard;
   buildDisciplineKeyboard(): InlineKeyboard;
   buildFormatKeyboard(): InlineKeyboard;
+  buildRandomModeKeyboard(): InlineKeyboard;
   buildParticipantsKeyboard(): InlineKeyboard;
+  buildMergeRoundKeyboard(maxParticipants: number): InlineKeyboard;
+  buildGroupsCountKeyboard(): InlineKeyboard;
+  buildParticipantsPerGroupKeyboard(): InlineKeyboard;
+  buildQualifiersPerGroupKeyboard(participantsPerGroup: number): InlineKeyboard;
+  buildGroupDrawKeyboard(): InlineKeyboard;
   buildWinScoreKeyboard(): InlineKeyboard;
   buildTablesKeyboard(
-    tables: Array<Pick<Table, 'id' | 'name'>>,
+    tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
   ): InlineKeyboard;
 
@@ -53,7 +63,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
    * @returns {InlineKeyboard} Клавиатура с названиями площадок и коллбеком 'venue:<id>' для каждой кнопки
    */
   buildVenuesKeyboard(
-    venues: Array<Pick<Venue, 'id' | 'name'>>,
+    venues: Pick<Venue, 'id' | 'name'>[],
   ): InlineKeyboard {
     const keyboard = new InlineKeyboard();
 
@@ -128,6 +138,58 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     return keyboard;
   }
 
+  /** Groups count picker → callback 'tc:groups:<n>'. */
+  buildGroupsCountKeyboard(perRow = 3): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    groupsCountOptions.forEach((v, i) => {
+      keyboard.text(String(v), `tc:groups:${String(v)}`);
+      if ((i + 1) % perRow === 0) keyboard.row();
+    });
+    return keyboard;
+  }
+
+  /** Participants-per-group picker → callback 'tc:ppg:<n>'. */
+  buildParticipantsPerGroupKeyboard(perRow = 4): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    participantsPerGroupOptions.forEach((v, i) => {
+      keyboard.text(String(v), `tc:ppg:${String(v)}`);
+      if ((i + 1) % perRow === 0) keyboard.row();
+    });
+    return keyboard;
+  }
+
+  /** Qualifiers-per-group picker (1..size-1) → callback 'tc:qpg:<n>'. */
+  buildQualifiersPerGroupKeyboard(
+    participantsPerGroup: number,
+    perRow = 4,
+  ): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    qualifiersOptionsForGroupSize(participantsPerGroup).forEach((v, i) => {
+      keyboard.text(String(v), `tc:qpg:${String(v)}`);
+      if ((i + 1) % perRow === 0) keyboard.row();
+    });
+    return keyboard;
+  }
+
+  /** Group draw picker → callback 'tc:draw:<snake|random>'. */
+  buildGroupDrawKeyboard(): InlineKeyboard {
+    return new InlineKeyboard()
+      .text('Змейкой (по сеяным)', 'tc:draw:snake')
+      .row()
+      .text('Случайно', 'tc:draw:random');
+  }
+
+  /**
+   * Создает клавиатуру для выбора режима случайных пар (рандом)
+   *
+   * @returns {InlineKeyboard} Клавиатура с кнопками "Да"/"Нет" и коллбеком 'tc:random:<true|false>'
+   */
+  buildRandomModeKeyboard(): InlineKeyboard {
+    return new InlineKeyboard()
+      .text('Да', 'tc:random:true')
+      .text('Нет', 'tc:random:false');
+  }
+
   /**
    * Создает клавиатуру для выбора максимального количества участников
    *
@@ -139,7 +201,32 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     const keyboard = new InlineKeyboard();
 
     maxParticipants.forEach((v, i) => {
-      keyboard.text(String(v), `tc:participants:${v}`);
+      keyboard.text(String(v), `tc:participants:${String(v)}`);
+
+      if ((i + 1) % perRow === 0) {
+        keyboard.row();
+      }
+    });
+
+    return keyboard;
+  }
+
+  /**
+   * Создает клавиатуру для выбора раунда объединения (double elimination)
+   *
+   * @param {number} maxParticipants Лимит участников (определяет допустимые раунды)
+   * @param {number} [perRow=3] Количество кнопок в строке (3 по умолчанию)
+   *
+   * @returns {InlineKeyboard} Клавиатура с номерами раундов и коллбеком 'tc:merge:<number>'
+   */
+  buildMergeRoundKeyboard(maxParticipants: number, perRow = 3): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    const rounds = validMergeRoundsForSize(maxParticipants);
+    const lastRound = rounds[rounds.length - 1];
+
+    rounds.forEach((m, i) => {
+      const label = m === lastRound ? `${String(m)} (полный DE)` : String(m);
+      keyboard.text(label, `tc:merge:${String(m)}`);
 
       if ((i + 1) % perRow === 0) {
         keyboard.row();
@@ -160,7 +247,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     const keyboard = new InlineKeyboard();
 
     winScores.forEach((v, i) => {
-      keyboard.text(String(v), `tc:winscore:${v}`);
+      keyboard.text(String(v), `tc:winscore:${String(v)}`);
 
       if ((i + 1) % perRow === 0) {
         keyboard.row();
@@ -181,7 +268,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
    * а также кнопками "Готово" и "Пропустить"
    */
   buildTablesKeyboard(
-    tables: Array<Pick<Table, 'id' | 'name'>>,
+    tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
   ): InlineKeyboard {
     const keyboard = new InlineKeyboard();

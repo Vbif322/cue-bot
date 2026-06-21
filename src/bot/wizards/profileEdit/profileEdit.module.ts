@@ -5,7 +5,7 @@ const profileEditStateStore = new ProfileEditStateStore();
 
 registerWizard({
   name: 'редактирование профиля',
-  isActive: (userId) => profileEditStateStore.has(userId),
+  namespace: 'profile-edit',
   callbackPrefix: 'pe:',
 });
 

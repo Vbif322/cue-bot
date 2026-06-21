@@ -1,23 +1,22 @@
 import { Composer, InlineKeyboard } from "grammy";
-import { eq, and } from "drizzle-orm";
 import type { UUID } from "crypto";
-import { db } from "../../db/db.js";
-import { tournamentParticipants, users } from "../../db/schema.js";
 import type { BotContext } from "../types.js";
 import {
   confirmParticipant,
   rejectParticipant,
   deleteParticipant,
+  getParticipantsByStatus,
   getTournament,
-} from "../../services/tournamentService.js";
+} from "@/services/tournamentService.js";
 import {
   notifyRegistrationConfirmed,
   notifyRegistrationRejected,
-} from "../../services/notificationService.js";
+} from "@/services/notificationService.js";
 import {
+  escapeMarkdown,
   formatFullName,
   safeEditMessageText,
-} from "../../utils/messageHelpers.js";
+} from "@/utils/messageHelpers.js";
 import { bot } from "../instance.js";
 
 export const adminParticipantCommands = new Composer<BotContext>();
@@ -54,43 +53,20 @@ async function showParticipantManagement(
     return;
   }
 
-  const pending = await db
-    .select({
-      userId: tournamentParticipants.userId,
-      username: users.username,
-      name: users.name,
-      surname: users.surname,
-    })
-    .from(tournamentParticipants)
-    .innerJoin(users, eq(tournamentParticipants.userId, users.id))
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
-        eq(tournamentParticipants.status, "pending"),
-      ),
-    );
-
-  const confirmed = await db
-    .select({
-      userId: tournamentParticipants.userId,
-      username: users.username,
-      name: users.name,
-      surname: users.surname,
-    })
-    .from(tournamentParticipants)
-    .innerJoin(users, eq(tournamentParticipants.userId, users.id))
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId as UUID),
-        eq(tournamentParticipants.status, "confirmed"),
-      ),
-    );
+  const pending = await getParticipantsByStatus(
+    tournamentId as UUID,
+    "pending",
+  );
+  const confirmed = await getParticipantsByStatus(
+    tournamentId as UUID,
+    "confirmed",
+  );
 
   // Clear old keys for this tournament and populate fresh ones
   clearKeysForTournament(tournamentId);
 
   const keyboard = new InlineKeyboard();
-  let message = `*${tournament.name}*\n`;
+  let message = `*${escapeMarkdown(tournament.name)}*\n`;
 
   if (pending.length === 0 && confirmed.length === 0) {
     await ctx.answerCallbackQuery({ text: "Нет участников" });
@@ -102,12 +78,12 @@ async function showParticipantManagement(
   }
 
   if (pending.length > 0) {
-    message += `\n*Ожидают подтверждения (${pending.length}):*\n`;
+    message += `\n*Ожидают подтверждения (${String(pending.length)}):*\n`;
     for (const p of pending) {
       const displayName =
-        formatFullName(p.name, p.surname) ?? p.username ?? "Игрок";
-      const handle = p.username ? ` (@${p.username})` : "";
-      message += `${displayName}${handle}\n`;
+        formatFullName(p.name, p.surname) ?? p.username;
+      const handle = p.username ? ` (@${escapeMarkdown(p.username)})` : "";
+      message += `${escapeMarkdown(displayName)}${handle}\n`;
 
       const key = generateKey();
       participantActionsMap.set(key, { tournamentId, userId: p.userId });
@@ -119,12 +95,12 @@ async function showParticipantManagement(
   }
 
   if (confirmed.length > 0) {
-    message += `\n*Подтверждённые (${confirmed.length}):*\n`;
+    message += `\n*Подтверждённые (${String(confirmed.length)}):*\n`;
     for (const p of confirmed) {
       const displayName =
-        formatFullName(p.name, p.surname) ?? p.username ?? "Игрок";
-      const handle = p.username ? ` (@${p.username})` : "";
-      message += `${displayName}${handle}\n`;
+        formatFullName(p.name, p.surname) ?? p.username;
+      const handle = p.username ? ` (@${escapeMarkdown(p.username)})` : "";
+      message += `${escapeMarkdown(displayName)}${handle}\n`;
 
       const key = generateKey();
       participantActionsMap.set(key, { tournamentId, userId: p.userId });
@@ -152,7 +128,8 @@ adminParticipantCommands.callbackQuery(
       return;
     }
 
-    const tournamentId = ctx.match![1]!;
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
     await showParticipantManagement(ctx, tournamentId);
   },
 );
@@ -164,7 +141,8 @@ adminParticipantCommands.callbackQuery(/^adm:c:(.+)$/, async (ctx) => {
     return;
   }
 
-  const key = ctx.match![1]!;
+  const key = ctx.match[1];
+  if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {
@@ -198,7 +176,8 @@ adminParticipantCommands.callbackQuery(/^adm:r:(.+)$/, async (ctx) => {
     return;
   }
 
-  const key = ctx.match![1]!;
+  const key = ctx.match[1];
+  if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {
@@ -232,7 +211,8 @@ adminParticipantCommands.callbackQuery(/^adm:rm:(.+)$/, async (ctx) => {
     return;
   }
 
-  const key = ctx.match![1]!;
+  const key = ctx.match[1];
+  if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {

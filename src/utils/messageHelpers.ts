@@ -1,4 +1,4 @@
-import { GrammyError } from 'grammy';
+import { GrammyError, InlineKeyboard } from 'grammy';
 import type { Context } from 'grammy';
 
 /**
@@ -10,7 +10,7 @@ import type { Context } from 'grammy';
  * string (double-escape risk).
  */
 export function escapeMarkdown(text: string): string {
-  return text.replace(/([_*`\[])/g, '\\$1');
+  return text.replace(/([_*`[])/g, '\\$1');
 }
 
 /**
@@ -38,7 +38,7 @@ export interface SafeEditOptions {
   /** Parse mode */
   parse_mode?: 'Markdown' | 'MarkdownV2' | 'HTML';
   /** Reply markup (inline keyboard) */
-  reply_markup?: any;
+  reply_markup?: InlineKeyboard;
 }
 
 /**

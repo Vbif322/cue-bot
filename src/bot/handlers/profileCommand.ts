@@ -31,7 +31,7 @@ function formatProfileHeader(ctx: BotContext, refereeCount: number): string {
   if (user.role === 'admin') {
     role = 'Админ';
   } else if (refereeCount > 0) {
-    role = `Судья на ${refereeCount} ${pluralizeTournaments(refereeCount)}`;
+    role = `Судья на ${String(refereeCount)} ${pluralizeTournaments(refereeCount)}`;
   } else {
     role = 'Игрок';
   }
@@ -46,10 +46,10 @@ function formatStats(stats: UserMatchStats): string {
   const winRate = Math.round((stats.wins / stats.played) * 100);
   return (
     '📊 *Статистика*\n' +
-    `Сыграно матчей: ${stats.played}\n` +
-    `Победы: ${stats.wins}\n` +
-    `Поражения: ${stats.losses}\n` +
-    `Win-rate: ${winRate}%`
+    `Сыграно матчей: ${String(stats.played)}\n` +
+    `Победы: ${String(stats.wins)}\n` +
+    `Поражения: ${String(stats.losses)}\n` +
+    `Win-rate: ${String(winRate)}%`
   );
 }
 
@@ -112,11 +112,9 @@ const FIELD_LABELS: Record<'name' | 'surname', string> = {
 };
 
 profileCommands.callbackQuery(/^pe:edit:(name|surname)$/, async (ctx) => {
-  const userId = ctx.from?.id;
-  if (!userId) return;
-
-  const field = ctx.match![1] as 'name' | 'surname';
-  profileEditStateStore.start(userId, field);
+  const userId = ctx.from.id;
+  const field = ctx.match[1] as 'name' | 'surname';
+  await profileEditStateStore.start(userId, field);
 
   await ctx.answerCallbackQuery();
   await ctx.reply(
@@ -127,17 +125,16 @@ profileCommands.callbackQuery(/^pe:edit:(name|surname)$/, async (ctx) => {
 
 profileCommands.command('cancel', async (ctx) => {
   const userId = ctx.from?.id;
-  if (!userId || !profileEditStateStore.has(userId)) return;
+  if (!userId || !(await profileEditStateStore.has(userId))) return;
 
-  profileEditStateStore.clear(userId);
+  await profileEditStateStore.clear(userId);
   await ctx.reply('Редактирование профиля отменено.');
 });
 
 profileCommands.on('message:text', async (ctx, next) => {
-  const userId = ctx.from?.id;
-  if (!userId) return next();
+  const userId = ctx.from.id;
 
-  const state = profileEditStateStore.get(userId);
+  const state = await profileEditStateStore.get(userId);
   if (!state) return next();
 
   const raw = ctx.message.text.trim();
@@ -148,7 +145,7 @@ profileCommands.on('message:text', async (ctx, next) => {
       [state.field]: value,
     });
     ctx.dbUser = updated;
-    profileEditStateStore.clear(userId);
+    await profileEditStateStore.clear(userId);
     await ctx.reply('✅ Профиль обновлён.');
     await showProfile(ctx);
   } catch (error) {

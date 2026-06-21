@@ -1,13 +1,16 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import { db } from '@/db/db.js';
-import { tournaments } from '@/db/schema/tournaments.js';
 import { tournamentParticipants } from '@/db/schema/tournamentParticipants.js';
-import { getTournament } from '@/services/tournamentService.js';
+import {
+  getTournament,
+  getUserTournamentParticipations,
+  registerParticipant,
+} from '@/services/tournamentService.js';
 
 import {
   buildTournamentKeyboard,
@@ -30,8 +33,10 @@ async function getUserParticipation(tournamentId: UUID, userId: UUID) {
 
 // === РЕГИСТРАЦИЯ НА ТУРНИР ===
 registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const match1 = ctx.match[1];
+  if (!match1) return;
+  const tournamentId = match1 as UUID;
+  const userId = ctx.dbUser.id;
 
   // 1. Проверить существование турнира
   const tournament = await getTournament(tournamentId);
@@ -53,49 +58,27 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
     return;
   }
 
-  // 3. Проверить, не зарегистрирован ли уже
-  const existing = await getUserParticipation(tournamentId, userId);
-
-  if (existing && existing.status !== 'cancelled') {
-    await ctx.answerCallbackQuery({
-      text: 'Вы уже зарегистрированы на этот турнир',
-      show_alert: true,
-    });
-    return;
-  }
-
-  // 4. Проверить лимит участников
-  const tournamentInfo = await getTournamentInfo(tournament, userId);
-
-  if (tournamentInfo.participantsCount >= tournament.maxParticipants) {
-    await ctx.answerCallbackQuery({
-      text: 'К сожалению, все места заняты',
-      show_alert: true,
-    });
-    return;
-  }
-
-  // 5. Создать или обновить запись
+  // 3-5. Атомарная регистрация: проверка дубля, лимита и вставка под
+  // advisory-блокировкой турнира (исключает гонку лимита участников).
   const isAdmin = ctx.dbUser.role === "admin";
-  const registrationStatus = isAdmin ? "confirmed" : "pending";
 
-  if (existing) {
-    // Перерегистрация после отмены
-    await db
-      .update(tournamentParticipants)
-      .set({ status: registrationStatus, createdAt: new Date() })
-      .where(
-        and(
-          eq(tournamentParticipants.tournamentId, tournamentId),
-          eq(tournamentParticipants.userId, userId),
-        ),
-      );
-  } else {
-    await db.insert(tournamentParticipants).values({
-      tournamentId,
-      userId,
-      status: registrationStatus,
+  const outcome = await registerParticipant(tournamentId, userId, {
+    desiredStatus: isAdmin ? 'confirmed' : 'pending',
+    requireOpen: true,
+  });
+
+  if (!outcome.ok) {
+    const alerts: Record<typeof outcome.reason, string> = {
+      not_found: 'Турнир не найден',
+      registration_closed: 'Регистрация на этот турнир закрыта',
+      already_registered: 'Вы уже зарегистрированы на этот турнир',
+      full: 'К сожалению, все места заняты',
+    };
+    await ctx.answerCallbackQuery({
+      text: alerts[outcome.reason],
+      show_alert: true,
     });
+    return;
   }
 
   // 6. Обновить сообщение
@@ -116,8 +99,10 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
 
 // === ОТМЕНА РЕГИСТРАЦИИ ===
 registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
-  const tournamentId = ctx.match![1]! as UUID;
-  const userId = ctx.dbUser.id as UUID;
+  const match1 = ctx.match[1];
+  if (!match1) return;
+  const tournamentId = match1 as UUID;
+  const userId = ctx.dbUser.id;
 
   const tournament = await getTournament(tournamentId);
 
@@ -189,27 +174,7 @@ registrationCommands.callbackQuery(/^reg:full:(.+)$/, async (ctx) => {
 registrationCommands.command('my_tournaments', async (ctx) => {
   const userId = ctx.dbUser.id;
 
-  const participations = await db
-    .select({
-      tournament: tournaments,
-      participation: tournamentParticipants,
-    })
-    .from(tournamentParticipants)
-    .innerJoin(
-      tournaments,
-      eq(tournamentParticipants.tournamentId, tournaments.id),
-    )
-    .where(
-      and(
-        eq(tournamentParticipants.userId, userId),
-        inArray(tournamentParticipants.status, [
-          'pending',
-          'confirmed',
-          'invited',
-        ]),
-      ),
-    )
-    .orderBy(tournaments.startDate);
+  const participations = await getUserTournamentParticipations(userId);
 
   if (participations.length === 0) {
     await ctx.reply(

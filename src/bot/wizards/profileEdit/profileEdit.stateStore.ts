@@ -1,3 +1,5 @@
+import { PgSessionStore } from '@/services/dialogSessionStore.js';
+
 export type ProfileEditField = 'name' | 'surname';
 
 interface ProfileEditState {
@@ -5,25 +7,25 @@ interface ProfileEditState {
 }
 
 /**
- * Лёгкое in-memory хранилище состояния редактирования профиля.
- * Сессии теряются при перезапуске бота (как и у остальных wizard'ов).
+ * Хранилище состояния редактирования профиля (persistent, поверх Postgres).
+ * Переживает рестарт бота, как и остальные wizard'ы.
  */
 export class ProfileEditStateStore {
-  private readonly storage = new Map<number, ProfileEditState>();
+  private readonly store = new PgSessionStore<ProfileEditState>('profile-edit');
 
-  start(userId: number, field: ProfileEditField): void {
-    this.storage.set(userId, { field });
+  async start(userId: number, field: ProfileEditField): Promise<void> {
+    await this.store.set(userId, { field });
   }
 
-  get(userId: number): ProfileEditState | undefined {
-    return this.storage.get(userId);
+  async get(userId: number): Promise<ProfileEditState | undefined> {
+    return this.store.get(userId);
   }
 
-  has(userId: number): boolean {
-    return this.storage.has(userId);
+  async has(userId: number): Promise<boolean> {
+    return this.store.has(userId);
   }
 
-  clear(userId: number): boolean {
-    return this.storage.delete(userId);
+  async clear(userId: number): Promise<boolean> {
+    return this.store.delete(userId);
   }
 }

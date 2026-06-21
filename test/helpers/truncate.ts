@@ -11,7 +11,7 @@ export async function truncateAll(): Promise<void> {
   const result = await db.execute(
     sql`SELECT tablename FROM pg_tables WHERE schemaname = 'prod'`,
   );
-  const tables = (result.rows as Array<{ tablename: string }>).map(
+  const tables = (result.rows as { tablename: string }[]).map(
     (r) => `"prod"."${r.tablename}"`,
   );
   if (tables.length === 0) return;

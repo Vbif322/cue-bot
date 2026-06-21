@@ -5,7 +5,7 @@ import { tournamentsApi } from '../../lib/api.ts';
 import type { ApiTournament, TournamentStatus } from '../../lib/api.ts';
 import { TournamentStatusBadge } from '../StatusBadge.tsx';
 import { EditTournamentModal } from '../CreateTournamentModal.tsx';
-import { FORMAT_LABELS } from '../../lib/tournamentLabels.ts';
+import { formatLabelWithMode } from '../../lib/tournamentLabels.ts';
 
 const NEXT_STATUS: Partial<Record<TournamentStatus, TournamentStatus>> = {
   draft: 'registration_open',
@@ -110,7 +110,10 @@ export default function TournamentHeader({
           <div className="flex items-center gap-3 mt-2">
             <TournamentStatusBadge status={tournament.status} />
             <span className="text-sm text-gray-500">
-              {FORMAT_LABELS[tournament.format]}
+              {formatLabelWithMode(
+                tournament.format,
+                tournament.randomAdvancement,
+              )}
             </span>
           </div>
         </div>

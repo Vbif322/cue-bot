@@ -1,3 +1,5 @@
+import type { UUID } from 'crypto';
+
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { db } from '@/db/db.js';
@@ -10,7 +12,7 @@ import { truncateAll } from '../helpers/truncate.js';
 
 /** Insert a bare match row in the given status. */
 async function addMatch(
-  tournamentId: string,
+  tournamentId: UUID,
   position: number,
   status: MatchStatus,
 ) {

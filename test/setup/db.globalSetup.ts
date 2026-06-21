@@ -7,7 +7,13 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from '@testcontainers/postgresql';
-import type { GlobalSetupContext } from 'vitest/node';
+import type { TestProject } from 'vitest/node';
+
+declare module 'vitest' {
+  interface ProvidedContext {
+    dbUrl: string;
+  }
+}
 
 /**
  * Phase 0b — DB harness global setup (integration / e2e projects only).
@@ -28,7 +34,7 @@ import type { GlobalSetupContext } from 'vitest/node';
  */
 let container: StartedPostgreSqlContainer | undefined;
 
-export default async function setup({ provide }: GlobalSetupContext) {
+export default async function setup({ provide }: TestProject) {
   container = await new PostgreSqlContainer('postgres:16-alpine').start();
   const url = container.getConnectionUri();
 

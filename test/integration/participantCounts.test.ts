@@ -1,3 +1,5 @@
+import type { UUID } from 'crypto';
+
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { db } from '@/db/db.js';
@@ -9,7 +11,7 @@ import { createTournament, createUser } from '../helpers/factories.js';
 import { truncateAll } from '../helpers/truncate.js';
 
 /** Register a freshly-created user into a tournament with the given status. */
-async function addParticipant(tournamentId: string, status: ParticipantStatus) {
+async function addParticipant(tournamentId: UUID, status: ParticipantStatus) {
   const user = await createUser();
   await db.insert(tournamentParticipants).values({
     tournamentId,

@@ -5,8 +5,13 @@ import {
   maxParticipants,
   formats,
   scheduleModes,
+  validMergeRoundsForSize,
   visibilities,
   winScores,
+  groupDraws,
+  groupsCountOptions,
+  participantsPerGroupOptions,
+  qualifiersOptionsForGroupSize,
 } from '@/db/schema.js';
 import { getVenue, getVenues } from '@/services/venueService.js';
 import { getTablesByVenue } from '@/services/tableService.js';
@@ -19,6 +24,7 @@ import type {
   ITournamentScheduleMode,
   ITournamentVisibility,
   ITournamentWinScore,
+  IGroupDraw,
 } from '@/db/schema.js';
 
 import type { BotContext } from '../../types.js';
@@ -36,9 +42,9 @@ import type { ITournamentCreationStateStore } from './tournamentCreation.stateSt
 export interface ITournamentCreationFlow {
   startCreationWizard(ctx: BotContext): Promise<void>;
 
-  cancelCreation(userId: number): boolean;
+  cancelCreation(userId: number): Promise<boolean>;
 
-  getCreationState(userId: number): ICreationState | undefined;
+  getCreationState(userId: number): Promise<ICreationState | undefined>;
 
   handleNameInput(ctx: BotContext, name: string): Promise<boolean>;
 
@@ -63,10 +69,37 @@ export interface ITournamentCreationFlow {
 
   handleFormatSelection(ctx: BotContext, format: string): Promise<boolean>;
 
+  handleRandomModeSelection(
+    ctx: BotContext,
+    randomAdvancement: boolean,
+  ): Promise<boolean>;
+
   handleMaxParticipantsSelection(
     ctx: BotContext,
     maxParticipants: number,
   ): Promise<boolean>;
+
+  handleMergeRoundSelection(
+    ctx: BotContext,
+    mergeRound: number,
+  ): Promise<boolean>;
+
+  handleGroupsCountSelection(
+    ctx: BotContext,
+    groupsCount: number,
+  ): Promise<boolean>;
+
+  handleParticipantsPerGroupSelection(
+    ctx: BotContext,
+    participantsPerGroup: number,
+  ): Promise<boolean>;
+
+  handleQualifiersPerGroupSelection(
+    ctx: BotContext,
+    qualifiersPerGroup: number,
+  ): Promise<boolean>;
+
+  handleGroupDrawSelection(ctx: BotContext, draw: string): Promise<boolean>;
 
   handleWinScoreSelection(ctx: BotContext, winScore: number): Promise<boolean>;
 
@@ -103,7 +136,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!userId) return;
 
-    this.stateStore.start(userId);
+    await this.stateStore.start(userId);
 
     await this.renderer.showNameStep(ctx);
   }
@@ -115,7 +148,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
    *
    * @returns {boolean} true, если создание было отменено, в противном случае — false
    */
-  cancelCreation(userId: number): boolean {
+  async cancelCreation(userId: number): Promise<boolean> {
     return this.stateStore.clear(userId);
   }
 
@@ -126,7 +159,9 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
    *
    * @returns {ICreationState | undefined} Состояние создания или undefined, если сессия не найдена
    */
-  getCreationState(userId: number): ICreationState | undefined {
+  async getCreationState(
+    userId: number,
+  ): Promise<ICreationState | undefined> {
     return this.stateStore.get(userId);
   }
 
@@ -161,7 +196,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'date',
       data: {
         tournament: {
@@ -210,7 +245,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'visibility',
       data: {
         tournament: {
@@ -262,7 +297,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'scheduleMode',
       data: {
         tournament: {
@@ -317,7 +352,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'venue',
       data: {
         tournament: {
@@ -338,7 +373,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     const venues = await getVenues();
 
     if (venues.length === 0) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showNoVenues(ctx);
 
@@ -379,7 +414,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'discipline',
       data: {
         venue: {
@@ -430,7 +465,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'format',
       data: {
         tournament: {
@@ -483,8 +518,67 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
-      step: 'maxParticipants',
+    // Groups + playoff: random advancement is irrelevant, and the participant
+    // cap is derived from the group config — so skip both the random-mode and
+    // max-participants steps and collect the group config instead.
+    if (format === 'groups_playoff') {
+      const state = await this.stateStore.update(userId, {
+        step: 'groupsCount',
+        data: {
+          tournament: {
+            format,
+            randomAdvancement: false,
+          },
+        },
+      });
+
+      if (
+        state.step !== 'groupsCount' ||
+        state.data.tournament?.format !== format
+      ) {
+        await this.renderer.showSavedStateError(ctx);
+
+        return false;
+      }
+
+      await ctx.answerCallbackQuery();
+
+      await this.renderer.showGroupsCountStep(ctx);
+
+      return true;
+    }
+
+    // Random pairing is only meaningful for elimination brackets. Round-robin
+    // skips the random-mode step entirely and pins the flag to false.
+    if (format === 'round_robin') {
+      const state = await this.stateStore.update(userId, {
+        step: 'maxParticipants',
+        data: {
+          tournament: {
+            format,
+            randomAdvancement: false,
+          },
+        },
+      });
+
+      if (
+        state.step !== 'maxParticipants' ||
+        state.data.tournament?.format !== format
+      ) {
+        await this.renderer.showSavedStateError(ctx);
+
+        return false;
+      }
+
+      await ctx.answerCallbackQuery();
+
+      await this.renderer.showMaxParticipantsStep(ctx, format);
+
+      return true;
+    }
+
+    const state = await this.stateStore.update(userId, {
+      step: 'randomMode',
       data: {
         tournament: {
           format,
@@ -493,7 +587,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     });
 
     if (
-      state.step !== 'maxParticipants' ||
+      state.step !== 'randomMode' ||
       state.data.tournament?.format !== format
     ) {
       await this.renderer.showSavedStateError(ctx);
@@ -503,7 +597,59 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     await ctx.answerCallbackQuery();
 
-    await this.renderer.showMaxParticipantsStep(ctx, format);
+    await this.renderer.showRandomModeStep(ctx, format);
+
+    return true;
+  }
+
+  /**
+   * Обрабатывает выбор режима случайных пар (рандом) пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {boolean} randomAdvancement Включён ли режим случайных пар
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleRandomModeSelection(
+    ctx: BotContext,
+    randomAdvancement: boolean,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'randomMode',
+    );
+
+    if (!hasStep) return false;
+
+    const state = await this.stateStore.update(userId, {
+      step: 'maxParticipants',
+      data: {
+        tournament: {
+          randomAdvancement,
+        },
+      },
+    });
+
+    if (
+      state.step !== 'maxParticipants' ||
+      state.data.tournament?.randomAdvancement !== randomAdvancement ||
+      state.data.tournament.format === undefined
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showMaxParticipantsStep(
+      ctx,
+      state.data.tournament.format,
+      randomAdvancement,
+    );
 
     return true;
   }
@@ -536,7 +682,34 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const current = await this.stateStore.getOrThrow(userId);
+    const isDoubleElim =
+      current.data.tournament?.format === 'double_elimination';
+
+    // Double elimination has an extra "merge round" sub-step before win score.
+    if (isDoubleElim) {
+      const state = await this.stateStore.update(userId, {
+        step: 'mergeRound',
+        data: { tournament: { maxParticipants } },
+      });
+
+      if (
+        state.step !== 'mergeRound' ||
+        state.data.tournament?.maxParticipants !== maxParticipants
+      ) {
+        await this.renderer.showSavedStateError(ctx);
+
+        return false;
+      }
+
+      await ctx.answerCallbackQuery();
+
+      await this.renderer.showMergeRoundStep(ctx, maxParticipants);
+
+      return true;
+    }
+
+    const state = await this.stateStore.update(userId, {
       step: 'winScore',
       data: {
         tournament: {
@@ -558,6 +731,215 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     await this.renderer.showWinScoreStep(ctx, maxParticipants);
 
+    return true;
+  }
+
+  /**
+   * Обрабатывает выбор раунда объединения (для double elimination)
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {number} mergeRound Выбранный раунд объединения
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleMergeRoundSelection(
+    ctx: BotContext,
+    mergeRound: number,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'mergeRound',
+    );
+
+    if (!hasStep) return false;
+
+    const current = await this.stateStore.getOrThrow(userId);
+    const maxP = current.data.tournament?.maxParticipants;
+
+    if (maxP === undefined || !this.isAllowedMergeRound(mergeRound, maxP)) {
+      await this.renderer.showIncorrectMergeRound(ctx);
+
+      return true;
+    }
+
+    const state = await this.stateStore.update(userId, {
+      step: 'winScore',
+      data: {
+        tournament: {
+          mergeRound,
+        },
+      },
+    });
+
+    if (
+      state.step !== 'winScore' ||
+      state.data.tournament?.mergeRound !== mergeRound ||
+      state.data.tournament.maxParticipants === undefined
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showWinScoreStep(
+      ctx,
+      state.data.tournament.maxParticipants,
+    );
+
+    return true;
+  }
+
+  /** groups_playoff: choose the number of groups. */
+  async handleGroupsCountSelection(
+    ctx: BotContext,
+    groupsCount: number,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'groupsCount',
+    );
+    if (!hasStep) return false;
+
+    if (!groupsCountOptions.includes(groupsCount as never)) {
+      await this.renderer.showIncorrectGroupsCount(ctx);
+      return true;
+    }
+
+    const state = await this.stateStore.update(userId, {
+      step: 'participantsPerGroup',
+      data: { tournament: { groupsCount } },
+    });
+    if (
+      state.step !== 'participantsPerGroup' ||
+      state.data.tournament?.groupsCount !== groupsCount
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+    await this.renderer.showParticipantsPerGroupStep(ctx, groupsCount);
+    return true;
+  }
+
+  /** groups_playoff: choose the number of participants per group. */
+  async handleParticipantsPerGroupSelection(
+    ctx: BotContext,
+    participantsPerGroup: number,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'participantsPerGroup',
+    );
+    if (!hasStep) return false;
+
+    if (!participantsPerGroupOptions.includes(participantsPerGroup as never)) {
+      await this.renderer.showIncorrectParticipantsPerGroup(ctx);
+      return true;
+    }
+
+    const state = await this.stateStore.update(userId, {
+      step: 'qualifiersPerGroup',
+      data: { tournament: { participantsPerGroup } },
+    });
+    if (
+      state.step !== 'qualifiersPerGroup' ||
+      state.data.tournament?.participantsPerGroup !== participantsPerGroup
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+    await this.renderer.showQualifiersPerGroupStep(ctx, participantsPerGroup);
+    return true;
+  }
+
+  /** groups_playoff: choose how many qualify from each group. */
+  async handleQualifiersPerGroupSelection(
+    ctx: BotContext,
+    qualifiersPerGroup: number,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'qualifiersPerGroup',
+    );
+    if (!hasStep) return false;
+
+    const current = await this.stateStore.getOrThrow(userId);
+    const perGroup = current.data.tournament?.participantsPerGroup;
+    if (
+      perGroup == null ||
+      !qualifiersOptionsForGroupSize(perGroup).includes(qualifiersPerGroup)
+    ) {
+      await this.renderer.showIncorrectQualifiersPerGroup(ctx);
+      return true;
+    }
+
+    const state = await this.stateStore.update(userId, {
+      step: 'groupDraw',
+      data: { tournament: { qualifiersPerGroup } },
+    });
+    if (
+      state.step !== 'groupDraw' ||
+      state.data.tournament?.qualifiersPerGroup !== qualifiersPerGroup
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+    await this.renderer.showGroupDrawStep(ctx, qualifiersPerGroup);
+    return true;
+  }
+
+  /** groups_playoff: choose the draw mode, derive the participant cap, advance. */
+  async handleGroupDrawSelection(
+    ctx: BotContext,
+    draw: string,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'groupDraw',
+    );
+    if (!hasStep) return false;
+
+    if (!this.isGroupDraw(draw)) {
+      await this.renderer.showSavedStateError(ctx);
+      return false;
+    }
+
+    const current = await this.stateStore.getOrThrow(userId);
+    const groupsCount = current.data.tournament?.groupsCount;
+    const perGroup = current.data.tournament?.participantsPerGroup;
+    if (groupsCount == null || perGroup == null) {
+      await this.renderer.showSavedStateError(ctx);
+      return false;
+    }
+
+    // The participant cap for groups_playoff is the full set of group seats.
+    const maxParticipants = groupsCount * perGroup;
+
+    const state = await this.stateStore.update(userId, {
+      step: 'winScore',
+      data: { tournament: { groupDraw: draw, maxParticipants } },
+    });
+    if (
+      state.step !== 'winScore' ||
+      state.data.tournament?.groupDraw !== draw ||
+      state.data.tournament.maxParticipants !== maxParticipants
+    ) {
+      await this.renderer.showSavedStateError(ctx);
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+    await this.renderer.showWinScoreStep(ctx, maxParticipants);
     return true;
   }
 
@@ -589,7 +971,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'tables',
       data: {
         tournament: {
@@ -610,7 +992,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     }
 
     if (state.data.venue?.id === undefined) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showVenueMissing(ctx);
 
@@ -648,10 +1030,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!hasStep) return false;
 
-    let state = this.stateStore.getOrThrow(userId);
+    let state = await this.stateStore.getOrThrow(userId);
 
     if (state.data.venue?.id === undefined) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showVenueMissing(ctx);
 
@@ -680,7 +1062,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       selectedTableIds.add(tableId);
     }
 
-    state = this.stateStore.update(userId, {
+    state = await this.stateStore.update(userId, {
       step: 'venue',
       data: {
         tables: venueTables.filter((table) => selectedTableIds.has(table.id)),
@@ -711,10 +1093,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!hasStep) return false;
 
-    const state = this.stateStore.getOrThrow(userId);
+    const state = await this.stateStore.getOrThrow(userId);
 
     if (state.data.venue?.id === undefined) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showVenueMissing(ctx);
 
@@ -727,7 +1109,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       venueTables.length > 0 &&
       venueTables.every((t) => state.data.tables?.some((st) => st.id === t.id));
 
-    this.stateStore.updateData(userId, {
+    await this.stateStore.updateData(userId, {
       tables: allSelected ? [] : venueTables,
     });
 
@@ -753,10 +1135,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     await ctx.answerCallbackQuery();
 
-    const state = this.stateStore.getOrThrow(userId);
+    const state = await this.stateStore.getOrThrow(userId);
 
     if (!this.hasRequiredCreationData(state.data)) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showCorruptedSession(ctx);
 
@@ -764,16 +1146,22 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     }
 
     try {
-      await createTournamentDraft({
+      const created = await createTournamentDraft({
         venueId: state.data.venue.id,
 
         name: state.data.tournament.name,
         discipline: state.data.tournament.discipline,
         format: state.data.tournament.format,
+        randomAdvancement: state.data.tournament.randomAdvancement,
         visibility: state.data.tournament.visibility,
         scheduleMode: state.data.tournament.scheduleMode,
         maxParticipants: state.data.tournament.maxParticipants,
         winScore: state.data.tournament.winScore,
+        mergeRound: state.data.tournament.mergeRound ?? 2,
+        groupsCount: state.data.tournament.groupsCount ?? null,
+        participantsPerGroup: state.data.tournament.participantsPerGroup ?? null,
+        qualifiersPerGroup: state.data.tournament.qualifiersPerGroup ?? null,
+        groupDraw: state.data.tournament.groupDraw ?? null,
         startDate: state.data.tournament.startDate ?? null,
 
         tableIds: isSkip ? [] : state.data.tables.map((table) => table.id),
@@ -781,7 +1169,12 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
         createdBy: ctx.dbUser.id,
       });
 
-      this.stateStore.clear(userId);
+      // Write the new id back into state so the success screen and its
+      // "Открыть регистрацию" button reference the real tournament (the button
+      // callback is tournament_open_reg:<id>, which crashed with `undefined`).
+      state.data.tournament.id = created.id;
+
+      await this.stateStore.clear(userId);
 
       await this.renderer.showCreationSuccess(ctx, state.data);
     } catch (error) {
@@ -806,7 +1199,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!userId) return { status: false };
 
-    if (!this.stateStore.hasStep(userId, step)) {
+    if (!await this.stateStore.hasStep(userId, step)) {
       if (isReturnAnswer) {
         await this.renderer.showSessionExpired(ctx);
       }
@@ -843,24 +1236,42 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     return Object.values<number>(winScores).includes(value);
   }
 
+  private isAllowedMergeRound(value: number, maxParticipants: number): boolean {
+    return validMergeRoundsForSize(maxParticipants).includes(value);
+  }
+
+  private isGroupDraw(value: string): value is IGroupDraw {
+    return Object.values<string>(groupDraws).includes(value);
+  }
+
   private hasRequiredCreationData(
     data: ICreationData,
   ): data is IRequiredCreationData {
-    const isValidVenue =
-      data.venue?.id !== undefined && data.venue?.name !== undefined;
+    const isValidVenue = data.venue !== undefined;
 
     const isValidTournament =
       data.tournament?.name !== undefined &&
-      data.tournament?.visibility !== undefined &&
-      data.tournament?.scheduleMode !== undefined &&
-      data.tournament?.discipline !== undefined &&
-      data.tournament?.format !== undefined &&
-      data.tournament?.maxParticipants !== undefined &&
-      data.tournament?.winScore !== undefined;
+      data.tournament.visibility !== undefined &&
+      data.tournament.scheduleMode !== undefined &&
+      data.tournament.discipline !== undefined &&
+      data.tournament.format !== undefined &&
+      data.tournament.randomAdvancement !== undefined &&
+      data.tournament.maxParticipants !== undefined &&
+      data.tournament.winScore !== undefined;
+
+    // groups_playoff additionally needs the full group config.
+    const isValidGroupConfig =
+      data.tournament?.format !== 'groups_playoff' ||
+      (data.tournament.groupsCount != null &&
+        data.tournament.participantsPerGroup != null &&
+        data.tournament.qualifiersPerGroup != null &&
+        data.tournament.groupDraw != null);
 
     const isValidTables = Array.isArray(data.tables);
 
-    return isValidVenue && isValidTournament && isValidTables;
+    return (
+      isValidVenue && isValidTournament && isValidGroupConfig && isValidTables
+    );
   }
 }
 
