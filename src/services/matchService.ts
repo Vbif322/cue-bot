@@ -31,6 +31,7 @@ import {
   getRandomTargetPool,
   placeIntoRandomFreeSlot,
 } from './randomBracketAdvancement.js';
+import { errorMessage } from '@/utils/errors.js';
 
 /** Bracket dimensions the DE random-advancement pool map needs at runtime. */
 function deBracketDims(tournament: {
@@ -1078,7 +1079,7 @@ export async function startMatch(
 
     return { success: true, match: updatedMatch[0] };
   } catch (error) {
-    return { success: false, error: JSON.stringify(error) };
+    return { success: false, error: errorMessage(error) };
   }
 }
 
@@ -1104,7 +1105,7 @@ export async function setMatchSchedule(
 
     return { success: true, match: updatedMatch[0] };
   } catch (error) {
-    return { success: false, error: JSON.stringify(error) };
+    return { success: false, error: errorMessage(error) };
   }
 }
 

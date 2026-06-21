@@ -101,6 +101,11 @@ Change schema → `npm run db:generate` → `npm run db:migrate`.
   `tsconfig.build.json` is the emitting build (`rootDir: src`).
 - Strict TS incl. `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. ESLint uses
   `eslint-config-love`.
+- **Error conventions** (intentionally split, not unified): services with user-facing outcomes
+  (`matchService`) return `{ success, error }` result objects; `canStartTournament` returns
+  `{ canStart, error }`; `tournamentService` throws `Error` for invalid states. Callers (bot
+  handlers, admin routes) that catch an exception **must** surface `errorMessage(e)`
+  (`src/utils/errors.ts`) — never `JSON.stringify(error)`, which serialises an `Error` to `"{}"`.
 - **Unit tests must not hit the DB.** `test/setup/unit.setup.ts` sets a dummy `DATABASE_URL`
   (and `JWT_SECRET`) only so modules that import `db` at top level load cleanly; the pool is lazy,
   so a unit test that actually issues a query will hang/timeout **by design**, surfacing a
