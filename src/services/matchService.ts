@@ -54,12 +54,13 @@ function deBracketDims(tournament: {
 export async function createMatches(
   tournamentId: UUID,
   bracket: BracketMatch[],
+  executor: Executor = db,
 ): Promise<void> {
   const createdMatches: { position: number; id: UUID }[] = [];
 
   for (const match of bracket) {
     const isWalkover = match.isCompletedWalkover === true;
-    const [created] = await db
+    const [created] = await executor
       .insert(matches)
       .values({
         tournamentId,
@@ -70,6 +71,8 @@ export async function createMatches(
         player1IsWalkover: match.player1IsWalkover ?? false,
         player2IsWalkover: match.player2IsWalkover ?? false,
         bracketType: match.bracketType,
+        phase: match.phase ?? 'playoff',
+        groupIndex: match.groupIndex ?? null,
         nextMatchPosition: match.nextMatchPosition ?? null,
         losersNextMatchPosition: match.losersNextMatchPosition ?? null,
         losersNextMatchSlot: match.losersNextMatchSlot ?? null,
@@ -96,7 +99,7 @@ export async function createMatches(
       );
 
       if (currentMatch && nextMatch) {
-        await db
+        await executor
           .update(matches)
           .set({ nextMatchId: nextMatch.id })
           .where(eq(matches.id, currentMatch.id));
@@ -653,6 +656,25 @@ export async function advanceWinner(
     return;
   }
 
+  if (tournament.format === 'groups_playoff' && match.phase === 'group') {
+    // Group matches don't advance a winner anywhere (qualification is by
+    // standings). Free the table, and once the whole group phase is complete,
+    // generate + start the playoff. Dynamic import avoids a static import cycle
+    // with tournamentStartService.
+    if (match.tableId && botApi) {
+      await onTableFreed(match.tournamentId, match.tableId, botApi);
+    }
+    if (await allGroupMatchesComplete(match.tournamentId)) {
+      const { maybeStartPlayoffPhase } = await import(
+        './tournamentStartService.js'
+      );
+      await maybeStartPlayoffPhase(match.tournamentId, botApi);
+    }
+    return;
+  }
+  // groups_playoff playoff-phase matches fall through to the single-elimination
+  // nextMatchId wiring below.
+
   if (tournament.format === 'round_robin') {
     // RR-матчи не имеют nextMatchId: завершаем турнир только когда сыграны все матчи.
     if (await checkTournamentCompletion(match.tournamentId)) {
@@ -940,6 +962,23 @@ async function maybeAutoResolveWalkover(
 }
 
 /**
+ * True once every group-phase match of a groups_playoff tournament is completed.
+ * Used to trigger the group→playoff transition.
+ */
+export async function allGroupMatchesComplete(
+  tournamentId: UUID,
+): Promise<boolean> {
+  const groupMatches = await db.query.matches.findMany({
+    where: and(
+      eq(matches.tournamentId, tournamentId),
+      eq(matches.phase, 'group'),
+    ),
+  });
+  if (groupMatches.length === 0) return false;
+  return groupMatches.every((m) => m.status === 'completed');
+}
+
+/**
  * Check if tournament is complete
  */
 export async function checkTournamentCompletion(
@@ -950,6 +989,16 @@ export async function checkTournamentCompletion(
 
   const allMatches = await getTournamentMatches(tournamentId);
   const completedMatches = allMatches.filter((m) => m.status === 'completed');
+
+  if (tournament.format === 'groups_playoff') {
+    // Not complete until the playoff exists and its final (highest-round playoff
+    // match) is done. Before the playoff is generated there are only group rows,
+    // so this returns false and the tournament does not complete at end of groups.
+    const playoff = allMatches.filter((m) => m.phase === 'playoff');
+    if (playoff.length === 0) return false;
+    const maxRound = playoff.reduce((max, m) => Math.max(max, m.round), 0);
+    return playoff.find((m) => m.round === maxRound)?.status === 'completed';
+  }
 
   if (tournament.format === 'single_elimination') {
     // The final is the single highest-round winners match. Detecting it by the
@@ -1277,6 +1326,41 @@ export interface CorrectionPreview {
  * Read-only dry run: validate a proposed correction and count how many
  * downstream matches would be reset, without writing anything.
  */
+/**
+ * Whether a corrected match feeds a bracket cascade (winner advances via
+ * nextMatchId / loser drop). Round-robin and groups_playoff group-phase matches
+ * do not — their corrections are plain score edits, no downstream rollback.
+ */
+function matchHasBracketCascade(
+  format: ITournamentFormat,
+  match: { phase: string },
+): boolean {
+  if (format === 'round_robin') return false;
+  if (format === 'groups_playoff' && match.phase === 'group') return false;
+  return true;
+}
+
+/**
+ * Group-phase results lock once the playoff has been generated: recomputing
+ * qualifiers mid-playoff would invalidate already-played bracket matches. Returns
+ * an error string if the correction must be blocked, else null.
+ */
+async function groupResultLockError(
+  format: ITournamentFormat,
+  match: { tournamentId: UUID; phase: string },
+): Promise<string | null> {
+  if (format !== 'groups_playoff' || match.phase !== 'group') return null;
+  const playoffExists = await db.query.matches.findFirst({
+    where: and(
+      eq(matches.tournamentId, match.tournamentId),
+      eq(matches.phase, 'playoff'),
+    ),
+  });
+  return playoffExists
+    ? 'Групповой этап завершён, результаты группы изменить нельзя'
+    : null;
+}
+
 export async function previewCorrection(
   matchId: UUID,
   newPlayer1Score: number,
@@ -1305,6 +1389,9 @@ export async function previewCorrection(
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return { valid: false, error: 'Турнир не найден', ...empty };
 
+  const lockError = await groupResultLockError(tournament.format, match);
+  if (lockError) return { valid: false, error: lockError, ...empty };
+
   const scoreError = validateCorrectionScores(
     newPlayer1Score,
     newPlayer2Score,
@@ -1315,9 +1402,10 @@ export async function previewCorrection(
   const newWinnerId =
     newPlayer1Score > newPlayer2Score ? match.player1Id : match.player2Id;
   const winnerChanged = newWinnerId !== match.winnerId;
+  const hasCascade = matchHasBracketCascade(tournament.format, match);
 
   let affectedCount = 0;
-  if (winnerChanged && tournament.format !== 'round_robin') {
+  if (winnerChanged && hasCascade) {
     const ids = new Set<UUID>();
     await walkDownstream(db, match, tournament, (m) => {
       ids.add(m.id);
@@ -1331,9 +1419,7 @@ export async function previewCorrection(
     affectedCount,
     willReshuffle: tournament.randomAdvancement && winnerChanged,
     tournamentWillReopen:
-      winnerChanged &&
-      tournament.status === 'completed' &&
-      tournament.format !== 'round_robin',
+      winnerChanged && tournament.status === 'completed' && hasCascade,
   };
 }
 
@@ -1373,6 +1459,9 @@ export async function correctMatchResult(
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return { success: false, error: 'Турнир не найден' };
 
+  const lockError = await groupResultLockError(tournament.format, match);
+  if (lockError) return { success: false, error: lockError };
+
   const scoreError = validateCorrectionScores(
     newPlayer1Score,
     newPlayer2Score,
@@ -1383,7 +1472,8 @@ export async function correctMatchResult(
   const newWinnerId =
     newPlayer1Score > newPlayer2Score ? match.player1Id : match.player2Id;
   const winnerChanged = newWinnerId !== match.winnerId;
-  const needsRollback = winnerChanged && tournament.format !== 'round_robin';
+  const needsRollback =
+    winnerChanged && matchHasBracketCascade(tournament.format, match);
   const affected: UUID[] = [];
 
   await db.transaction(async (tx) => {

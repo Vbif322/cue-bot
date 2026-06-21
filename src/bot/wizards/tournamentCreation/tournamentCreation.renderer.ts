@@ -52,6 +52,14 @@ export interface ITournamentCreationRenderer {
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
   ): Promise<void>; // unnumbered (double_elimination only)
+  // Unnumbered groups_playoff sub-steps.
+  showGroupsCountStep(ctx: BotContext): Promise<void>;
+  showParticipantsPerGroupStep(ctx: BotContext, groupsCount: number): Promise<void>;
+  showQualifiersPerGroupStep(
+    ctx: BotContext,
+    participantsPerGroup: number,
+  ): Promise<void>;
+  showGroupDrawStep(ctx: BotContext, qualifiersPerGroup: number): Promise<void>;
   showWinScoreStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
@@ -77,6 +85,9 @@ export interface ITournamentCreationRenderer {
   showCorruptedSession(ctx: BotContext): Promise<void>;
   showIncorrectMaxParticipants(ctx: BotContext): Promise<void>;
   showIncorrectMergeRound(ctx: BotContext): Promise<void>;
+  showIncorrectGroupsCount(ctx: BotContext): Promise<void>;
+  showIncorrectParticipantsPerGroup(ctx: BotContext): Promise<void>;
+  showIncorrectQualifiersPerGroup(ctx: BotContext): Promise<void>;
   showIncorrectWinScore(ctx: BotContext): Promise<void>;
   showSavedStateError(ctx: BotContext): Promise<void>;
 
@@ -310,6 +321,56 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
+  async showGroupsCountStep(ctx: BotContext): Promise<void> {
+    await safeEditMessageText(ctx, {
+      text: 'Установленный формат: Группа + плей-офф',
+    });
+
+    await ctx.reply('Сколько групп в турнире?', {
+      reply_markup: this.keyboards.buildGroupsCountKeyboard(),
+    });
+  }
+
+  async showParticipantsPerGroupStep(
+    ctx: BotContext,
+    groupsCount: number,
+  ): Promise<void> {
+    await safeEditMessageText(ctx, {
+      text: `Количество групп: ${String(groupsCount)}`,
+    });
+
+    await ctx.reply('Сколько участников в каждой группе?', {
+      reply_markup: this.keyboards.buildParticipantsPerGroupKeyboard(),
+    });
+  }
+
+  async showQualifiersPerGroupStep(
+    ctx: BotContext,
+    participantsPerGroup: number,
+  ): Promise<void> {
+    await safeEditMessageText(ctx, {
+      text: `Участников в группе: ${String(participantsPerGroup)}`,
+    });
+
+    await ctx.reply('Сколько участников выходит из каждой группы в плей-офф?', {
+      reply_markup:
+        this.keyboards.buildQualifiersPerGroupKeyboard(participantsPerGroup),
+    });
+  }
+
+  async showGroupDrawStep(
+    ctx: BotContext,
+    qualifiersPerGroup: number,
+  ): Promise<void> {
+    await safeEditMessageText(ctx, {
+      text: `Выходит из группы: ${String(qualifiersPerGroup)}`,
+    });
+
+    await ctx.reply('Как распределить участников по группам?', {
+      reply_markup: this.keyboards.buildGroupDrawKeyboard(),
+    });
+  }
+
   async showWinScoreStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
@@ -464,6 +525,27 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
   async showIncorrectMergeRound(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
       text: 'Некорректный раунд объединения',
+      show_alert: true,
+    });
+  }
+
+  async showIncorrectGroupsCount(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректное количество групп',
+      show_alert: true,
+    });
+  }
+
+  async showIncorrectParticipantsPerGroup(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректное количество участников в группе',
+      show_alert: true,
+    });
+  }
+
+  async showIncorrectQualifiersPerGroup(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: 'Некорректное количество выходящих из группы',
       show_alert: true,
     });
   }

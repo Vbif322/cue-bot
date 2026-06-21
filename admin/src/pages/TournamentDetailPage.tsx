@@ -6,8 +6,16 @@ import TournamentHeader from '../components/tournament-detail/TournamentHeader.t
 import TournamentInfoTab from '../components/tournament-detail/TournamentInfoTab.tsx';
 import ParticipantsTab from '../components/tournament-detail/ParticipantsTab.tsx';
 import MatchesTab from '../components/tournament-detail/MatchesTab.tsx';
+import StandingsTab from '../components/tournament-detail/StandingsTab.tsx';
 
-type Tab = 'info' | 'participants' | 'matches';
+type Tab = 'info' | 'participants' | 'standings' | 'matches';
+
+const TAB_LABELS: Record<Tab, string> = {
+  info: 'Информация',
+  participants: 'Участники',
+  standings: 'Таблицы',
+  matches: 'Матчи',
+};
 
 export default function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -41,6 +49,11 @@ export default function TournamentDetailPage() {
     return <div className="text-gray-500 text-sm">Загрузка...</div>;
   }
 
+  const tabs: Tab[] =
+    tournament.format === 'groups_playoff'
+      ? ['info', 'participants', 'standings', 'matches']
+      : ['info', 'participants', 'matches'];
+
   const confirmedParticipants =
     participants?.filter((p) => p.status === 'confirmed') ?? [];
   const confirmedCount = confirmedParticipants.length;
@@ -66,7 +79,7 @@ export default function TournamentDetailPage() {
       />
 
       <div className="flex gap-1 mb-4 border-b border-gray-200">
-        {(['info', 'participants', 'matches'] as const).map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -76,9 +89,7 @@ export default function TournamentDetailPage() {
                 : 'border-transparent text-gray-600 hover:text-gray-900'
             }`}
           >
-            {tab === 'info' && 'Информация'}
-            {tab === 'participants' && 'Участники'}
-            {tab === 'matches' && 'Матчи'}
+            {TAB_LABELS[tab]}
           </button>
         ))}
       </div>
@@ -89,6 +100,7 @@ export default function TournamentDetailPage() {
       {activeTab === 'participants' && (
         <ParticipantsTab tournamentId={id} tournament={tournament} />
       )}
+      {activeTab === 'standings' && <StandingsTab tournament={tournament} />}
       {activeTab === 'matches' && <MatchesTab tournamentId={id} />}
     </div>
   );

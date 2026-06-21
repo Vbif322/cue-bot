@@ -8,6 +8,8 @@ import {
   scheduleModes,
   visibilities,
   winScores,
+  groupsCountOptions,
+  participantsPerGroupOptions,
 } from '@/db/schema/tournaments.js';
 
 const kbds = new TournamentCreationKeyboards();
@@ -78,6 +80,35 @@ describe('TournamentCreationKeyboards', () => {
     expect(btns.map((b) => b.data)).toEqual(
       winScores.map((v) => `tc:winscore:${String(v)}`),
     );
+  });
+
+  it('buildGroupsCountKeyboard: one button per groups-count option', () => {
+    const btns = buttons(kbds.buildGroupsCountKeyboard());
+    expect(btns.map((b) => b.data)).toEqual(
+      groupsCountOptions.map((v) => `tc:groups:${String(v)}`),
+    );
+  });
+
+  it('buildParticipantsPerGroupKeyboard: one button per option', () => {
+    const btns = buttons(kbds.buildParticipantsPerGroupKeyboard());
+    expect(btns.map((b) => b.data)).toEqual(
+      participantsPerGroupOptions.map((v) => `tc:ppg:${String(v)}`),
+    );
+  });
+
+  it('buildQualifiersPerGroupKeyboard: 1..(size-1), capped at 4', () => {
+    expect(
+      buttons(kbds.buildQualifiersPerGroupKeyboard(4)).map((b) => b.data),
+    ).toEqual(['tc:qpg:1', 'tc:qpg:2', 'tc:qpg:3']);
+    // capped at 4 for a size-6 group
+    expect(
+      buttons(kbds.buildQualifiersPerGroupKeyboard(6)).map((b) => b.data),
+    ).toEqual(['tc:qpg:1', 'tc:qpg:2', 'tc:qpg:3', 'tc:qpg:4']);
+  });
+
+  it('buildGroupDrawKeyboard: snake and random options', () => {
+    const btns = buttons(kbds.buildGroupDrawKeyboard());
+    expect(btns.map((b) => b.data)).toEqual(['tc:draw:snake', 'tc:draw:random']);
   });
 
   it('buildTablesKeyboard: marks selected tables and adds control buttons', () => {

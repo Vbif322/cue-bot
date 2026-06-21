@@ -23,6 +23,13 @@ export const matchStatuses = [
 
 export type MatchStatus = (typeof matchStatuses)[number];
 
+// Tournament phase a match belongs to. 'playoff' is the default so every existing
+// row and every single/double-elim/round-robin match (which has a single bracket)
+// stays correct without a backfill. Only the groups_playoff format reads 'group'.
+export const matchPhases = ['group', 'playoff'] as const;
+
+export type MatchPhase = (typeof matchPhases)[number];
+
 export const matches = prodSchema.table('matches', {
   id: uuid('id').$type<UUID>().primaryKey().defaultRandom(),
   tournamentId: uuid('tournament_id')
@@ -61,6 +68,10 @@ export const matches = prodSchema.table('matches', {
   nextMatchId: uuid('next_match_id').$type<UUID>(),
   nextMatchPosition: varchar('next_match_position', { length: 10 }),
   bracketType: varchar({ length: 20 }).default('winners'),
+  // Group stage vs playoff. Defaults to 'playoff' so all other formats are
+  // unaffected; group-stage rows are written with 'group' + a groupIndex.
+  phase: varchar({ enum: matchPhases }).notNull().default('playoff'),
+  groupIndex: integer('group_index'),
   losersNextMatchPosition: integer('losers_next_match_position'),
   losersNextMatchSlot: varchar('losers_next_match_slot', { length: 10 }),
   tableId: uuid('table_id')
