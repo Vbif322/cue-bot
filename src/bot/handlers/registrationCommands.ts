@@ -1,14 +1,14 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import { db } from '@/db/db.js';
-import { tournaments } from '@/db/schema/tournaments.js';
 import { tournamentParticipants } from '@/db/schema/tournamentParticipants.js';
 import {
   getTournament,
+  getUserTournamentParticipations,
   registerParticipant,
 } from '@/services/tournamentService.js';
 
@@ -174,27 +174,7 @@ registrationCommands.callbackQuery(/^reg:full:(.+)$/, async (ctx) => {
 registrationCommands.command('my_tournaments', async (ctx) => {
   const userId = ctx.dbUser.id;
 
-  const participations = await db
-    .select({
-      tournament: tournaments,
-      participation: tournamentParticipants,
-    })
-    .from(tournamentParticipants)
-    .innerJoin(
-      tournaments,
-      eq(tournamentParticipants.tournamentId, tournaments.id),
-    )
-    .where(
-      and(
-        eq(tournamentParticipants.userId, userId),
-        inArray(tournamentParticipants.status, [
-          'pending',
-          'confirmed',
-          'invited',
-        ]),
-      ),
-    )
-    .orderBy(tournaments.startDate);
+  const participations = await getUserTournamentParticipations(userId);
 
   if (participations.length === 0) {
     await ctx.reply(
