@@ -9,7 +9,7 @@ import {
 import { sql } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
-import { createdAt, prodSchema } from '../schemaHelpers.js';
+import { createdAt, enumCheck, prodSchema } from '../schemaHelpers.js';
 import { users } from './users.js';
 import { tournaments } from './tournaments.js';
 import { matches } from './matches.js';
@@ -63,6 +63,7 @@ export const notifications = prodSchema.table(
     index('notifications_user_unread_idx')
       .on(table.userId, table.createdAt)
       .where(sql`is_read = false`),
+    enumCheck('notifications_type_check', table.type, notificationTypes),
   ],
 );
 

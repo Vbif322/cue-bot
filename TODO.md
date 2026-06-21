@@ -5,10 +5,6 @@
 
 ## P1 — Ближайшие итерации (Medium)
 
-Данные / БД:
-
-- S5-3 enum-колонки без CHECK/pg-enum
-
 Безопасность:
 
 - S2-3 Rate limiting (`/request-code` и защита бота от флуда)
