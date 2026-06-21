@@ -9,7 +9,12 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { UUID } from 'crypto';
 
-import { createdAt, prodSchema, updatedAt } from '../schemaHelpers.js';
+import {
+  createdAt,
+  enumCheck,
+  prodSchema,
+  updatedAt,
+} from '../schemaHelpers.js';
 import { tournaments } from './tournaments.js';
 import { users } from './users.js';
 import { tables } from './tables.js';
@@ -85,5 +90,9 @@ export const matches = prodSchema.table(
     createdAt,
     updatedAt,
   },
-  (table) => [index('matches_tournament_id_idx').on(table.tournamentId)],
+  (table) => [
+    index('matches_tournament_id_idx').on(table.tournamentId),
+    enumCheck('matches_status_check', table.status, matchStatuses),
+    enumCheck('matches_phase_check', table.phase, matchPhases),
+  ],
 );
