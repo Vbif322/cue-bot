@@ -3,12 +3,6 @@
 Приоритеты по аудиту от 2026-06-12 (`audit/FINDINGS.md`, сводка —
 `audit/stage-8-synthesis.md`)
 
-## P1 — Ближайшие итерации (Medium)
-
-Фичи / документация:
-
-- S0-6 Синхронизировать TECHNICAL_DOCUMENTATION/BUSINESS_REQUIREMENTS с кодом
-
 ## P2 — Техдолг / UX (Low)
 
 - Сворачивание раундов в админке (моё)

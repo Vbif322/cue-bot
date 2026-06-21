@@ -114,4 +114,4 @@ Change schema → `npm run db:generate` → `npm run db:migrate`.
 
 ## Reference docs
 `README.md` (setup/run, in Russian), `TECHNICAL_DOCUMENTATION.md` (architecture/schema/API),
-`BUSINESS_REQUIREMENTS.md` (domain/user stories), `TODO.md`, `CHANGELOG.md`.
+`TODO.md`, `CHANGELOG.md`.
