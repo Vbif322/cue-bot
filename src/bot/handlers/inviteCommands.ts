@@ -20,16 +20,17 @@ import {
 } from '../ui/tournamentUI.js';
 import { canManageTournament } from '../permissions.js';
 import { registerWizard } from '../wizards/wizardRegistry.js';
+import { PgSessionStore } from '@/services/dialogSessionStore.js';
 import type { BotContext } from '../types.js';
 
 export const inviteCommands = new Composer<BotContext>();
 
-/** In-memory: telegram user id → tournament awaiting an @username to invite. */
-const inviteUsernameState = new Map<number, { tournamentId: UUID }>();
+/** Persistent: telegram user id → tournament awaiting an @username to invite. */
+const inviteUsernameState = new PgSessionStore<{ tournamentId: UUID }>('invite');
 
 registerWizard({
   name: 'приглашение игрока',
-  isActive: (userId) => inviteUsernameState.has(userId),
+  namespace: 'invite',
   callbackPrefix: 'inv:',
 });
 
@@ -161,7 +162,7 @@ inviteCommands.callbackQuery(/^inv:add:(.+)$/, async (ctx) => {
     return;
   }
 
-  inviteUsernameState.set(ctx.from.id, { tournamentId });
+  await inviteUsernameState.set(ctx.from.id, { tournamentId });
   await ctx.answerCallbackQuery();
   await ctx.reply(
     'Отправьте @username игрока, которого хотите пригласить.\n\n' +
@@ -172,7 +173,7 @@ inviteCommands.callbackQuery(/^inv:add:(.+)$/, async (ctx) => {
 /** /cancel while an invite username is awaited; otherwise pass through. */
 inviteCommands.command('cancel', async (ctx, next) => {
   const userId = ctx.from?.id;
-  if (userId != null && inviteUsernameState.delete(userId)) {
+  if (userId != null && (await inviteUsernameState.delete(userId))) {
     await ctx.reply('Приглашение отменено.');
     return;
   }
@@ -182,7 +183,7 @@ inviteCommands.command('cancel', async (ctx, next) => {
 inviteCommands.on('message:text', async (ctx, next) => {
   const userId = ctx.from.id;
 
-  const state = inviteUsernameState.get(userId);
+  const state = await inviteUsernameState.get(userId);
   if (!state) return next();
 
   const text = ctx.message.text.trim();
@@ -190,7 +191,7 @@ inviteCommands.on('message:text', async (ctx, next) => {
   if (text.startsWith('/')) return next();
 
   // One-shot: consume the state now; the admin re-presses the button to retry.
-  inviteUsernameState.delete(userId);
+  await inviteUsernameState.delete(userId);
 
   const handle = text.replace(/^@/, '').trim();
   if (!handle) {

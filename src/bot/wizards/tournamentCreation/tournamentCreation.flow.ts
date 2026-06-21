@@ -42,9 +42,9 @@ import type { ITournamentCreationStateStore } from './tournamentCreation.stateSt
 export interface ITournamentCreationFlow {
   startCreationWizard(ctx: BotContext): Promise<void>;
 
-  cancelCreation(userId: number): boolean;
+  cancelCreation(userId: number): Promise<boolean>;
 
-  getCreationState(userId: number): ICreationState | undefined;
+  getCreationState(userId: number): Promise<ICreationState | undefined>;
 
   handleNameInput(ctx: BotContext, name: string): Promise<boolean>;
 
@@ -136,7 +136,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!userId) return;
 
-    this.stateStore.start(userId);
+    await this.stateStore.start(userId);
 
     await this.renderer.showNameStep(ctx);
   }
@@ -148,7 +148,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
    *
    * @returns {boolean} true, если создание было отменено, в противном случае — false
    */
-  cancelCreation(userId: number): boolean {
+  async cancelCreation(userId: number): Promise<boolean> {
     return this.stateStore.clear(userId);
   }
 
@@ -159,7 +159,9 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
    *
    * @returns {ICreationState | undefined} Состояние создания или undefined, если сессия не найдена
    */
-  getCreationState(userId: number): ICreationState | undefined {
+  async getCreationState(
+    userId: number,
+  ): Promise<ICreationState | undefined> {
     return this.stateStore.get(userId);
   }
 
@@ -194,7 +196,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'date',
       data: {
         tournament: {
@@ -243,7 +245,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'visibility',
       data: {
         tournament: {
@@ -295,7 +297,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'scheduleMode',
       data: {
         tournament: {
@@ -350,7 +352,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'venue',
       data: {
         tournament: {
@@ -371,7 +373,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     const venues = await getVenues();
 
     if (venues.length === 0) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showNoVenues(ctx);
 
@@ -412,7 +414,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'discipline',
       data: {
         venue: {
@@ -463,7 +465,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'format',
       data: {
         tournament: {
@@ -520,7 +522,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     // cap is derived from the group config — so skip both the random-mode and
     // max-participants steps and collect the group config instead.
     if (format === 'groups_playoff') {
-      const state = this.stateStore.update(userId, {
+      const state = await this.stateStore.update(userId, {
         step: 'groupsCount',
         data: {
           tournament: {
@@ -549,7 +551,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     // Random pairing is only meaningful for elimination brackets. Round-robin
     // skips the random-mode step entirely and pins the flag to false.
     if (format === 'round_robin') {
-      const state = this.stateStore.update(userId, {
+      const state = await this.stateStore.update(userId, {
         step: 'maxParticipants',
         data: {
           tournament: {
@@ -575,7 +577,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'randomMode',
       data: {
         tournament: {
@@ -622,7 +624,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!hasStep) return false;
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'maxParticipants',
       data: {
         tournament: {
@@ -680,13 +682,13 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const current = this.stateStore.getOrThrow(userId);
+    const current = await this.stateStore.getOrThrow(userId);
     const isDoubleElim =
       current.data.tournament?.format === 'double_elimination';
 
     // Double elimination has an extra "merge round" sub-step before win score.
     if (isDoubleElim) {
-      const state = this.stateStore.update(userId, {
+      const state = await this.stateStore.update(userId, {
         step: 'mergeRound',
         data: { tournament: { maxParticipants } },
       });
@@ -707,7 +709,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'winScore',
       data: {
         tournament: {
@@ -754,7 +756,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!hasStep) return false;
 
-    const current = this.stateStore.getOrThrow(userId);
+    const current = await this.stateStore.getOrThrow(userId);
     const maxP = current.data.tournament?.maxParticipants;
 
     if (maxP === undefined || !this.isAllowedMergeRound(mergeRound, maxP)) {
@@ -763,7 +765,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'winScore',
       data: {
         tournament: {
@@ -808,7 +810,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'participantsPerGroup',
       data: { tournament: { groupsCount } },
     });
@@ -841,7 +843,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'qualifiersPerGroup',
       data: { tournament: { participantsPerGroup } },
     });
@@ -869,7 +871,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     );
     if (!hasStep) return false;
 
-    const current = this.stateStore.getOrThrow(userId);
+    const current = await this.stateStore.getOrThrow(userId);
     const perGroup = current.data.tournament?.participantsPerGroup;
     if (
       perGroup == null ||
@@ -879,7 +881,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'groupDraw',
       data: { tournament: { qualifiersPerGroup } },
     });
@@ -912,7 +914,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return false;
     }
 
-    const current = this.stateStore.getOrThrow(userId);
+    const current = await this.stateStore.getOrThrow(userId);
     const groupsCount = current.data.tournament?.groupsCount;
     const perGroup = current.data.tournament?.participantsPerGroup;
     if (groupsCount == null || perGroup == null) {
@@ -923,7 +925,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     // The participant cap for groups_playoff is the full set of group seats.
     const maxParticipants = groupsCount * perGroup;
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'winScore',
       data: { tournament: { groupDraw: draw, maxParticipants } },
     });
@@ -969,7 +971,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
-    const state = this.stateStore.update(userId, {
+    const state = await this.stateStore.update(userId, {
       step: 'tables',
       data: {
         tournament: {
@@ -990,7 +992,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     }
 
     if (state.data.venue?.id === undefined) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showVenueMissing(ctx);
 
@@ -1028,10 +1030,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!hasStep) return false;
 
-    let state = this.stateStore.getOrThrow(userId);
+    let state = await this.stateStore.getOrThrow(userId);
 
     if (state.data.venue?.id === undefined) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showVenueMissing(ctx);
 
@@ -1060,7 +1062,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       selectedTableIds.add(tableId);
     }
 
-    state = this.stateStore.update(userId, {
+    state = await this.stateStore.update(userId, {
       step: 'venue',
       data: {
         tables: venueTables.filter((table) => selectedTableIds.has(table.id)),
@@ -1091,10 +1093,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!hasStep) return false;
 
-    const state = this.stateStore.getOrThrow(userId);
+    const state = await this.stateStore.getOrThrow(userId);
 
     if (state.data.venue?.id === undefined) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showVenueMissing(ctx);
 
@@ -1107,7 +1109,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       venueTables.length > 0 &&
       venueTables.every((t) => state.data.tables?.some((st) => st.id === t.id));
 
-    this.stateStore.updateData(userId, {
+    await this.stateStore.updateData(userId, {
       tables: allSelected ? [] : venueTables,
     });
 
@@ -1133,10 +1135,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     await ctx.answerCallbackQuery();
 
-    const state = this.stateStore.getOrThrow(userId);
+    const state = await this.stateStore.getOrThrow(userId);
 
     if (!this.hasRequiredCreationData(state.data)) {
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showCorruptedSession(ctx);
 
@@ -1172,7 +1174,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       // callback is tournament_open_reg:<id>, which crashed with `undefined`).
       state.data.tournament.id = created.id;
 
-      this.stateStore.clear(userId);
+      await this.stateStore.clear(userId);
 
       await this.renderer.showCreationSuccess(ctx, state.data);
     } catch (error) {
@@ -1197,7 +1199,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!userId) return { status: false };
 
-    if (!this.stateStore.hasStep(userId, step)) {
+    if (!await this.stateStore.hasStep(userId, step)) {
       if (isReturnAnswer) {
         await this.renderer.showSessionExpired(ctx);
       }

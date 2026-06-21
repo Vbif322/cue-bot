@@ -10,3 +10,4 @@ export * from './schema/loginTokens.js';
 export * from './schema/venues.js';
 export * from './schema/tables.js';
 export * from './schema/tournamentTables.js';
+export * from './schema/dialogSessions.js';

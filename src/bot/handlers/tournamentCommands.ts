@@ -57,7 +57,7 @@ tournamentCommands.command('cancel', async (ctx) => {
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  const cancelStatus = tournamentCreationFlow.cancelCreation(userId);
+  const cancelStatus = await tournamentCreationFlow.cancelCreation(userId);
 
   if (cancelStatus) {
     await ctx.reply('Создание турнира отменено.');
@@ -710,7 +710,7 @@ tournamentCommands.callbackQuery('tc:tables_skip', async (ctx) => {
 
 tournamentCommands.on('message:text', async (ctx, next) => {
   const userId = ctx.from.id;
-  const state = tournamentCreationFlow.getCreationState(userId);
+  const state = await tournamentCreationFlow.getCreationState(userId);
 
   if (!state) {
     return next();

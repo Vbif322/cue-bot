@@ -3,6 +3,7 @@ import { eq, inArray, and } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
+import { PgSessionStore } from '@/services/dialogSessionStore.js';
 import { tournaments, users } from '@/db/schema.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
@@ -52,11 +53,13 @@ import type { BotContext } from '../types.js';
 export const matchCommands = new Composer<BotContext>();
 
 /**
- * In-memory: telegram user id → match awaiting a date/time text input.
+ * Persistent: telegram user id → match awaiting a date/time text input.
  * Set when an admin/referee presses «🗓 Назначить время»; consumed by the
- * text handler below. Lost on restart (same caveat as the creation wizard).
+ * text handler below. Переживает рестарт (хранится в Postgres).
  */
-const matchScheduleState = new Map<number, { matchId: UUID }>();
+const matchScheduleState = new PgSessionStore<{ matchId: UUID }>(
+  'match-schedule',
+);
 
 // === КОМАНДЫ ===
 
@@ -277,7 +280,7 @@ matchCommands.callbackQuery(/^msch:set:(.+)$/, async (ctx) => {
     return;
   }
 
-  matchScheduleState.set(ctx.from.id, { matchId: matchIdUUID });
+  await matchScheduleState.set(ctx.from.id, { matchId: matchIdUUID });
   await ctx.answerCallbackQuery();
   await ctx.reply(
     'Введите дату и время матча (например 21.06.2026 18:30).\n\n' +
@@ -325,13 +328,13 @@ matchCommands.callbackQuery(/^msch:clear:(.+)$/, async (ctx) => {
 matchCommands.on('message:text', async (ctx, next) => {
   const userId = ctx.from.id;
 
-  const state = matchScheduleState.get(userId);
+  const state = await matchScheduleState.get(userId);
   if (!state) return next();
 
   const text = ctx.message.text.trim();
   // Let commands (e.g. /cancel) run, and stop waiting for a date.
   if (text.startsWith('/')) {
-    matchScheduleState.delete(userId);
+    await matchScheduleState.delete(userId);
     return next();
   }
 
@@ -343,7 +346,7 @@ matchCommands.on('message:text', async (ctx, next) => {
     return; // keep state so the user can retry
   }
 
-  matchScheduleState.delete(userId);
+  await matchScheduleState.delete(userId);
 
   const result = await setMatchSchedule(state.matchId, parsed.datetime);
   if (!result.success) {
