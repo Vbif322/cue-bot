@@ -13,6 +13,7 @@ import { randomBytes } from 'crypto';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
+import type { Executor } from '@/db/db.js';
 import {
   matches,
   tournamentTables,
@@ -271,7 +272,10 @@ export async function getConfirmedParticipants(
 /**
  * Start tournament - change status to in_progress
  */
-export async function startTournament(tournamentId: UUID): Promise<void> {
+export async function startTournament(
+  tournamentId: UUID,
+  executor: Executor = db,
+): Promise<void> {
   // Get tournament to check format
   const tournament = await getTournament(tournamentId);
   if (!tournament) {
@@ -289,7 +293,7 @@ export async function startTournament(tournamentId: UUID): Promise<void> {
     }
   }
 
-  await db
+  await executor
     .update(tournaments)
     .set({
       status: 'in_progress',
@@ -567,8 +571,9 @@ export async function ensureInviteCode(tournamentId: UUID): Promise<string> {
  */
 export async function getConfirmedParticipantsBySeed(
   tournamentId: UUID,
+  executor: Executor = db,
 ): Promise<TournamentParticipant[]> {
-  const rows = await db
+  const rows = await executor
     .select({
       userId: tournamentParticipants.userId,
       username: users.username,
@@ -598,7 +603,10 @@ export async function getConfirmedParticipantsBySeed(
  * Contract: caller must validate via canStartTournament beforehand. After this
  * call every confirmed participant has a unique seed in 1..N.
  */
-export async function fillMissingSeeds(tournamentId: UUID): Promise<void> {
+export async function fillMissingSeeds(
+  tournamentId: UUID,
+  executor?: Executor,
+): Promise<void> {
   const participants = await getConfirmedParticipants(tournamentId);
   const N = participants.length;
   if (N === 0) return;
@@ -616,7 +624,11 @@ export async function fillMissingSeeds(tournamentId: UUID): Promise<void> {
 
   const unseeded = participants.filter((p) => p.seed == null);
 
-  await db.transaction(async (tx) => {
+  // Use the caller's transaction when supplied; otherwise wrap our own seed
+  // writes in a transaction so they apply all-or-nothing. Note: a standalone
+  // caller like randomizeSeeds clears seeds in a separate statement first, so
+  // its clear+fill is NOT atomic as a whole — only these writes are.
+  const apply = async (tx: Executor): Promise<void> => {
     for (const participant of unseeded) {
       const seed = shuffledFree.pop();
       if (seed == null) break;
@@ -630,7 +642,10 @@ export async function fillMissingSeeds(tournamentId: UUID): Promise<void> {
           ),
         );
     }
-  });
+  };
+
+  if (executor) await apply(executor);
+  else await db.transaction(apply);
 }
 
 /**

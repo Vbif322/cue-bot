@@ -4,6 +4,7 @@ import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
+import type { Executor } from '@/db/db.js';
 import {
   matches,
   matchCorrections,
@@ -14,9 +15,6 @@ import {
   type ITournamentFormat,
 } from '@/db/schema.js';
 import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
-
-/** A drizzle executor — either the root `db` or an open transaction handle. */
-type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Visitor invoked for each downstream match that holds a player advanced from a corrected match. */
 type DownstreamVisitor = (
