@@ -453,26 +453,6 @@ export async function notifyDisqualification(
 }
 
 /**
- * Send match reminder
- */
-export async function sendMatchReminder(
-  api: Api,
-  match: MatchWithPlayers,
-  tournamentName: string,
-): Promise<void> {
-  const safeName = escapeMarkdown(tournamentName);
-
-  await notifyBothPlayers(api, match, ({ opponentName }) => ({
-    type: 'match_reminder',
-    title: 'Напоминание о матче',
-    message:
-      `Турнир: ${safeName}\n` +
-      `Ваш соперник: ${opponentName}\n\n` +
-      `Не забудьте сыграть матч и внести результат!`,
-  }));
-}
-
-/**
  * Notify participant that their registration was confirmed by admin
  */
 export async function notifyRegistrationConfirmed(
