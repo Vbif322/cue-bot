@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
@@ -16,7 +16,8 @@ import {
   users,
   visibilities,
   winScores,
-  type ITournamentMaxParticipants,
+  groupDraws,
+  validateGroupConfig,
   type ITournamentWinScore,
 } from '@/db/schema.js';
 import {
@@ -45,8 +46,85 @@ import {
 } from '@/services/notificationService.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
 import { getMatchStats } from '@/services/matchService.js';
+import { getGroupStandings } from '@/services/groupPhaseService.js';
+import { clinchedUserIds } from '@/services/standingsService.js';
 import { getTournamentTables } from '@/services/tableService.js';
 import { requireAdmin } from '../middleware.js';
+
+// Shared create/update body schema. For groups_playoff the four group fields are
+// required and validated together; for the other formats maxParticipants must be
+// one of the discrete sizes. maxParticipants for groups_playoff is derived in the
+// handler (groupsCount × participantsPerGroup), so the range here stays permissive.
+const tournamentBodySchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().optional(),
+    rules: z.string().optional(),
+    format: z.enum(formats),
+    randomAdvancement: z.boolean().default(false),
+    visibility: z.enum(visibilities).default('public'),
+    scheduleMode: z.enum(scheduleModes).default('single_day'),
+    maxParticipants: z.number().int().min(2).max(512).default(16),
+    winScore: z
+      .number()
+      .int()
+      .min(Math.min(...winScores))
+      .max(Math.max(...winScores))
+      .default(3),
+    mergeRound: z
+      .number()
+      .int()
+      .min(Math.min(...mergeRounds))
+      .max(Math.max(...mergeRounds))
+      .default(2),
+    groupsCount: z.number().int().optional(),
+    participantsPerGroup: z.number().int().optional(),
+    qualifiersPerGroup: z.number().int().optional(),
+    groupDraw: z.enum(groupDraws).optional(),
+    startDate: z.string().optional(),
+    venueId: z.uuid(),
+    tableIds: z.array(z.uuid()).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.format === 'groups_playoff') {
+      if (
+        data.groupsCount == null ||
+        data.participantsPerGroup == null ||
+        data.qualifiersPerGroup == null ||
+        data.groupDraw == null
+      ) {
+        ctx.addIssue({ code: 'custom', message: 'Не заданы параметры групп' });
+        return;
+      }
+      const err = validateGroupConfig({
+        groupsCount: data.groupsCount,
+        participantsPerGroup: data.participantsPerGroup,
+        qualifiersPerGroup: data.qualifiersPerGroup,
+      });
+      if (err) ctx.addIssue({ code: 'custom', message: err });
+    } else if (
+      !(maxParticipants as readonly number[]).includes(data.maxParticipants)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Недопустимое количество участников',
+      });
+    }
+  });
+
+/** Derive the persisted participant cap: full groups for groups_playoff. */
+function resolveMaxParticipants(
+  body: z.infer<typeof tournamentBodySchema>,
+): number {
+  if (
+    body.format === 'groups_playoff' &&
+    body.groupsCount != null &&
+    body.participantsPerGroup != null
+  ) {
+    return body.groupsCount * body.participantsPerGroup;
+  }
+  return body.maxParticipants;
+}
 
 export function createTournamentsRouter(botApi: Api) {
   const router = new Hono();
@@ -73,41 +151,49 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ data: list });
   });
 
+  // Group-stage standings for the groups_playoff format (empty array otherwise).
+  // Rows are enriched with player display names for the SPA.
+  router.get('/:id/standings', async (c) => {
+    const id = c.req.param('id') as UUID;
+    const [standings, tournament] = await Promise.all([
+      getGroupStandings(id),
+      getTournament(id),
+    ]);
+
+    const ids = standings.flatMap((g) => g.rows.map((r) => r.userId));
+    const nameById = new Map<string, { username: string | null; name: string | null }>();
+    if (ids.length > 0) {
+      const rows = await db.query.users.findMany({
+        where: inArray(users.id, ids),
+        columns: { id: true, username: true, name: true },
+      });
+      for (const u of rows) nameById.set(u.id, { username: u.username, name: u.name });
+    }
+
+    // A player plays (participantsPerGroup − 1) group matches; mark who has
+    // already clinched a qualifying spot.
+    const totalMatches = (tournament?.participantsPerGroup ?? 1) - 1;
+    const qualifiers = tournament?.qualifiersPerGroup ?? 0;
+
+    const data = standings.map((g) => {
+      const clinched = clinchedUserIds(g.rows, totalMatches, qualifiers);
+      return {
+        groupIndex: g.groupIndex,
+        rows: g.rows.map((r) => ({
+          ...r,
+          username: nameById.get(r.userId)?.username ?? null,
+          name: nameById.get(r.userId)?.name ?? null,
+          clinched: clinched.has(r.userId),
+        })),
+      };
+    });
+
+    return c.json({ data });
+  });
+
   router.post(
     '/',
-    zValidator(
-      'json',
-      z.object({
-        name: z.string().min(1),
-        description: z.string().optional(),
-        rules: z.string().optional(),
-        format: z.enum(formats),
-        randomAdvancement: z.boolean().default(false),
-        visibility: z.enum(visibilities).default('public'),
-        scheduleMode: z.enum(scheduleModes).default('single_day'),
-        maxParticipants: z
-          .number()
-          .int()
-          .min(Math.min(...maxParticipants))
-          .max(Math.max(...maxParticipants))
-          .default(16),
-        winScore: z
-          .number()
-          .int()
-          .min(Math.min(...winScores))
-          .max(Math.max(...winScores))
-          .default(3),
-        mergeRound: z
-          .number()
-          .int()
-          .min(Math.min(...mergeRounds))
-          .max(Math.max(...mergeRounds))
-          .default(2),
-        startDate: z.string().optional(),
-        venueId: z.uuid(),
-        tableIds: z.array(z.uuid()).optional(),
-      }),
-    ),
+    zValidator('json', tournamentBodySchema),
     async (c) => {
       const body = c.req.valid('json');
       const admin = c.get('adminUser');
@@ -122,9 +208,13 @@ export function createTournamentsRouter(botApi: Api) {
           randomAdvancement: body.randomAdvancement,
           visibility: body.visibility,
           scheduleMode: body.scheduleMode,
-          maxParticipants: body.maxParticipants as ITournamentMaxParticipants,
+          maxParticipants: resolveMaxParticipants(body),
           winScore: body.winScore as ITournamentWinScore,
           mergeRound: body.mergeRound,
+          groupsCount: body.groupsCount ?? null,
+          participantsPerGroup: body.participantsPerGroup ?? null,
+          qualifiersPerGroup: body.qualifiersPerGroup ?? null,
+          groupDraw: body.groupDraw ?? null,
           startDate: body.startDate ? new Date(body.startDate) : null,
           venueId: body.venueId as UUID,
           ...(body.tableIds ? { tableIds: body.tableIds as UUID[] } : {}),
@@ -148,39 +238,7 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.patch(
     '/:id',
-    zValidator(
-      'json',
-      z.object({
-        name: z.string().min(1),
-        description: z.string().optional(),
-        rules: z.string().optional(),
-        format: z.enum(formats),
-        randomAdvancement: z.boolean().default(false),
-        visibility: z.enum(visibilities).default('public'),
-        scheduleMode: z.enum(scheduleModes).default('single_day'),
-        maxParticipants: z
-          .number()
-          .int()
-          .min(Math.min(...maxParticipants))
-          .max(Math.max(...maxParticipants))
-          .default(16),
-        winScore: z
-          .number()
-          .int()
-          .min(Math.min(...winScores))
-          .max(Math.max(...winScores))
-          .default(3),
-        mergeRound: z
-          .number()
-          .int()
-          .min(Math.min(...mergeRounds))
-          .max(Math.max(...mergeRounds))
-          .default(2),
-        startDate: z.string().optional(),
-        venueId: z.uuid(),
-        tableIds: z.array(z.uuid()).optional(),
-      }),
-    ),
+    zValidator('json', tournamentBodySchema),
     async (c) => {
       const id = c.req.param('id') as UUID;
       const body = c.req.valid('json');
@@ -204,9 +262,13 @@ export function createTournamentsRouter(botApi: Api) {
           randomAdvancement: body.randomAdvancement,
           visibility: body.visibility,
           scheduleMode: body.scheduleMode,
-          maxParticipants: body.maxParticipants as ITournamentMaxParticipants,
+          maxParticipants: resolveMaxParticipants(body),
           winScore: body.winScore as ITournamentWinScore,
           mergeRound: body.mergeRound,
+          groupsCount: body.groupsCount ?? null,
+          participantsPerGroup: body.participantsPerGroup ?? null,
+          qualifiersPerGroup: body.qualifiersPerGroup ?? null,
+          groupDraw: body.groupDraw ?? null,
           startDate: body.startDate ? new Date(body.startDate) : null,
           venueId: body.venueId as UUID,
           ...(body.tableIds ? { tableIds: body.tableIds as UUID[] } : {}),

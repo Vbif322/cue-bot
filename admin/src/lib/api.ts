@@ -2,6 +2,8 @@
 import type {
   ApiTournament,
   ApiTournamentParticipant,
+  ApiGroupStanding,
+  ApiPlayerStanding,
   ApiMatch,
   ApiMatchStats,
   ApiUser,
@@ -13,11 +15,14 @@ import type {
   TournamentVisibility,
   TournamentScheduleMode,
   ITournamentFormat,
+  IGroupDraw,
 } from '@server/apiTypes';
 
 export type {
   ApiTournament,
   ApiTournamentParticipant,
+  ApiGroupStanding,
+  ApiPlayerStanding,
   ApiMatch,
   ApiMatchStats,
   ApiUser,
@@ -29,7 +34,16 @@ export type {
   TournamentVisibility,
   TournamentScheduleMode,
   ITournamentFormat,
+  IGroupDraw,
 };
+
+/** Group + playoff config fields, shared by create/update payloads. */
+interface GroupConfigFields {
+  groupsCount?: number;
+  participantsPerGroup?: number;
+  qualifiersPerGroup?: number;
+  groupDraw?: IGroupDraw;
+}
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -80,6 +94,9 @@ export const tournamentsApi = {
 
   tables: (id: string) => apiFetch<ApiTable[]>(`/api/tournaments/${id}/tables`),
 
+  standings: (id: string) =>
+    apiFetch<ApiGroupStanding[]>(`/api/tournaments/${id}/standings`),
+
   create: (data: {
     name: string;
     description?: string;
@@ -94,7 +111,7 @@ export const tournamentsApi = {
     startDate?: string;
     venueId: string;
     tableIds?: string[];
-  }) =>
+  } & GroupConfigFields) =>
     apiFetch<ApiTournament>('/api/tournaments', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -116,7 +133,7 @@ export const tournamentsApi = {
       startDate?: string;
       venueId: string;
       tableIds?: string[];
-    },
+    } & GroupConfigFields,
   ) =>
     apiFetch<ApiTournament>(`/api/tournaments/${id}`, {
       method: 'PATCH',

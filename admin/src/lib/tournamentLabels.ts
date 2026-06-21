@@ -11,6 +11,7 @@ export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elimination',
   double_elimination: 'Double Elimination',
   round_robin: 'Round Robin',
+  groups_playoff: 'Groups + Playoff',
 };
 
 /** Compact variant used in dense list views. */
@@ -18,6 +19,7 @@ export const FORMAT_LABELS_SHORT: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elim.',
   double_elimination: 'Double Elim.',
   round_robin: 'Round Robin',
+  groups_playoff: 'Groups+PO',
 };
 
 /**

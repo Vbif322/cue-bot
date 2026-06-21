@@ -23,6 +23,10 @@ export interface ICreationData {
       | 'randomAdvancement'
       | 'maxParticipants'
       | 'mergeRound'
+      | 'groupsCount'
+      | 'participantsPerGroup'
+      | 'qualifiersPerGroup'
+      | 'groupDraw'
       | 'winScore'
     >
   >;
@@ -46,8 +50,18 @@ export interface IRequiredCreationData extends Required<ICreationData> {
       | 'winScore'
     >
   > &
-    // mergeRound is only collected for double_elimination; optional here.
-    Partial<Pick<Tournament, 'mergeRound'>>;
+    // mergeRound (double_elimination) and the group config (groups_playoff) are
+    // collected only for their formats; optional here.
+    Partial<
+      Pick<
+        Tournament,
+        | 'mergeRound'
+        | 'groupsCount'
+        | 'participantsPerGroup'
+        | 'qualifiersPerGroup'
+        | 'groupDraw'
+      >
+    >;
 }
 
 export interface ICreationState {

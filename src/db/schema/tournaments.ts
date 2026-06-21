@@ -19,13 +19,21 @@ export {
   maxParticipants,
   winScores,
   mergeRounds,
+  groupDraws,
+  groupsCountOptions,
+  participantsPerGroupOptions,
   validMergeRoundsForSize,
+  validateGroupConfig,
+  qualifiersOptionsForGroupSize,
   type ITournamentMaxParticipants,
   type ITournamentWinScore,
   type ITournamentMergeRound,
+  type IGroupDraw,
+  type GroupConfig,
 } from '../../admin/server/tournamentOptions.js';
+import { groupDraws } from '../../admin/server/tournamentOptions.js';
 import type {
-  ITournamentMaxParticipants,
+  IGroupDraw,
   ITournamentWinScore,
 } from '../../admin/server/tournamentOptions.js';
 
@@ -85,10 +93,9 @@ export const tournaments = prodSchema.table('tournaments', {
     .default('single_day'),
   startDate: timestamp('start_date'),
   confirmedParticipants: integer('confirmed_participants'),
-  maxParticipants: integer('max_participants')
-    .$type<ITournamentMaxParticipants>()
-    .notNull()
-    .default(16),
+  // SE/DE/RR use the discrete enum values; groups_playoff stores the derived
+  // total (groupsCount × participantsPerGroup), so the column is a plain integer.
+  maxParticipants: integer('max_participants').notNull().default(16),
   winScore: integer('win_score')
     .$type<ITournamentWinScore>()
     .notNull()
@@ -97,6 +104,11 @@ export const tournaments = prodSchema.table('tournaments', {
   // back into a single-elimination playoff. 2 = current/default scheme, k = full
   // double elimination (no bracket reset). Ignored for other formats.
   mergeRound: integer('merge_round').notNull().default(2),
+  // Groups + playoff config. Null for every other format.
+  groupsCount: integer('groups_count'),
+  participantsPerGroup: integer('participants_per_group'),
+  qualifiersPerGroup: integer('qualifiers_per_group'),
+  groupDraw: varchar('group_draw', { enum: groupDraws }).$type<IGroupDraw>(),
   rules: text(),
   inviteCode: varchar('invite_code', { length: 16 }).unique(),
   createdBy: uuid('created_by')

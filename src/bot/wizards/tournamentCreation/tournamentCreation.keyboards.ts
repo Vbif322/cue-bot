@@ -8,6 +8,9 @@ import {
   validMergeRoundsForSize,
   visibilities,
   winScores,
+  groupsCountOptions,
+  participantsPerGroupOptions,
+  qualifiersOptionsForGroupSize,
 } from '@/db/schema/tournaments.js';
 import {
   formatDiscipline,
@@ -32,6 +35,10 @@ export interface ITournamentCreationKeyboards {
   buildRandomModeKeyboard(): InlineKeyboard;
   buildParticipantsKeyboard(): InlineKeyboard;
   buildMergeRoundKeyboard(maxParticipants: number): InlineKeyboard;
+  buildGroupsCountKeyboard(): InlineKeyboard;
+  buildParticipantsPerGroupKeyboard(): InlineKeyboard;
+  buildQualifiersPerGroupKeyboard(participantsPerGroup: number): InlineKeyboard;
+  buildGroupDrawKeyboard(): InlineKeyboard;
   buildWinScoreKeyboard(): InlineKeyboard;
   buildTablesKeyboard(
     tables: Pick<Table, 'id' | 'name'>[],
@@ -129,6 +136,47 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
     }
 
     return keyboard;
+  }
+
+  /** Groups count picker → callback 'tc:groups:<n>'. */
+  buildGroupsCountKeyboard(perRow = 3): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    groupsCountOptions.forEach((v, i) => {
+      keyboard.text(String(v), `tc:groups:${String(v)}`);
+      if ((i + 1) % perRow === 0) keyboard.row();
+    });
+    return keyboard;
+  }
+
+  /** Participants-per-group picker → callback 'tc:ppg:<n>'. */
+  buildParticipantsPerGroupKeyboard(perRow = 4): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    participantsPerGroupOptions.forEach((v, i) => {
+      keyboard.text(String(v), `tc:ppg:${String(v)}`);
+      if ((i + 1) % perRow === 0) keyboard.row();
+    });
+    return keyboard;
+  }
+
+  /** Qualifiers-per-group picker (1..size-1) → callback 'tc:qpg:<n>'. */
+  buildQualifiersPerGroupKeyboard(
+    participantsPerGroup: number,
+    perRow = 4,
+  ): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    qualifiersOptionsForGroupSize(participantsPerGroup).forEach((v, i) => {
+      keyboard.text(String(v), `tc:qpg:${String(v)}`);
+      if ((i + 1) % perRow === 0) keyboard.row();
+    });
+    return keyboard;
+  }
+
+  /** Group draw picker → callback 'tc:draw:<snake|random>'. */
+  buildGroupDrawKeyboard(): InlineKeyboard {
+    return new InlineKeyboard()
+      .text('Змейкой (по сеяным)', 'tc:draw:snake')
+      .row()
+      .text('Случайно', 'tc:draw:random');
   }
 
   /**

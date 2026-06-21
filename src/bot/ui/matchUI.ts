@@ -126,13 +126,29 @@ export function formatMatchCard(
     ),
   );
   // Double elimination has an extra (merge-playoff) round on the winners side.
-  const rounds = tournament.format === 'double_elimination' ? k + 1 : k;
+  // groups_playoff playoff rounds are sized by the qualifier total, not the full
+  // participant count; group-phase rounds are named by group letter (rounds arg
+  // is ignored there).
+  let rounds = k;
+  if (tournament.format === 'double_elimination') {
+    rounds = k + 1;
+  } else if (
+    tournament.format === 'groups_playoff' &&
+    tournament.groupsCount != null &&
+    tournament.qualifiersPerGroup != null
+  ) {
+    rounds = calculateRounds(
+      getNextPowerOfTwo(tournament.groupsCount * tournament.qualifiersPerGroup),
+    );
+  }
   const roundName = getRoundName(
     match.round,
     rounds,
     tournament.format,
     match.bracketType ?? 'winners',
     tournament.mergeRound,
+    match.phase,
+    match.groupIndex ?? undefined,
   );
 
   let text = `🎱 *Матч #${String(match.position)}*\n`;

@@ -23,6 +23,9 @@ import {
   calculateRounds,
   getNextPowerOfTwo,
 } from '@/services/bracketGenerator.js';
+import { getGroupStandings } from '@/services/groupPhaseService.js';
+import { clinchedUserIds } from '@/services/standingsService.js';
+import type { GroupStanding } from '@/services/standingsService.js';
 import {
   notifyMatchStart,
   notifyMatchScheduled,
@@ -855,6 +858,37 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
 /**
+ * Letter label for a 0-based group index (0 → A, 1 → Б, …).
+ */
+const GROUP_LETTERS = 'АБВГДЕЖЗИКЛМНОП';
+function groupLetter(index: number): string {
+  return GROUP_LETTERS[index] ?? `#${String(index + 1)}`;
+}
+
+/**
+ * Format a group's standings table. Players who have already CLINCHED a qualifying
+ * spot (guaranteed top-`qualifiersPerGroup` regardless of remaining matches) are
+ * marked with ✅. Shows wins and frame difference per player.
+ */
+function formatGroupStandings(
+  group: GroupStanding,
+  qualifiersPerGroup: number,
+  totalMatches: number,
+  playerMap: Map<string, PlayerNameParts>,
+): string {
+  const clinched = clinchedUserIds(group.rows, totalMatches, qualifiersPerGroup);
+  let text = `*Группа ${groupLetter(group.groupIndex)}* (выходят ${String(qualifiersPerGroup)})\n`;
+  for (const row of group.rows) {
+    const parts = playerMap.get(row.userId);
+    const name = parts ? formatPlayerName(parts) : 'TBD';
+    const mark = clinched.has(row.userId) ? '✅' : '▫️';
+    const diff = row.frameDiff >= 0 ? `+${String(row.frameDiff)}` : String(row.frameDiff);
+    text += `${mark} ${String(row.rank)}. ${name} — ${String(row.wins)} поб., ${diff}\n`;
+  }
+  return text + '\n';
+}
+
+/**
  * Format a section of matches (upper or lower bracket) for display
  */
 function formatMatchSection(
@@ -886,6 +920,8 @@ function formatMatchSection(
       tournament.format,
       roundMatches[0]?.bracketType ?? 'winners',
       tournament.mergeRound,
+      roundMatches[0]?.phase,
+      roundMatches[0]?.groupIndex ?? undefined,
     );
 
     text += `*${roundName}:*\n`;
@@ -1031,6 +1067,42 @@ async function showBracket(
         keyboard,
       );
     }
+  } else if (tournament.format === 'groups_playoff') {
+    // Group phase: per-group standings table + that group's matches. Playoff
+    // phase (once generated): a single-elimination bracket sized by qualifiers.
+    const groupMatches = allMatches.filter((m) => m.phase === 'group');
+    const playoffMatches = allMatches.filter((m) => m.phase === 'playoff');
+    const qpg = tournament.qualifiersPerGroup ?? 0;
+
+    const standings = await getGroupStandings(tournamentId);
+    const totalMatches = (tournament.participantsPerGroup ?? 1) - 1;
+    for (const group of standings) {
+      text += formatGroupStandings(group, qpg, totalMatches, playerMap);
+      const groupSection = groupMatches.filter(
+        (m) => m.groupIndex === group.groupIndex,
+      );
+      text += formatMatchSection(
+        groupSection,
+        playerMap,
+        tournament,
+        0,
+        keyboard,
+      );
+    }
+
+    if (playoffMatches.length > 0) {
+      const playoffRounds = calculateRounds(
+        getNextPowerOfTwo((tournament.groupsCount ?? 0) * qpg),
+      );
+      text += `*═══ ПЛЕЙ-ОФФ ═══*\n\n`;
+      text += formatMatchSection(
+        playoffMatches,
+        playerMap,
+        tournament,
+        playoffRounds,
+        keyboard,
+      );
+    }
   } else {
     // Show rounds (existing logic for single_elimination and round_robin)
     const rounds = Array.from(matchesByRound.keys()).sort((a, b) => a - b);
@@ -1043,6 +1115,9 @@ async function showBracket(
         totalRounds,
         tournament.format,
         'winners',
+        tournament.mergeRound,
+        roundMatches[0]?.phase,
+        roundMatches[0]?.groupIndex ?? undefined,
       );
 
       text += `*${roundName}:*\n`;

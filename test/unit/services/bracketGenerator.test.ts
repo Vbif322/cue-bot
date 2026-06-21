@@ -4,9 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   type BracketMatch,
+  assignParticipantsToGroups,
   calculateRounds,
   generateBracket,
   generateDoubleEliminationBracket,
+  generateGroupStageMatches,
+  generatePlayoffFromQualifiers,
   generateRoundRobinMatches,
   generateSeedPositions,
   generateSingleEliminationBracket,
@@ -477,5 +480,147 @@ describe('getRoundName', () => {
     expect(getRoundName(3, 3, 'single_elimination')).toBe('Финал');
     expect(getRoundName(2, 3, 'single_elimination')).toBe('Полуфинал');
     expect(getRoundName(1, 3, 'single_elimination')).toBe('Четвертьфинал');
+  });
+
+  it('names groups_playoff group rounds by group letter', () => {
+    expect(getRoundName(2, 0, 'groups_playoff', 'winners', 2, 'group', 0)).toBe(
+      'Группа A, тур 2',
+    );
+    expect(getRoundName(1, 0, 'groups_playoff', 'winners', 2, 'group', 1)).toBe(
+      'Группа B, тур 1',
+    );
+  });
+
+  it('names groups_playoff playoff rounds like single elimination', () => {
+    expect(getRoundName(2, 2, 'groups_playoff', 'winners', 2, 'playoff')).toBe(
+      'Финал',
+    );
+    expect(getRoundName(1, 2, 'groups_playoff', 'winners', 2, 'playoff')).toBe(
+      'Полуфинал',
+    );
+  });
+});
+
+describe('assignParticipantsToGroups', () => {
+  it('distributes 8 seeds into 2 groups by snake order', () => {
+    const groups = assignParticipantsToGroups(makeParticipants(8), 2, 'snake');
+    expect(groups).toHaveLength(2);
+    // Snake: seeds 1,4,5,8 → group A; 2,3,6,7 → group B.
+    expect(groups[0]?.map((p) => p.seed)).toEqual([1, 4, 5, 8]);
+    expect(groups[1]?.map((p) => p.seed)).toEqual([2, 3, 6, 7]);
+  });
+
+  it('keeps balanced group sizes for a random draw', () => {
+    const groups = assignParticipantsToGroups(makeParticipants(8), 4, 'random');
+    expect(groups).toHaveLength(4);
+    expect(groups.every((g) => g.length === 2)).toBe(true);
+    // Every participant placed exactly once.
+    expect(groups.flat()).toHaveLength(8);
+  });
+});
+
+describe('generateGroupStageMatches', () => {
+  it('builds a round-robin per group with phase/groupIndex tags', () => {
+    const matches = generateGroupStageMatches(makeParticipants(8), 2, 4, 'snake');
+    // 2 groups × C(4,2)=6 = 12 matches.
+    expect(matches).toHaveLength(12);
+    expect(matches.every((m) => m.phase === 'group')).toBe(true);
+    expect(matches.filter((m) => m.groupIndex === 0)).toHaveLength(6);
+    expect(matches.filter((m) => m.groupIndex === 1)).toHaveLength(6);
+    // Positions are globally unique; no winner routing in the group phase.
+    expect(new Set(matches.map((m) => m.position)).size).toBe(12);
+    expect(matches.every((m) => m.nextMatchId === undefined)).toBe(true);
+    // Full groups → no walkovers.
+    expect(matches.some((m) => m.isCompletedWalkover)).toBe(false);
+  });
+
+  it('pads an under-filled group with walkovers', () => {
+    // 11 players, 2 groups × 6 → snake split 5 + 6; the short group gets one
+    // walkover slot. Each group still has C(6,2)=15 match rows.
+    const matches = generateGroupStageMatches(makeParticipants(11), 2, 6, 'snake');
+    expect(matches).toHaveLength(30);
+    expect(matches.every((m) => m.phase === 'group')).toBe(true);
+
+    const walkovers = matches.filter((m) => m.isCompletedWalkover);
+    // The 5-player group: each real player gets one auto-win vs the walkover.
+    expect(walkovers).toHaveLength(5);
+    for (const w of walkovers) {
+      // Exactly one side is the walkover, and the real player is the winner.
+      const nullSides = [w.player1Id, w.player2Id].filter((p) => p === null);
+      expect(nullSides).toHaveLength(1);
+      expect(w.walkoverWinnerId).not.toBeNull();
+    }
+    // All walkovers sit in a single group.
+    expect(new Set(walkovers.map((m) => m.groupIndex)).size).toBe(1);
+  });
+
+  it('handles odd full groups via a scheduling bye (no walkovers)', () => {
+    // 10 players, 2 groups × 5 (odd, full) → C(5,2)=10 per group, no walkovers.
+    const matches = generateGroupStageMatches(makeParticipants(10), 2, 5, 'snake');
+    expect(matches).toHaveLength(20);
+    expect(matches.some((m) => m.isCompletedWalkover)).toBe(false);
+  });
+
+  it('throws with fewer than 2 groups', () => {
+    expect(() =>
+      generateGroupStageMatches(makeParticipants(4), 1, 4, 'snake'),
+    ).toThrow();
+  });
+
+  it('throws when participants exceed the group capacity', () => {
+    expect(() =>
+      generateGroupStageMatches(makeParticipants(13), 2, 6, 'snake'),
+    ).toThrow();
+  });
+});
+
+describe('generatePlayoffFromQualifiers', () => {
+  it('produces a single-elimination bracket tagged as playoff', () => {
+    const matches = generatePlayoffFromQualifiers(makeParticipants(4));
+    expect(matches).toHaveLength(3); // SE of 4 → 3 matches
+    expect(matches.every((m) => m.phase === 'playoff')).toBe(true);
+  });
+
+  it('handles a non-power-of-two qualifier count via byes', () => {
+    const matches = generatePlayoffFromQualifiers(makeParticipants(6));
+    // bracket of 8 → 7 match rows, two round-1 byes auto-completed.
+    expect(matches).toHaveLength(7);
+    const byes = matches.filter((m) => m.isCompletedWalkover);
+    expect(byes.length).toBe(2);
+  });
+});
+
+describe('getBracketStats (groups_playoff)', () => {
+  it('sums group matches and the playoff bracket', () => {
+    // 2 groups × 4, 2 qualify → 12 group matches + (4-player SE = 3) = 15.
+    expect(
+      getBracketStats('groups_playoff', 8, 2, {
+        groupsCount: 2,
+        participantsPerGroup: 4,
+        qualifiersPerGroup: 2,
+      }),
+    ).toEqual({
+      totalMatches: 15,
+      // group rounds (4 players → 3) + playoff rounds (4 → 2) = 5.
+      totalRounds: 5,
+    });
+  });
+});
+
+describe('generateBracket (groups_playoff dispatch)', () => {
+  it('generates only the group phase from the group config', () => {
+    const matches = generateBracket('groups_playoff', makeParticipants(8), false, 2, {
+      groupsCount: 2,
+      participantsPerGroup: 4,
+      groupDraw: 'snake',
+    });
+    expect(matches).toHaveLength(12);
+    expect(matches.every((m) => m.phase === 'group')).toBe(true);
+  });
+
+  it('throws without a group config', () => {
+    expect(() =>
+      generateBracket('groups_playoff', makeParticipants(8)),
+    ).toThrow();
   });
 });

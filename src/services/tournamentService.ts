@@ -24,11 +24,12 @@ import {
 import type {
   ITournamentDiscipline,
   ITournamentFormat,
-  ITournamentMaxParticipants,
   ITournamentScheduleMode,
   ITournamentVisibility,
   ITournamentWinScore,
+  IGroupDraw,
 } from '@/db/schema.js';
+import { validateGroupConfig } from '@/admin/server/tournamentOptions.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
@@ -44,7 +45,15 @@ export interface StartTournamentResult {
   participantsCount: number;
 }
 
-export interface CreateTournamentDraftInput {
+/** Group + playoff config fields, shared by the create/update inputs. */
+export interface GroupConfigInput {
+  groupsCount?: number | null;
+  participantsPerGroup?: number | null;
+  qualifiersPerGroup?: number | null;
+  groupDraw?: IGroupDraw | null;
+}
+
+export interface CreateTournamentDraftInput extends GroupConfigInput {
   venueId: UUID;
 
   name: string;
@@ -55,7 +64,8 @@ export interface CreateTournamentDraftInput {
   visibility?: ITournamentVisibility;
   scheduleMode?: ITournamentScheduleMode;
   startDate?: Date | null;
-  maxParticipants: ITournamentMaxParticipants;
+  // Plain integer: discrete enum values for SE/DE/RR, derived total for groups_playoff.
+  maxParticipants: number;
   winScore: ITournamentWinScore;
   mergeRound?: number;
   rules?: string | null;
@@ -64,7 +74,7 @@ export interface CreateTournamentDraftInput {
   tableIds?: UUID[];
 }
 
-export interface UpdateTournamentDraftInput {
+export interface UpdateTournamentDraftInput extends GroupConfigInput {
   venueId: UUID;
 
   name: string;
@@ -74,7 +84,7 @@ export interface UpdateTournamentDraftInput {
   visibility?: ITournamentVisibility;
   scheduleMode?: ITournamentScheduleMode;
   startDate?: Date | null;
-  maxParticipants: ITournamentMaxParticipants;
+  maxParticipants: number;
   winScore: ITournamentWinScore;
   mergeRound?: number;
   rules?: string | null;
@@ -164,6 +174,40 @@ export async function canStartTournament(
       error: `Недостаточно участников для запуска турнира (минимум 2, сейчас ${String(count)})`,
       participantsCount: count,
     };
+  }
+
+  if (tournament.format === 'groups_playoff') {
+    const groupErr = validateGroupConfig({
+      groupsCount: tournament.groupsCount ?? 0,
+      participantsPerGroup: tournament.participantsPerGroup ?? 0,
+      qualifiersPerGroup: tournament.qualifiersPerGroup ?? 0,
+    });
+    if (groupErr) {
+      return { canStart: false, error: groupErr, participantsCount: count };
+    }
+    const groups = tournament.groupsCount ?? 0;
+    const perGroup = tournament.participantsPerGroup ?? 0;
+    const qpg = tournament.qualifiersPerGroup ?? 0;
+    const totalSlots = groups * perGroup;
+
+    // Under-filled groups are padded with walkovers; only the upper bound is hard.
+    if (count > totalSlots) {
+      return {
+        canStart: false,
+        error: `Слишком много участников: максимум ${String(totalSlots)} (${String(groups)}×${String(perGroup)}), сейчас ${String(count)}`,
+        participantsCount: count,
+      };
+    }
+    // Every group must still have enough real players to fill its qualifying spots
+    // (a walkover can't qualify). The smallest group has floor(count / groups).
+    const minGroupSize = Math.floor(count / groups);
+    if (minGroupSize < qpg) {
+      return {
+        canStart: false,
+        error: `Недостаточно участников: в наименьшей группе будет ${String(minGroupSize)}, а из группы выходит ${String(qpg)}. Добавьте участников или уменьшите число выходящих.`,
+        participantsCount: count,
+      };
+    }
   }
 
   const seedError = validateSeeds(participants, count);
@@ -297,6 +341,10 @@ export async function createTournamentDraft(
         maxParticipants: input.maxParticipants,
         winScore: input.winScore,
         mergeRound: input.mergeRound ?? 2,
+        groupsCount: input.groupsCount ?? null,
+        participantsPerGroup: input.participantsPerGroup ?? null,
+        qualifiersPerGroup: input.qualifiersPerGroup ?? null,
+        groupDraw: input.groupDraw ?? null,
         rules: input.rules ?? null,
         createdBy: input.createdBy,
       })
@@ -398,6 +446,10 @@ export async function updateTournamentDraft(
         maxParticipants: input.maxParticipants,
         winScore: input.winScore,
         mergeRound: input.mergeRound ?? 2,
+        groupsCount: input.groupsCount ?? null,
+        participantsPerGroup: input.participantsPerGroup ?? null,
+        qualifiersPerGroup: input.qualifiersPerGroup ?? null,
+        groupDraw: input.groupDraw ?? null,
         rules: input.rules ?? null,
         updatedAt: new Date(),
       })

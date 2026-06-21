@@ -11,6 +11,7 @@ export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Олимпийская система',
   double_elimination: 'Двойная элиминация',
   round_robin: 'Круговая система',
+  groups_playoff: 'Группа + плей-офф',
 };
 
 export const STATUS_LABELS: Record<string, string> = {

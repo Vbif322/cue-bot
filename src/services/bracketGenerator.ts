@@ -17,6 +17,8 @@ export interface BracketMatch {
   player2IsWalkover?: boolean;
   isCompletedWalkover?: boolean;
   walkoverWinnerId?: UUID | null;
+  phase?: 'group' | 'playoff'; // groups_playoff: which phase this match belongs to
+  groupIndex?: number; // groups_playoff group phase: 0-based group number
 }
 
 type ParticipantSlot = TournamentParticipant | { isBye: true };
@@ -539,6 +541,11 @@ export function generateBracket(
   participants: TournamentParticipant[],
   randomAdvancement = false,
   mergeRound = 2,
+  groupConfig?: {
+    groupsCount: number;
+    participantsPerGroup: number;
+    groupDraw: 'snake' | 'random';
+  },
 ): BracketMatch[] {
   if (participants.length < 2) {
     throw new Error('Минимум 2 участника для создания сетки');
@@ -556,9 +563,179 @@ export function generateBracket(
       });
     case 'round_robin':
       return generateRoundRobinMatches(participants);
+    case 'groups_playoff': {
+      if (!groupConfig) {
+        throw new Error('groups_playoff требует конфигурацию групп');
+      }
+      // Only the group phase is generated up front; the playoff bracket is
+      // generated later (generatePlayoffFromQualifiers) once standings are known.
+      return generateGroupStageMatches(
+        participants,
+        groupConfig.groupsCount,
+        groupConfig.participantsPerGroup,
+        groupConfig.groupDraw,
+      );
+    }
     default:
       throw new Error(`Неподдерживаемый формат: ${String(format)}`);
   }
+}
+
+/**
+ * Assign seed-ordered participants to `groupsCount` groups.
+ *  - 'snake': serpentine by seed (A,B,…,G, G,…,B,A, …) so group strength is balanced.
+ *  - 'random': shuffle, then deal round-robin into groups (balanced sizes).
+ */
+export function assignParticipantsToGroups(
+  participants: TournamentParticipant[],
+  groupsCount: number,
+  draw: 'snake' | 'random',
+): TournamentParticipant[][] {
+  const groups: TournamentParticipant[][] = Array.from(
+    { length: groupsCount },
+    () => [],
+  );
+
+  const ordered = draw === 'random' ? shuffleArray(participants) : participants;
+
+  ordered.forEach((p, i) => {
+    const col = i % groupsCount;
+    const row = Math.floor(i / groupsCount);
+    // Snake assignment balances seed strength; random was already shuffled so the
+    // serpentine direction is harmless there too.
+    const groupIndex = row % 2 === 0 ? col : groupsCount - 1 - col;
+    const group = groups[groupIndex];
+    if (group) group.push(p);
+  });
+
+  return groups;
+}
+
+/**
+ * Round-robin for one group over a fixed set of slots, where a `null` slot is a
+ * WALKOVER (a missing participant, e.g. when registration didn't fill the group).
+ * Every real player paired with a walkover gets an auto-win (a completed-walkover
+ * match), two walkovers paired produce no match, and an odd slot count adds a
+ * scheduling BYE (a player rests that round, no match). Mirrors the walkover
+ * handling already used by the elimination brackets.
+ */
+function generateGroupRoundRobin(
+  slots: (TournamentParticipant | null)[],
+): BracketMatch[] {
+  const matches: BracketMatch[] = [];
+  const players: (TournamentParticipant | null | { isBye: true })[] =
+    shuffleArray(slots);
+  if (players.length % 2 === 1) players.push({ isBye: true });
+
+  const isBye = (s: unknown): s is { isBye: true } =>
+    typeof s === 'object' && s !== null && 'isBye' in s;
+
+  const total = players.length;
+  const rounds = total - 1;
+  const matchesPerRound = total / 2;
+  let matchPosition = 1;
+
+  for (let round = 1; round <= rounds; round++) {
+    for (let i = 0; i < matchesPerRound; i++) {
+      const home = players[i];
+      const away = players[total - 1 - i];
+      if (home === undefined || away === undefined) continue;
+      // After this guard TS narrows home/away to TournamentParticipant | null.
+      if (isBye(home) || isBye(away)) continue; // a player rests this round
+      if (home === null && away === null) continue; // phantom vs phantom
+
+      if (home !== null && away !== null) {
+        matches.push({
+          round,
+          position: matchPosition++,
+          player1Id: home.userId,
+          player2Id: away.userId,
+          bracketType: 'winners',
+        });
+      } else {
+        // Real vs walkover → auto-win for the real player (completed walkover).
+        const winner = home ?? away;
+        matches.push({
+          round,
+          position: matchPosition++,
+          player1Id: home?.userId ?? null,
+          player2Id: away?.userId ?? null,
+          player1IsWalkover: home === null,
+          player2IsWalkover: away === null,
+          isCompletedWalkover: true,
+          walkoverWinnerId: winner?.userId ?? null,
+          bracketType: 'winners',
+        });
+      }
+    }
+
+    const last = players.pop();
+    if (last === undefined) break;
+    players.splice(1, 0, last);
+  }
+
+  return matches;
+}
+
+/**
+ * Generate the group phase for the groups_playoff format: a mini round-robin per
+ * group. Each group is padded to `participantsPerGroup` slots — empty slots become
+ * WALKOVERS (auto-loss phantoms) when fewer than groupsCount × participantsPerGroup
+ * players registered. Every match is tagged `phase: 'group'` + its `groupIndex`,
+ * and `position` is offset to stay globally unique. No `nextMatchId` (qualification
+ * is by standings, not advancement).
+ */
+export function generateGroupStageMatches(
+  participants: TournamentParticipant[],
+  groupsCount: number,
+  participantsPerGroup: number,
+  draw: 'snake' | 'random',
+): BracketMatch[] {
+  if (groupsCount < 2) {
+    throw new Error('Минимум 2 группы для формата «группа + плей-офф»');
+  }
+  if (participants.length > groupsCount * participantsPerGroup) {
+    throw new Error(
+      `Слишком много участников: максимум ${String(groupsCount * participantsPerGroup)}`,
+    );
+  }
+
+  const groups = assignParticipantsToGroups(participants, groupsCount, draw);
+  const matches: BracketMatch[] = [];
+  let position = 1;
+
+  groups.forEach((members, groupIndex) => {
+    // Pad to a full group with walkover (null) slots.
+    const slots: (TournamentParticipant | null)[] = [...members];
+    while (slots.length < participantsPerGroup) slots.push(null);
+
+    for (const m of generateGroupRoundRobin(slots)) {
+      matches.push({
+        ...m,
+        position: position++,
+        phase: 'group',
+        groupIndex,
+      });
+    }
+  });
+
+  return matches;
+}
+
+/**
+ * Build a single-elimination playoff from already cross-seeded qualifiers (the
+ * ordering is computed by standingsService.selectQualifiers). Thin wrapper over
+ * generateSingleEliminationBracket that tags every match `phase: 'playoff'`; byes
+ * for non-power-of-two qualifier counts are handled by the SE generator.
+ */
+export function generatePlayoffFromQualifiers(
+  qualifiers: TournamentParticipant[],
+): BracketMatch[] {
+  const matches = generateSingleEliminationBracket(qualifiers);
+  for (const m of matches) {
+    m.phase = 'playoff';
+  }
+  return matches;
 }
 
 /**
@@ -618,9 +795,14 @@ export function generateRoundRobinMatches(
  * Get bracket statistics
  */
 export function getBracketStats(
-  format: 'single_elimination' | 'double_elimination' | 'round_robin',
+  format: Tournament['format'],
   participantsCount: number,
   mergeRound = 2,
+  groupConfig?: {
+    groupsCount: number;
+    participantsPerGroup: number;
+    qualifiersPerGroup: number;
+  },
 ): { totalMatches: number; totalRounds: number } {
   const bracketSize = getNextPowerOfTwo(participantsCount);
 
@@ -645,6 +827,23 @@ export function getBracketStats(
         totalRounds: n % 2 === 0 ? n - 1 : n,
       };
     }
+    case 'groups_playoff': {
+      if (!groupConfig) return { totalMatches: 0, totalRounds: 0 };
+      const { groupsCount, participantsPerGroup, qualifiersPerGroup } =
+        groupConfig;
+      const perGroupMatches =
+        (participantsPerGroup * (participantsPerGroup - 1)) / 2;
+      const groupMatches = groupsCount * perGroupMatches;
+      const groupRounds =
+        participantsPerGroup % 2 === 0
+          ? participantsPerGroup - 1
+          : participantsPerGroup;
+      const playoffSize = getNextPowerOfTwo(groupsCount * qualifiersPerGroup);
+      return {
+        totalMatches: groupMatches + (playoffSize - 1),
+        totalRounds: groupRounds + calculateRounds(playoffSize),
+      };
+    }
     default:
       return { totalMatches: 0, totalRounds: 0 };
   }
@@ -659,7 +858,18 @@ export function getRoundName(
   format: string,
   bracketType = 'winners',
   mergeRound = 2,
+  phase?: 'group' | 'playoff',
+  groupIndex?: number,
 ): string {
+  if (format === 'groups_playoff' && phase === 'group') {
+    const letter =
+      groupIndex == null ? '' : ` ${String.fromCharCode(65 + groupIndex)}`;
+    return `Группа${letter}, тур ${String(round)}`;
+  }
+
+  // groups_playoff playoff phase falls through to the single-elimination naming
+  // at the bottom of this function (Финал/Полуфинал/…), keyed off totalRounds.
+
   if (format === 'round_robin') {
     return `Тур ${String(round)}`;
   }

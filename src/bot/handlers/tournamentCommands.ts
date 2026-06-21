@@ -489,6 +489,16 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
     tournament.format,
     result.participantsCount,
     tournament.mergeRound,
+    tournament.format === 'groups_playoff' &&
+      tournament.groupsCount != null &&
+      tournament.participantsPerGroup != null &&
+      tournament.qualifiersPerGroup != null
+      ? {
+          groupsCount: tournament.groupsCount,
+          participantsPerGroup: tournament.participantsPerGroup,
+          qualifiersPerGroup: tournament.qualifiersPerGroup,
+        }
+      : undefined,
   );
 
   const keyboard = new InlineKeyboard()
@@ -637,6 +647,36 @@ tournamentCommands.callbackQuery(/^tc:merge:(\d+)$/, async (ctx) => {
   if (!val) return;
   const mergeRound = parseInt(val, 10);
   await tournamentCreationFlow.handleMergeRoundSelection(ctx, mergeRound);
+});
+
+tournamentCommands.callbackQuery(/^tc:groups:(\d+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleGroupsCountSelection(ctx, parseInt(val, 10));
+});
+
+tournamentCommands.callbackQuery(/^tc:ppg:(\d+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleParticipantsPerGroupSelection(
+    ctx,
+    parseInt(val, 10),
+  );
+});
+
+tournamentCommands.callbackQuery(/^tc:qpg:(\d+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleQualifiersPerGroupSelection(
+    ctx,
+    parseInt(val, 10),
+  );
+});
+
+tournamentCommands.callbackQuery(/^tc:draw:(snake|random)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleGroupDrawSelection(ctx, val);
 });
 
 tournamentCommands.callbackQuery(/^tc:winscore:(\d+)$/, async (ctx) => {
