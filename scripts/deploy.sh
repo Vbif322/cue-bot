@@ -31,7 +31,9 @@ pg_dump "$DB_URL" > "$BACKUP_FILE"
 echo "    Backup: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
 
 echo "==> [4/6] Running migrations"
-npm run db:generate
+# Migrations are generated and committed in dev (npm run db:generate); prod only replays
+# the committed SQL. Never generate on the server -- it diffs against drifting local meta
+# snapshots and is interactive on ambiguous changes, which silently skips ALTER statements.
 npm run db:migrate
 
 echo "==> [5/6] Building"
