@@ -1,0 +1,1 @@
+ALTER TABLE "prod"."tournaments" ADD COLUMN "schedule_mode" varchar DEFAULT 'single_day' NOT NULL;

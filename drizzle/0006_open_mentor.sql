@@ -1,0 +1,1 @@
+ALTER TABLE "prod"."users" DROP COLUMN "birthday";

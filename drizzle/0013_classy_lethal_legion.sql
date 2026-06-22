@@ -1,0 +1,11 @@
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_status_check" CHECK ("prod"."matches"."status" IN ('scheduled', 'in_progress', 'pending_confirmation', 'completed', 'cancelled'));--> statement-breakpoint
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_phase_check" CHECK ("prod"."matches"."phase" IN ('group', 'playoff'));--> statement-breakpoint
+ALTER TABLE "prod"."notifications" ADD CONSTRAINT "notifications_type_check" CHECK ("prod"."notifications"."type" IN ('registration_confirmed', 'registration_rejected', 'bracket_formed', 'match_reminder', 'result_confirmation_request', 'result_confirmed', 'tournament_results', 'new_registration', 'participant_limit_reached', 'result_dispute', 'match_result_pending', 'disqualification', 'tournament_invitation', 'tournament_cancelled'));--> statement-breakpoint
+ALTER TABLE "prod"."tournament_participants" ADD CONSTRAINT "tournament_participants_status_check" CHECK ("prod"."tournament_participants"."status" IN ('pending', 'confirmed', 'cancelled', 'disqualified', 'invited'));--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_discipline_check" CHECK ("prod"."tournaments"."discipline" IN ('snooker'));--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_format_check" CHECK ("prod"."tournaments"."format" IN ('single_elimination', 'double_elimination', 'round_robin', 'groups_playoff'));--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_status_check" CHECK ("prod"."tournaments"."status" IN ('draft', 'registration_open', 'registration_closed', 'in_progress', 'completed', 'cancelled'));--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_visibility_check" CHECK ("prod"."tournaments"."visibility" IN ('public', 'private'));--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_schedule_mode_check" CHECK ("prod"."tournaments"."schedule_mode" IN ('single_day', 'per_match'));--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_group_draw_check" CHECK ("prod"."tournaments"."group_draw" IN ('snake', 'random'));--> statement-breakpoint
+ALTER TABLE "prod"."users" ADD CONSTRAINT "users_role_check" CHECK ("prod"."users"."role" IN ('user', 'admin'));

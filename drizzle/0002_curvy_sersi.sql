@@ -1,0 +1,1 @@
+ALTER TABLE "prod"."tournaments" ADD COLUMN "visibility" varchar DEFAULT 'public' NOT NULL;
