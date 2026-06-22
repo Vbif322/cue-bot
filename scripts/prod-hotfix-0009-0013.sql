@@ -1,8 +1,39 @@
--- One-time prod hotfix: idempotently apply schema objects from migrations 0009-0013.
+-- One-time prod hotfix: idempotently bring the live DB up to the migration 0013 schema.
+--
 -- Cause: /drizzle was git-ignored, so `drizzle-kit generate` ran on the prod server during
--- deploy and silently failed to emit some ALTER TABLE ... ADD COLUMN -> errorMissingColumn flood.
--- Safe to re-run. Run as: psql "$DATABASE_URL" -f scripts/prod-hotfix-0009-0013.sql
+-- deploy and silently failed to replay migrations. Prod's schema is stuck around 0004, so
+-- everything 0005-0013 is missing (deleted_at, random_advancement, phase, etc.) -> the
+-- errorMissingColumn flood, and legacy 'double_elimination_random' rows were never migrated.
+--
+-- Safe to re-run (every statement is guarded). Run as:
+--   psql "$DB_URL" -f scripts/prod-hotfix-0009-0013.sql
 SET search_path TO prod;
+
+-- 0005: drop the retired login_codes table; dedupe Telegram usernames; partial unique index.
+ALTER TABLE IF EXISTS login_codes DISABLE ROW LEVEL SECURITY;
+DROP TABLE IF EXISTS login_codes CASCADE;
+UPDATE users u SET "username" = 'user_' || u."telegram_id"
+WHERE u."telegram_id" IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM users u2
+    WHERE u2."username" = u."username"
+      AND u2."telegram_id" IS NOT NULL
+      AND u2."id" < u."id"
+  );
+CREATE UNIQUE INDEX IF NOT EXISTS "users_username_telegram_unique" ON users USING btree ("username") WHERE telegram_id is not null;
+
+-- 0006
+ALTER TABLE users DROP COLUMN IF EXISTS "birthday";
+
+-- 0007
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at timestamp;
+
+-- 0008: random_advancement flag + migrate the retired 'double_elimination_random' format.
+-- Order matters: set the flag before rewriting the format value. These two UPDATEs are also
+-- what makes tournaments_format_check (below) pass.
+ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS random_advancement boolean NOT NULL DEFAULT false;
+UPDATE tournaments SET "random_advancement" = true WHERE "format" = 'double_elimination_random';
+UPDATE tournaments SET "format" = 'double_elimination' WHERE "format" = 'double_elimination_random';
 
 -- 0009
 ALTER TABLE matches      ADD COLUMN IF NOT EXISTS losers_next_match_slot varchar(10);
@@ -32,8 +63,8 @@ CREATE INDEX IF NOT EXISTS "matches_tournament_id_idx" ON matches USING btree ("
 CREATE INDEX IF NOT EXISTS "notifications_user_unread_idx" ON notifications USING btree ("user_id","created_at") WHERE is_read = false;
 
 -- 0013 CHECK constraints (ADD CONSTRAINT has no IF NOT EXISTS; guard each against re-run).
--- A constraint that fails to add because existing data violates it will raise loudly here
--- (NOT duplicate_object) -> that surfaces real bad data to clean up, by design.
+-- A constraint that fails because existing data violates it raises loudly here (NOT
+-- duplicate_object) -> that surfaces real bad data to clean up, by design.
 DO $$ BEGIN
 	ALTER TABLE matches ADD CONSTRAINT "matches_status_check" CHECK ("status" IN ('scheduled', 'in_progress', 'pending_confirmation', 'completed', 'cancelled'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
