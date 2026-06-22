@@ -1,0 +1,1 @@
+ALTER TABLE "prod"."users" ADD COLUMN "deleted_at" timestamp;

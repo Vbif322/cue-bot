@@ -1,0 +1,2 @@
+CREATE INDEX "matches_tournament_id_idx" ON "prod"."matches" USING btree ("tournament_id");--> statement-breakpoint
+CREATE INDEX "notifications_user_unread_idx" ON "prod"."notifications" USING btree ("user_id","created_at") WHERE is_read = false;
