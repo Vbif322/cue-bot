@@ -31,7 +31,7 @@ import type {
   IGroupDraw,
   ParticipantStatus,
 } from '@/db/schema.js';
-import { validateGroupConfig } from '@/admin/server/tournamentOptions.js';
+import { validateGroupConfig } from '@/shared/tournament/tournamentOptions.js';
 import type {
   TournamentStatus,
   TournamentParticipant,

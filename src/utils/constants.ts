@@ -5,7 +5,7 @@ export const DISCIPLINE_LABELS: Record<string, string> = {
   // carom: "Карамболь",
 };
 
-import type { ITournamentFormat } from '@/admin/server/formats.js';
+import type { ITournamentFormat } from '@/shared/tournament/formats.js';
 
 export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Олимпийская система',
