@@ -22,7 +22,7 @@
     "test:watch": "vitest",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
-    "test:coverage": "vitest run --coverage --project unit",
+    "test:coverage": "vitest run --coverage",
     "dev": "nodemon",
     "dev:admin": "npm run dev --prefix admin",
     "dev:all": "npm run db:up && concurrently --kill-others-on-fail -n api,web,db,login -c blue,magenta,green,blue \"nodemon\" \"node admin/node_modules/vite/bin/vite.js --config admin/vite.config.ts admin --host\" \"tsx node_modules/drizzle-kit/bin.cjs studio\" \"sleep 3 && (npm run dev:login || true)\"",
