@@ -95,6 +95,13 @@ bot.command('start', async (ctx) => {
 // can't be spammed full. Admin-only command, so this is bloat protection, not anti-abuse.
 const dashboardLimiter = new RateLimiter({ capacity: 1, refillPerSec: 1 / 30 });
 
+// Base URL of the public deployment, used to build the one-click login link.
+// Configurable per environment (staging/domain change); falls back to the prod
+// domain for backward compatibility. Note: the link below is a Telegram web_app
+// button, which requires HTTPS — pointing this at http://localhost won't work in
+// dev (use an HTTPS tunnel, see README).
+const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? 'https://cuebot.ru';
+
 bot.command('dashboard', async (ctx) => {
   if (ctx.dbUser.role !== 'admin') {
     return;
@@ -112,7 +119,7 @@ bot.command('dashboard', async (ctx) => {
     expiresAt: new Date(Date.now() + 5 * 60 * 1000),
   });
 
-  const url = `https://cuebot.ru/api/auth/token?t=${token}`;
+  const url = `${publicBaseUrl}/api/auth/token?t=${token}`;
 
   const keyboard = new InlineKeyboard().webApp(
     'Открыть панель управления',
