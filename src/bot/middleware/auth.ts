@@ -43,6 +43,11 @@ export async function authMiddleware(
     }
 
     if (!existing) {
+      // Upsert on telegram_id: if a concurrent first-login transaction already
+      // inserted this user between our findFirst and here, resolve to an update
+      // instead of failing on the telegram_id unique constraint. Hardening for a
+      // future move to @grammyjs/runner / webhooks / multi-process (updates are
+      // processed sequentially today, so the race is currently only theoretical).
       [existing] = await tx
         .insert(users)
         .values({
@@ -50,6 +55,10 @@ export async function authMiddleware(
           username: desired,
           name: telegramUser.first_name,
           surname: telegramUser.last_name ?? undefined,
+        })
+        .onConflictDoUpdate({
+          target: users.telegram_id,
+          set: { username: desired },
         })
         .returning();
     } else if (existing.username !== desired) {
