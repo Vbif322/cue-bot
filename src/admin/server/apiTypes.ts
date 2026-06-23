@@ -12,7 +12,7 @@ export type {
   ApiPlayerStanding,
   ApiGroupStanding,
 } from '../../bot/@types/tournament.js';
-export { formats, type ITournamentFormat } from './formats.js';
+export { formats, type ITournamentFormat } from '../../shared/tournament/formats.js';
 export {
   maxParticipants,
   winScores,
@@ -27,7 +27,7 @@ export {
   type ITournamentWinScore,
   type ITournamentMergeRound,
   type IGroupDraw,
-} from './tournamentOptions.js';
+} from '../../shared/tournament/tournamentOptions.js';
 export type {
   MatchStatus,
   BracketType,

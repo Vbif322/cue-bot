@@ -1,6 +1,7 @@
 // Single source of truth for the discrete tournament option values.
-// Imported by the Drizzle schema (server) and the React SPA (via @server alias).
-// Keep this file dependency-free so it stays safe to bundle into the client.
+// Shared layer: imported by the Drizzle schema and services directly, and by the
+// React SPA via the `@server/apiTypes` re-export. Keep this file dependency-free
+// so it stays safe to bundle into the client.
 
 export const maxParticipants = [8, 16, 32, 64, 128] as const;
 
