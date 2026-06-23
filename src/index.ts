@@ -37,6 +37,8 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { InlineKeyboard } from 'grammy';
 import { randomBytes } from 'crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
 import { db } from './db/db.js';
 import { loginTokens } from './db/schema.js';
 import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
@@ -181,10 +183,17 @@ async function start() {
   // Поднимаем HTTP-сервер первым, чтобы admin API был доступен независимо от бота.
   const app = createAdminServer();
 
-  // Serve static files from admin/dist in production
+  // Serve static files from admin/dist in production. Resolve the path from this
+  // module's location instead of process.cwd() so static serving works regardless
+  // of the directory the process is launched from (S1-7). '../admin/dist' is
+  // correct from both build/index.js and the dev src/index.ts.
   if (process.env.NODE_ENV === 'production') {
-    app.use('/*', serveStatic({ root: './admin/dist' }));
-    app.get('/*', serveStatic({ path: './admin/dist/index.html' }));
+    const adminDist = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../admin/dist',
+    );
+    app.use('/*', serveStatic({ root: adminDist }));
+    app.get('/*', serveStatic({ path: join(adminDist, 'index.html') }));
   }
 
   const port = Number(process.env.ADMIN_PORT ?? 3000);
