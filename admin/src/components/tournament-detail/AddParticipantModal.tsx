@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tournamentsApi, usersApi } from '../../lib/api.ts';
+import { Modal, Input, Button } from '@cue-bot/ui';
 
 export default function AddParticipantModal({
   tournamentId,
@@ -46,19 +47,8 @@ export default function AddParticipantModal({
   );
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-          <h3 className="font-semibold text-gray-900">Добавить участника</h3>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-lg leading-none"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="flex gap-1 px-5 pt-4 border-b border-gray-200">
+    <Modal title="Добавить участника" onClose={onClose}>
+      <div className="flex gap-1 px-5 pt-4 border-b border-gray-200">
           {(['user', 'external'] as const).map((t) => (
             <button
               key={t}
@@ -80,12 +70,11 @@ export default function AddParticipantModal({
         <div className="p-5 space-y-3">
           {modalTab === 'user' && (
             <>
-              <input
+              <Input
                 type="text"
                 placeholder="Поиск по имени или @username..."
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <div className="max-h-52 overflow-y-auto divide-y divide-gray-100 border border-gray-200 rounded-lg">
                 {filteredUsers.length === 0 ? (
@@ -124,29 +113,28 @@ export default function AddParticipantModal({
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Имя участника *
                 </label>
-                <input
+                <Input
                   type="text"
                   placeholder="Иван Петров"
                   value={externalName}
                   onChange={(e) => setExternalName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Username (необязательно)
                 </label>
-                <input
+                <Input
                   type="text"
                   placeholder="@username"
                   value={externalUsername}
                   onChange={(e) =>
                     setExternalUsername(e.target.value.replace(/^@/, ''))
                   }
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <button
+              <Button
+                className="w-full"
                 onClick={() => {
                   if (!externalName.trim()) {
                     setAddError('Введите имя участника');
@@ -159,18 +147,16 @@ export default function AddParticipantModal({
                   });
                 }}
                 disabled={addParticipantMutation.isPending}
-                className="w-full py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
                 {addParticipantMutation.isPending
                   ? 'Добавление...'
                   : 'Добавить участника'}
-              </button>
+              </Button>
             </>
           )}
 
           {addError && <p className="text-xs text-red-600">{addError}</p>}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

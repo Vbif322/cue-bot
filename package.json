@@ -14,6 +14,10 @@
   "author": "",
   "type": "module",
   "main": "index.ts",
+  "workspaces": [
+    "admin",
+    "packages/*"
+  ],
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint .",
@@ -24,11 +28,11 @@
     "test:integration": "vitest run --project integration",
     "test:coverage": "vitest run --coverage",
     "dev": "nodemon",
-    "dev:admin": "npm run dev --prefix admin",
-    "dev:all": "npm run db:up && concurrently --kill-others-on-fail -n api,web,db,login -c blue,magenta,green,blue \"nodemon\" \"node admin/node_modules/vite/bin/vite.js --config admin/vite.config.ts admin --host\" \"tsx node_modules/drizzle-kit/bin.cjs studio\" \"sleep 3 && (npm run dev:login || true)\"",
+    "dev:admin": "npm run dev --workspace admin",
+    "dev:all": "npm run db:up && concurrently --kill-others-on-fail -n api,web,db,login -c blue,magenta,green,blue \"nodemon\" \"node node_modules/vite/bin/vite.js --config admin/vite.config.ts admin --host\" \"tsx node_modules/drizzle-kit/bin.cjs studio\" \"sleep 3 && (npm run dev:login || true)\"",
     "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "start": "node --env-file=.env build/index.js",
-    "build:admin": "npm run build --prefix admin",
+    "build:admin": "npm run build --workspace admin",
     "db:up": "docker start drizzle-postgres && until docker exec drizzle-postgres pg_isready -q; do sleep 0.2; done",
     "db:up:wsl": "wsl -d Ubuntu -e bash -c \"docker start drizzle-postgres && until docker exec drizzle-postgres pg_isready -q; do sleep 0.2; done\"",
     "db:down": "docker stop drizzle-postgres",

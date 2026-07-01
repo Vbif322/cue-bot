@@ -4,7 +4,8 @@
       "Bash(npx drizzle-kit generate:*)",
       "Bash(npx tsc:*)",
       "Bash(echo:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npm run *)"
     ]
   }
 }

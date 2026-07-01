@@ -8,6 +8,7 @@ export default tseslint.config(
     ignores: [
       'build/**',
       'admin/**', // separate Vite/React project with its own toolchain
+      'packages/**', // shared UI package (@cue-bot/ui) with its own React/Vite toolchain
       'drizzle/**',
       'coverage/**',
       'temp/**',

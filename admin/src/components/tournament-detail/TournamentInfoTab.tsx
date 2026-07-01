@@ -1,5 +1,5 @@
 import type { ApiTournament, ApiTable } from '../../lib/api.ts';
-import { TournamentStatusBadge } from '../StatusBadge.tsx';
+import { TournamentStatusBadge, InfoRow } from '@cue-bot/ui';
 import {
   VISIBILITY_LABELS,
   SCHEDULE_MODE_LABELS,
@@ -77,15 +77,6 @@ export default function TournamentInfoTab({
         <InfoRow label="Описание" value={tournament.description} />
       )}
       {tournament.rules && <InfoRow label="Правила" value={tournament.rules} />}
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex gap-4">
-      <span className="text-sm text-gray-500 w-36 shrink-0">{label}</span>
-      <span className="text-sm text-gray-900">{value}</span>
     </div>
   );
 }

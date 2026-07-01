@@ -10,10 +10,13 @@
 
 ## Архитектура / инфраструктура
 
-- Дизайн-система: вынести переиспользуемые UI-компоненты из `admin/src/components/`
-  (StatusBadge, Layout, модалки, `tournament-detail/*`) в общий пакет монорепо
-  (`packages/shared`/`packages/ui`, см. M1) — для переиспользования в админке и
-  будущем SPA игрока (`app/`).
+- Дизайн-система (частично): создан монорепо-каркас (npm workspaces) и пакет
+  `packages/ui` (`@cue-bot/ui`) с дизайн-токенами (Tailwind v4 `@theme`) и презентационными
+  примитивами (Badge/StatusBadge, InfoRow, Chevron, Button, Input/Select, Modal); админка
+  переведена на них. Осталось: при появлении SPA игрока (`app/`) добавить его в workspaces и
+  переиспользовать пакет; по мере надобности выносить оставшиеся inline-паттерны и, если
+  потребуется, не-UI общий код в `packages/shared`. Фиче-компоненты (`tournament-detail/*`,
+  модалки создания турнира) намеренно оставлены в `admin` — они завязаны на TanStack Query.
 - Webhook вместо long-polling: перевести бота с `bot.start()` (`src/index.ts`) на
   `webhookCallback` (grammY) на существующем Hono-сервере — публичный URL + secret,
   `setWebhook`, убрать polling-ретраи; в dev оставить polling-фолбэк.
