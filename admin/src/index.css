@@ -1,1 +1,5 @@
 @import 'tailwindcss';
+@import '@cue-bot/ui/theme.css';
+
+/* Tailwind v4 не сканирует внешние пакеты по умолчанию — указываем исходники @cue-bot/ui явно. */
+@source '../../packages/ui/src';

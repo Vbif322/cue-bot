@@ -1,0 +1,37 @@
+/**
+ * Дизайн-токены @cue-bot/ui (Tailwind v4 @theme).
+ *
+ * Импортируется потребителем после `@import 'tailwindcss'`:
+ *   @import '@cue-bot/ui/theme.css';
+ *
+ * Семантические токены отражают текущую палитру админки, чтобы вид не менялся,
+ * но цвета задавались из одного места (общий стиль для admin и будущего app/).
+ * Каждый `--color-*` в @theme генерирует утилиты Tailwind: bg-*, text-*, border-*.
+ */
+@theme {
+  /* Базовый акцент (primary) — кнопки, ссылки */
+  --color-primary: var(--color-blue-600);
+  --color-primary-hover: var(--color-blue-700);
+
+  /* Тоны для бейджей/статус-пилюль: -bg (подложка) + -fg (текст) */
+  --color-tone-neutral-bg: var(--color-gray-100);
+  --color-tone-neutral-fg: var(--color-gray-700);
+
+  --color-tone-muted-bg: var(--color-gray-100);
+  --color-tone-muted-fg: var(--color-gray-500);
+
+  --color-tone-success-bg: var(--color-green-100);
+  --color-tone-success-fg: var(--color-green-700);
+
+  --color-tone-warning-bg: var(--color-yellow-100);
+  --color-tone-warning-fg: var(--color-yellow-700);
+
+  --color-tone-info-bg: var(--color-blue-100);
+  --color-tone-info-fg: var(--color-blue-700);
+
+  --color-tone-accent-bg: var(--color-purple-100);
+  --color-tone-accent-fg: var(--color-purple-700);
+
+  --color-tone-danger-bg: var(--color-red-100);
+  --color-tone-danger-fg: var(--color-red-700);
+}

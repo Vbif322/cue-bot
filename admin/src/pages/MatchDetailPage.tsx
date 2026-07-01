@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { matchesApi, tournamentsApi } from '../lib/api.ts';
 import type { ApiTable, ApiMatch } from '../lib/api.ts';
-import { MatchStatusBadge } from '../components/StatusBadge.tsx';
+import { MatchStatusBadge } from '@cue-bot/ui';
 import { formatUtc, isoToUtcInput, utcInputToIso } from '../lib/datetime.ts';
 
 export default function MatchDetailPage() {

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { tournamentsApi } from '../../lib/api.ts';
 import type { ApiTournament } from '../../lib/api.ts';
+import { ParticipantStatusBadge, Button } from '@cue-bot/ui';
 import AddParticipantModal from './AddParticipantModal.tsx';
 
 export default function ParticipantsTab({
@@ -99,26 +100,24 @@ export default function ParticipantsTab({
 
       <div className="flex justify-end gap-2 mb-3">
         {seedsEditable && confirmedCount > 0 && (
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => {
               if (confirm('Перезаписать все сиды случайными значениями?')) {
                 randomizeSeedsMutation.mutate();
               }
             }}
             disabled={randomizeSeedsMutation.isPending}
-            className="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
           >
             {randomizeSeedsMutation.isPending
               ? 'Перемешивание...'
               : 'Случайные сиды'}
-          </button>
+          </Button>
         )}
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
-        >
+        <Button size="sm" onClick={() => setShowModal(true)}>
           + Добавить участника
-        </button>
+        </Button>
       </div>
 
       {seedsEditable && confirmedCount > 0 && (
@@ -277,28 +276,6 @@ export default function ParticipantsTab({
       )}
     </div>
   );
-}
-
-function ParticipantStatusBadge({ status }: { status: string }) {
-  if (status === 'confirmed')
-    return (
-      <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
-        Подтверждён
-      </span>
-    );
-  if (status === 'pending')
-    return (
-      <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-700">
-        Ожидает
-      </span>
-    );
-  if (status === 'cancelled')
-    return (
-      <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-500">
-        Отменён
-      </span>
-    );
-  return <span className="text-xs text-gray-500">{status}</span>;
 }
 
 function SeedCell({

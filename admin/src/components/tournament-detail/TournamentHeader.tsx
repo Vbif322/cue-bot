@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { tournamentsApi } from '../../lib/api.ts';
 import type { ApiTournament, TournamentStatus } from '../../lib/api.ts';
-import { TournamentStatusBadge } from '../StatusBadge.tsx';
+import { TournamentStatusBadge } from '@cue-bot/ui';
 import { EditTournamentModal } from '../CreateTournamentModal.tsx';
 import { formatLabelWithMode } from '../../lib/tournamentLabels.ts';
 

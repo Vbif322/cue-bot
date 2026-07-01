@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { matchesApi } from '../../lib/api.ts';
 import type { ApiMatch } from '../../lib/api.ts';
-import { MatchStatusBadge } from '../StatusBadge.tsx';
+import { MatchStatusBadge, Chevron } from '@cue-bot/ui';
 import { formatUtc } from '../../lib/datetime.ts';
 import { groupLetter } from '../../lib/tournamentLabels.ts';
 
@@ -117,25 +117,6 @@ function buildSections(matches: ApiMatch[]): Section[] {
   }
 
   return sections;
-}
-
-function Chevron({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
-        collapsed ? '' : 'rotate-90'
-      }`}
-      aria-hidden="true"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  );
 }
 
 export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
