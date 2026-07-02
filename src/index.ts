@@ -137,15 +137,39 @@ bot.catch((err) => {
 const MAX_BOT_START_RETRIES = 5;
 const BOT_START_RETRY_DELAY_MS = 5000;
 
+// В production бот получает обновления через вебхук (Telegram пушит их на HTTP-эндпоинт),
+// в dev — через long polling (нет публичного HTTPS-URL). Переключатель — NODE_ENV,
+// как и для отдачи статики SPA.
+const useWebhook = process.env.NODE_ENV === 'production';
+
 // bot.start() резолвится только при bot.stop(), а его внутренний polling уже сам
 // ретраит транзиентные ошибки. Незакрытый зазор — начальная инициализация
-// (getMe / setMyCommands), поэтому ретраим именно её, а сам polling не ждём.
+// (getMe / setMyCommands / setWebhook), поэтому ретраим именно её, а сам polling не ждём.
 async function startBot() {
   for (let attempt = 1; attempt <= MAX_BOT_START_RETRIES; attempt++) {
     try {
       await bot.init();
       await setupCommands(bot);
 
+      if (useWebhook) {
+        const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+        if (!webhookSecret) {
+          console.error(
+            'TELEGRAM_WEBHOOK_SECRET не задан — вебхук не настроен, бот не получает обновления.',
+          );
+          return;
+        }
+        const webhookUrl = `${publicBaseUrl}/api/telegram/webhook/${webhookSecret}`;
+        await bot.api.setWebhook(webhookUrl, {
+          secret_token: webhookSecret,
+          drop_pending_updates: false,
+        });
+        console.log(`Бот @${bot.botInfo.username} запущен (webhook на ${publicBaseUrl})`);
+        return;
+      }
+
+      // Dev: перед polling снимаем возможный вебхук, иначе Telegram отвергнет getUpdates (409).
+      await bot.api.deleteWebhook();
       void bot
         .start({
           onStart: (info) => {
@@ -241,12 +265,16 @@ async function shutdown(signal: string) {
   if (dialogSessionSweep) clearInterval(dialogSessionSweep);
   if (rateLimitSweep) clearInterval(rateLimitSweep);
 
-  // 1. Останавливаем приём новых апдейтов от Telegram.
-  try {
-    await bot.stop();
-    console.log('Бот остановлен');
-  } catch (err) {
-    console.error('Ошибка при остановке бота:', err);
+  // 1. Останавливаем приём новых апдейтов от Telegram. При вебхуке останавливать нечего
+  //    (polling-цикла нет), а сам вебхук намеренно не снимаем — так Telegram доставит
+  //    накопленные обновления после рестарта. Приём новых доставок прекратит server.close().
+  if (!useWebhook) {
+    try {
+      await bot.stop();
+      console.log('Бот остановлен');
+    } catch (err) {
+      console.error('Ошибка при остановке бота:', err);
+    }
   }
 
   // 2. Перестаём принимать новые HTTP-запросы, дожидаемся завершения текущих.
