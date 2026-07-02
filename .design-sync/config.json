@@ -1,0 +1,36 @@
+{
+  "pkg": "@cue-bot/ui",
+  "globalName": "CueBotUI",
+  "shape": "package",
+  "projectId": "1fc5ea96-9b85-4ad0-bb73-d7203b9745f4",
+  "cssEntry": ".ds-compiled.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "buildCmd": "node .ds-sync/node_modules/@tailwindcss/cli/dist/index.mjs -i .design-sync/tailwind-entry.css -o packages/ui/.ds-compiled.css",
+  "componentSrcMap": {
+    "Badge": "src/Badge.tsx",
+    "TournamentStatusBadge": "src/StatusBadge.tsx",
+    "MatchStatusBadge": "src/StatusBadge.tsx",
+    "ParticipantStatusBadge": "src/StatusBadge.tsx",
+    "InfoRow": "src/InfoRow.tsx",
+    "Chevron": "src/Chevron.tsx",
+    "Button": "src/Button.tsx",
+    "Input": "src/Input.tsx",
+    "Select": "src/Input.tsx",
+    "Modal": "src/Modal.tsx"
+  },
+  "dtsPropsFor": {
+    "Badge": "  /** Semantic color tone. */\n  tone?: \"neutral\" | \"muted\" | \"success\" | \"warning\" | \"info\" | \"accent\" | \"danger\";\n  children: React.ReactNode;",
+    "TournamentStatusBadge": "  /** Tournament lifecycle status; maps to a localized Russian label + tone. */\n  status: \"draft\" | \"registration_open\" | \"registration_closed\" | \"in_progress\" | \"completed\" | \"cancelled\";",
+    "MatchStatusBadge": "  /** Match lifecycle status; maps to a localized Russian label + tone. */\n  status: \"scheduled\" | \"in_progress\" | \"pending_confirmation\" | \"completed\" | \"cancelled\";",
+    "ParticipantStatusBadge": "  /** Participant status. \"pending\" | \"confirmed\" | \"cancelled\" render as tone pills; any other string renders as plain grey text. */\n  status: string;",
+    "InfoRow": "  /** Left-hand caption (fixed-width column). */\n  label: string;\n  /** Right-hand value. */\n  value: React.ReactNode;",
+    "Chevron": "  /** true = points right (collapsed); false = rotated 90° (expanded). */\n  collapsed: boolean;",
+    "Button": "  /** Visual style. */\n  variant?: \"primary\" | \"secondary\" | \"destructive\";\n  /** Padding scale. */\n  size?: \"sm\" | \"md\";\n  children?: React.ReactNode;\n  /** All native <button> attributes are forwarded (onClick, disabled, type, form, …). */\n  onClick?: React.MouseEventHandler<HTMLButtonElement>;\n  disabled?: boolean;\n  type?: \"button\" | \"submit\" | \"reset\";\n  className?: string;",
+    "Input": "  /** Text input. All native <input> attributes are forwarded. */\n  value?: string | number | readonly string[];\n  onChange?: React.ChangeEventHandler<HTMLInputElement>;\n  placeholder?: string;\n  type?: React.HTMLInputTypeAttribute;\n  disabled?: boolean;\n  className?: string;",
+    "Select": "  /** Select control (same border/focus-ring as Input). All native <select> attributes are forwarded; provide <option> children. */\n  value?: string | number | readonly string[];\n  onChange?: React.ChangeEventHandler<HTMLSelectElement>;\n  children?: React.ReactNode;\n  disabled?: boolean;\n  className?: string;",
+    "Modal": "  /** Header title. */\n  title: React.ReactNode;\n  /** Invoked by the ✕ button (wire overlay/Esc dismissal yourself). */\n  onClose: () => void;\n  /** Modal body content. */\n  children: React.ReactNode;\n  /** Tailwind max-width class for the panel (default \"max-w-md\"). */\n  maxWidthClassName?: string;"
+  },
+  "overrides": {
+    "Modal": { "cardMode": "single", "viewport": "480x480" }
+  }
+}
