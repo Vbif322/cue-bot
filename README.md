@@ -165,6 +165,25 @@ npm run build
 
 В продакшене Hono раздаёт собранный SPA из `admin/dist/`.
 
+### Продакшен: вебхук Telegram
+
+В продакшене (`NODE_ENV=production`) бот получает обновления через **вебхук**, а не long
+polling. Дополнительно к базовым переменным задайте в `.env`:
+
+```env
+NODE_ENV=production
+PUBLIC_BASE_URL=https://cuebot.ru          # публичный HTTPS-адрес деплоя
+TELEGRAM_WEBHOOK_SECRET=<длинная_случайная_строка>
+```
+
+При старте бот сам вызывает `setWebhook` на
+`https://<PUBLIC_BASE_URL>/api/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>`. Секрет также
+проверяется по заголовку `X-Telegram-Bot-Api-Secret-Token` (грамматика grammY возвращает
+`401` при несовпадении). Убедитесь, что nginx проксирует `/api/` на порт `ADMIN_PORT` —
+отдельного правила для вебхука не требуется, он живёт под `/api/`.
+
+Проверить: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`.
+
 ## Структура проекта
 
 ```

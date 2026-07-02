@@ -42,13 +42,17 @@ npm run build:admin    # build admin SPA -> admin/dist/
 npm start              # node build/index.js (serves admin/dist when NODE_ENV=production)
 ```
 
-Requires `.env` (see `.env.example`): `BOT_TOKEN`, `DATABASE_URL`, `JWT_SECRET`, `ADMIN_PORT`, `NODE_ENV`.
+Requires `.env` (see `.env.example`): `BOT_TOKEN`, `DATABASE_URL`, `JWT_SECRET`, `ADMIN_PORT`,
+`NODE_ENV`. In production also `PUBLIC_BASE_URL` and `TELEGRAM_WEBHOOK_SECRET` (webhook).
 
 ## Architecture
 
-Single Node process (`src/index.ts`) runs **both** the grammY bot (long-polling) and the Hono
-HTTP server on `ADMIN_PORT` (default 3000). In production Hono also serves the built admin SPA
-from `admin/dist`.
+Single Node process (`src/index.ts`) runs **both** the grammY bot and the Hono HTTP server on
+`ADMIN_PORT` (default 3000). The bot receives updates via **webhook in production** (Telegram
+pushes to `POST /api/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>` on the Hono server, secret also
+verified via the `X-Telegram-Bot-Api-Secret-Token` header) and via **long-polling in dev** —
+switched on `NODE_ENV === 'production'` in `startBot()`. In production Hono also serves the built
+admin SPA from `admin/dist`.
 
 Request flow (bot): `bot/middleware` → handler `Composer`s → `services/*` → `db`.
 

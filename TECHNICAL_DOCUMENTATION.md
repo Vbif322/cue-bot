@@ -20,7 +20,7 @@
 ### Технологический стек
 
 - **Runtime**: Node.js + TypeScript (ESM, NodeNext)
-- **Telegram Bot Framework**: grammY (long polling)
+- **Telegram Bot Framework**: grammY (webhook в production, long polling в dev)
 - **HTTP API**: Hono (через `@hono/node-server`)
 - **Валидация API**: Zod + `@hono/zod-validator`
 - **База данных**: PostgreSQL (все таблицы живут в схеме `prod`)
@@ -52,10 +52,15 @@
 
 ## Архитектура проекта
 
-Единственный Node-процесс (`src/index.ts`) запускает **одновременно** grammY-бота (long polling)
-и Hono HTTP-сервер на `ADMIN_PORT` (по умолчанию 3000). В production Hono дополнительно отдаёт
-собранную admin SPA из `admin/dist`. HTTP-сервер поднимается **первым**, чтобы admin API был
-доступен независимо от состояния бота.
+Единственный Node-процесс (`src/index.ts`) запускает **одновременно** grammY-бота и Hono
+HTTP-сервер на `ADMIN_PORT` (по умолчанию 3000). Бот получает обновления через **вебхук в
+production** (Telegram шлёт `POST` на `/api/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>` того же
+Hono-сервера; секрет проверяется и по заголовку `X-Telegram-Bot-Api-Secret-Token` через
+`webhookCallback(bot, 'hono', { secretToken })`, grammY отвечает `401` при несовпадении) и через
+**long polling в dev**. Режим выбирается по `NODE_ENV === 'production'` в `startBot()`; в dev перед
+polling вызывается `deleteWebhook()`. В production Hono дополнительно отдаёт собранную admin SPA из
+`admin/dist`. HTTP-сервер поднимается **первым**, чтобы admin API был доступен независимо от
+состояния бота.
 
 ### Структура директорий
 
