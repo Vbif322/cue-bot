@@ -41,6 +41,27 @@ export const emailCodeLimiter = new RateLimiter({
   refillPerSec: 3 / (15 * 60),
 });
 
+/**
+ * `zValidator('json', …)` с единым конвертом ошибок: на невалидный ввод отдаёт
+ * `400 { error: '<по-русски>' }` вместо сырого ZodError (это и утечка внутренних
+ * regex, и рассинхрон с остальными ответами `{data}`/`{error}`). Тип `valid('json')`
+ * сохраняется — hook лишь перехватывает провал валидации.
+ */
+function validateJson<T extends z.ZodType>(schema: T) {
+  return zValidator('json', schema, (result, c) => {
+    if (!result.success) {
+      const field = result.error.issues[0]?.path[0];
+      const message =
+        field === 'email'
+          ? 'Некорректный email'
+          : field === 'code'
+            ? 'Некорректный код'
+            : 'Некорректные данные запроса';
+      return c.json({ error: message }, 400);
+    }
+  });
+}
+
 export function createAppAuthRouter() {
   const auth = new Hono();
 
@@ -51,7 +72,7 @@ export function createAppAuthRouter() {
   auth.post(
     '/request-code',
     requestIpLimit,
-    zValidator('json', z.object({ email: z.email() })),
+    validateJson(z.object({ email: z.email() })),
     async (c) => {
       const email = normalizeEmail(c.req.valid('json').email);
 
@@ -74,8 +95,7 @@ export function createAppAuthRouter() {
   auth.post(
     '/verify-code',
     verifyIpLimit,
-    zValidator(
-      'json',
+    validateJson(
       z.object({ email: z.email(), code: z.string().regex(/^\d{6}$/) }),
     ),
     async (c) => {
