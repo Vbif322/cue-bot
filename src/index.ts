@@ -42,6 +42,9 @@ import { dirname, join, resolve } from 'node:path';
 import { db } from './db/db.js';
 import { loginTokens } from './db/schema.js';
 import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
+import { sweepExpiredEmailLoginCodes } from './services/emailLoginCodeService.js';
+import { assertMailConfigured } from './services/mailService.js';
+import { emailCodeLimiter } from './app/server/routes/auth.js';
 
 // Flood protection runs first so spam is dropped before authMiddleware's per-update
 // user upsert (a DB transaction) ever runs.
@@ -204,6 +207,10 @@ const DIALOG_SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // раз в час
 const RATE_LIMIT_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // раз в 5 минут
 
 async function start() {
+  // Валидируем почтовое окружение до старта: в проде без SMTP вход по коду молча
+  // не работал бы (см. assertMailConfigured), поэтому падаем громко на старте.
+  assertMailConfigured();
+
   // Поднимаем HTTP-сервер первым, чтобы admin API был доступен независимо от бота.
   const app = createAdminServer();
 
@@ -223,10 +230,14 @@ async function start() {
   const port = Number(process.env.ADMIN_PORT ?? 3000);
   server = serve({ fetch: app.fetch, port });
 
-  // Периодически удаляем просроченные диалоговые сессии, чтобы таблица не росла.
+  // Периодически удаляем просроченные диалоговые сессии и коды входа, чтобы
+  // таблицы не росли (чтения и так фильтруют по времени).
   dialogSessionSweep = setInterval(() => {
     sweepExpiredDialogSessions().catch((err: unknown) => {
       console.error('Ошибка очистки диалоговых сессий:', err);
+    });
+    sweepExpiredEmailLoginCodes().catch((err: unknown) => {
+      console.error('Ошибка очистки кодов входа:', err);
     });
   }, DIALOG_SESSION_SWEEP_INTERVAL_MS);
   dialogSessionSweep.unref();
@@ -235,6 +246,7 @@ async function start() {
   rateLimitSweep = setInterval(() => {
     botFloodLimiter.prune();
     dashboardLimiter.prune();
+    emailCodeLimiter.prune();
   }, RATE_LIMIT_SWEEP_INTERVAL_MS);
   rateLimitSweep.unref();
 

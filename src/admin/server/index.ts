@@ -4,6 +4,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { webhookCallback } from 'grammy';
 import { bot } from '../../bot/instance.js';
 import { createAuthRouter } from './auth.js';
+import { createAppAuthRouter } from '../../app/server/routes/auth.js';
 import { createTournamentsRouter } from './routes/tournaments.js';
 import { createMatchesRouter } from './routes/matches.js';
 import { createUsersRouter } from './routes/users.js';
@@ -50,6 +51,9 @@ export function createAdminServer() {
 
   // Auth routes (no auth middleware)
   app.route('/api/auth', createAuthRouter());
+
+  // Беспарольный вход игрока (код на почту) — общий бэкенд для SPA app/ (Этап 3).
+  app.route('/api/app/auth', createAppAuthRouter());
 
   // Protected routes
   app.route('/api/tournaments', createTournamentsRouter(bot.api));

@@ -29,7 +29,7 @@ describe('requireAdmin middleware', () => {
     expect(body).toEqual({ error: 'Unauthorized' });
   });
 
-  it('rejects a malformed token (401 Invalid token)', async () => {
+  it('rejects a malformed token (401)', async () => {
     const { status, body } = await apiRequest<{ error: string }>(
       app,
       'GET',
@@ -37,7 +37,7 @@ describe('requireAdmin middleware', () => {
       { cookie: 'admin_token=garbage' },
     );
     expect(status).toBe(401);
-    expect(body).toEqual({ error: 'Invalid token' });
+    expect(body).toEqual({ error: 'Unauthorized' });
   });
 
   it('rejects an expired token (401)', async () => {
@@ -61,7 +61,7 @@ describe('requireAdmin middleware', () => {
     expect(body).toEqual({ error: 'Forbidden' });
   });
 
-  it('rejects a valid token whose user was deleted (403)', async () => {
+  it('rejects a valid token whose user row is gone (401)', async () => {
     const admin = await createAdminUser();
     const cookie = adminCookie(admin);
     await db.delete(users).where(eq(users.id, admin.id));
@@ -72,8 +72,28 @@ describe('requireAdmin middleware', () => {
       PROTECTED,
       { cookie },
     );
-    expect(status).toBe(403);
-    expect(body).toEqual({ error: 'Forbidden' });
+    expect(status).toBe(401);
+    expect(body).toEqual({ error: 'Unauthorized' });
+  });
+
+  it('rejects a soft-deleted admin even with an admin role (401)', async () => {
+    // Closes the requireAdmin gap: deletedAt is now checked, so a tombstoned
+    // account is rejected even if the row still carries role='admin'.
+    const admin = await createAdminUser();
+    const cookie = adminCookie(admin);
+    await db
+      .update(users)
+      .set({ deletedAt: new Date() })
+      .where(eq(users.id, admin.id));
+
+    const { status, body } = await apiRequest<{ error: string }>(
+      app,
+      'GET',
+      PROTECTED,
+      { cookie },
+    );
+    expect(status).toBe(401);
+    expect(body).toEqual({ error: 'Unauthorized' });
   });
 
   it('admits a valid admin token (200)', async () => {
