@@ -1,6 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import { sql } from 'drizzle-orm';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import {
@@ -11,6 +10,7 @@ import {
 import { db } from '@/db/db.js';
 import { tournamentParticipants } from '@/db/schema.js';
 import type { ParticipantStatus } from '@/db/schema.js';
+import { getParticipantsCount } from '@/services/tournamentService.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 
@@ -33,24 +33,6 @@ export interface TournamentInfo {
   userParticipationStatus: 'pending' | 'confirmed' | null;
   /** Whether the current user has a pending invitation to this tournament. */
   isInvited: boolean;
-}
-
-/**
- * Get participants count for a tournament
- */
-export async function getParticipantsCount(
-  tournamentId: UUID,
-): Promise<number> {
-  const result = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(tournamentParticipants)
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.status, ['pending', 'confirmed']),
-      ),
-    );
-  return result[0]?.count ?? 0;
 }
 
 /**

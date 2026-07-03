@@ -17,9 +17,6 @@
   переиспользовать пакет; по мере надобности выносить оставшиеся inline-паттерны и, если
   потребуется, не-UI общий код в `packages/shared`. Фиче-компоненты (`tournament-detail/*`,
   модалки создания турнира) намеренно оставлены в `admin` — они завязаны на TanStack Query.
-- Webhook вместо long-polling: перевести бота с `bot.start()` (`src/index.ts`) на
-  `webhookCallback` (grammY) на существующем Hono-сервере — публичный URL + secret,
-  `setWebhook`, убрать polling-ретраи; в dev оставить polling-фолбэк.
 
 ## Веб для игроков (M1) — см. ROADMAP.md
 

@@ -3,10 +3,14 @@ import { and, eq, isNotNull } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { tournamentParticipants, users } from '@/db/schema.js';
+import { users } from '@/db/schema.js';
 import {
+  acceptInvitation,
+  declineInvitation,
   ensureInviteCode,
   getTournament,
+  inviteParticipant,
+  registerParticipant,
 } from '@/services/tournamentService.js';
 import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 import { createAndSendNotification } from '@/services/notificationService.js';
@@ -15,7 +19,6 @@ import { safeEditMessageText, escapeMarkdown } from '@/utils/messageHelpers.js';
 import {
   buildTournamentKeyboard,
   buildTournamentMessage,
-  getParticipantsCount,
   getTournamentInfo,
 } from '../ui/tournamentUI.js';
 import { canManageTournament } from '../permissions.js';
@@ -53,15 +56,6 @@ export function parseStartPayload(
   return null;
 }
 
-async function getParticipation(tournamentId: UUID, userId: UUID) {
-  return db.query.tournamentParticipants.findFirst({
-    where: and(
-      eq(tournamentParticipants.tournamentId, tournamentId),
-      eq(tournamentParticipants.userId, userId),
-    ),
-  });
-}
-
 /** (Re)render a tournament card into the current message. */
 async function renderTournamentCard(
   ctx: BotContext,
@@ -94,43 +88,25 @@ export async function joinViaInvite(
   tournament: TournamentReadModel,
 ): Promise<void> {
   const userId = ctx.dbUser.id;
-
-  if (tournament.status !== 'registration_open') {
-    await ctx.reply('Регистрация на этот турнир сейчас закрыта.');
-    return;
-  }
-
-  const existing = await getParticipation(tournament.id, userId);
-
-  if (existing && existing.status !== 'cancelled') {
-    await ctx.reply('Вы уже участвуете в этом турнире.');
-    await renderTournamentCard(ctx, tournament, false);
-    return;
-  }
-
-  const count = await getParticipantsCount(tournament.id);
-  if (count >= tournament.maxParticipants) {
-    await ctx.reply('К сожалению, все места на турнир заняты.');
-    return;
-  }
-
   const isAdmin = ctx.dbUser.role === 'admin';
-  const status = isAdmin ? 'confirmed' : 'pending';
 
-  if (existing) {
-    await db
-      .update(tournamentParticipants)
-      .set({ status, createdAt: new Date() })
-      .where(
-        and(
-          eq(tournamentParticipants.tournamentId, tournament.id),
-          eq(tournamentParticipants.userId, userId),
-        ),
-      );
-  } else {
-    await db
-      .insert(tournamentParticipants)
-      .values({ tournamentId: tournament.id, userId, status });
+  const outcome = await registerParticipant(tournament.id, userId, {
+    desiredStatus: isAdmin ? 'confirmed' : 'pending',
+    requireOpen: true,
+  });
+
+  if (!outcome.ok) {
+    const replies: Record<typeof outcome.reason, string> = {
+      not_found: 'Турнир не найден.',
+      registration_closed: 'Регистрация на этот турнир сейчас закрыта.',
+      already_registered: 'Вы уже участвуете в этом турнире.',
+      full: 'К сожалению, все места на турнир заняты.',
+    };
+    await ctx.reply(replies[outcome.reason]);
+    if (outcome.reason === 'already_registered') {
+      await renderTournamentCard(ctx, tournament, false);
+    }
+    return;
   }
 
   await ctx.reply(
@@ -218,34 +194,16 @@ inviteCommands.on('message:text', async (ctx, next) => {
     return;
   }
 
-  const existing = await getParticipation(state.tournamentId, target.id);
+  const outcome = await inviteParticipant(state.tournamentId, target.id);
 
-  if (
-    existing &&
-    (existing.status === 'confirmed' ||
-      existing.status === 'pending' ||
-      existing.status === 'invited')
-  ) {
-    await ctx.reply(`@${handle} уже участвует или уже приглашён в этот турнир.`);
+  if (!outcome.ok) {
+    const replies: Record<typeof outcome.reason, string> = {
+      not_found: 'Турнир не найден.',
+      already_participant: `@${handle} уже участвует или уже приглашён в этот турнир.`,
+      full: 'В турнире не осталось свободных мест.',
+    };
+    await ctx.reply(replies[outcome.reason]);
     return;
-  }
-
-  if (existing) {
-    await db
-      .update(tournamentParticipants)
-      .set({ status: 'invited', seed: null, createdAt: new Date() })
-      .where(
-        and(
-          eq(tournamentParticipants.tournamentId, state.tournamentId),
-          eq(tournamentParticipants.userId, target.id),
-        ),
-      );
-  } else {
-    await db.insert(tournamentParticipants).values({
-      tournamentId: state.tournamentId,
-      userId: target.id,
-      status: 'invited',
-    });
   }
 
   const keyboard = new InlineKeyboard()
@@ -279,35 +237,29 @@ inviteCommands.callbackQuery(/^inv:accept:(.+)$/, async (ctx) => {
   const tournamentId = match1 as UUID;
   const userId = ctx.dbUser.id;
 
-  const tournament = await getTournament(tournamentId);
-  const participation = await getParticipation(tournamentId, userId);
+  const outcome = await acceptInvitation(tournamentId, userId);
 
-  if (!tournament || participation?.status !== 'invited') {
+  if (!outcome.ok) {
+    const alerts: Record<typeof outcome.reason, string> = {
+      not_found: 'Приглашение не найдено',
+      not_invited: 'Приглашение не найдено',
+      full: 'В турнире не осталось свободных мест',
+    };
+    await ctx.answerCallbackQuery({
+      text: alerts[outcome.reason],
+      show_alert: true,
+    });
+    return;
+  }
+
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) {
     await ctx.answerCallbackQuery({
       text: 'Приглашение не найдено',
       show_alert: true,
     });
     return;
   }
-
-  const count = await getParticipantsCount(tournamentId);
-  if (count >= tournament.maxParticipants) {
-    await ctx.answerCallbackQuery({
-      text: 'В турнире не осталось свободных мест',
-      show_alert: true,
-    });
-    return;
-  }
-
-  await db
-    .update(tournamentParticipants)
-    .set({ status: 'confirmed' })
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        eq(tournamentParticipants.userId, userId),
-      ),
-    );
 
   await ctx.answerCallbackQuery({ text: 'Вы в турнире!' });
   await renderTournamentCard(ctx, tournament, true);
@@ -319,10 +271,9 @@ inviteCommands.callbackQuery(/^inv:decline:(.+)$/, async (ctx) => {
   const tournamentId = match1 as UUID;
   const userId = ctx.dbUser.id;
 
-  const tournament = await getTournament(tournamentId);
-  const participation = await getParticipation(tournamentId, userId);
+  const outcome = await declineInvitation(tournamentId, userId);
 
-  if (!tournament || participation?.status !== 'invited') {
+  if (!outcome.ok) {
     await ctx.answerCallbackQuery({
       text: 'Приглашение не найдено',
       show_alert: true,
@@ -330,15 +281,14 @@ inviteCommands.callbackQuery(/^inv:decline:(.+)$/, async (ctx) => {
     return;
   }
 
-  await db
-    .update(tournamentParticipants)
-    .set({ status: 'cancelled', seed: null })
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        eq(tournamentParticipants.userId, userId),
-      ),
-    );
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) {
+    await ctx.answerCallbackQuery({
+      text: 'Приглашение не найдено',
+      show_alert: true,
+    });
+    return;
+  }
 
   await ctx.answerCallbackQuery({ text: 'Приглашение отклонено' });
   await renderTournamentCard(ctx, tournament, true);
