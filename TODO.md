@@ -24,12 +24,12 @@
 
 - Монорепо: npm workspaces (admin, app, packages/shared), один lockfile
 - Идентичность: таблица user_identities + миграция и бэкфилл telegram-аккаунтов
-- Email/пароль: bcryptjs, JWT в куке app_token, middleware requireUser
-- Почта: mailService (nodemailer/SMTP) + таблица email_tokens (верификация/сброс)
+- Беспарольный вход: код на почту / Telegram; JWT в куке app_token, middleware requireUser
+- Почта: mailService (nodemailer/SMTP) + таблица email_login_codes (одноразовые коды входа)
 - Извлечь регистрацию/отмену/приглашения из хендлеров бота в tournamentService
 - API игрока /api/app/\* (auth, me, tournaments, matches, notifications)
 - SPA app/ (лента турниров, карточка+сетка, мои турниры/матчи, профиль, уведомления)
 - Раздача статики: игрок на /, админка переезжает на /admin
 - Вход через Telegram на сайте (Login Widget / Mini App initData) в дополнение к
-  email/паролю; переиспользовать код-/токен-мост (`src/admin/server/auth.ts`,
+  коду на почту; переиспользовать код-/токен-мост (`src/admin/server/auth.ts`,
   `loginCodes`/`loginTokens`) и `user_identities`. Связано с M6.

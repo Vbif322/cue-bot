@@ -13,7 +13,9 @@ export type IIdentityProvider = (typeof identityProviders)[number];
  * Аддитивно к `users`: `users.telegram_id` остаётся каноничным идентификатором
  * бота, а identity-строки готовят почву под нативные email/пароль-аккаунты (Этап 3).
  * `provider_id` — telegram_id как строка (provider='telegram') или email в lowercase
- * (provider='email'). `password_hash`/`email_verified_at` заполняются только для email.
+ * (provider='email'). `email_verified_at` заполняется только для email (при первом
+ * успешном входе по коду). Паролей в системе нет: вход по коду на почту или через
+ * Telegram, поэтому колонки `password_hash` здесь нет.
  */
 export const userIdentities = prodSchema.table(
   'user_identities',
@@ -25,7 +27,6 @@ export const userIdentities = prodSchema.table(
       .references(() => users.id, { onDelete: 'cascade' }),
     provider: varchar({ enum: identityProviders }).notNull(),
     providerId: varchar('provider_id', { length: 255 }).notNull(),
-    passwordHash: varchar('password_hash', { length: 255 }),
     emailVerifiedAt: timestamp('email_verified_at'),
     createdAt,
     updatedAt,

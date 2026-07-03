@@ -12,3 +12,4 @@ export * from './schema/tables.js';
 export * from './schema/tournamentTables.js';
 export * from './schema/dialogSessions.js';
 export * from './schema/userIdentities.js';
+export * from './schema/emailLoginCodes.js';

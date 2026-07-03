@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -33,6 +33,94 @@ export function toApiUser(u: DbUser): ApiUser {
     role: u.role,
     deletedAt: u.deletedAt,
   };
+}
+
+/** Данные пользователя для SPA игрока — только то, что нужно самому владельцу. */
+export interface AppUser {
+  id: UUID;
+  username: string;
+  name: string | null;
+  surname: string | null;
+  email: string | null;
+}
+
+/**
+ * Проекция строки `users` на публичный вид для приложения игрока. В отличие от
+ * {@link toApiUser} не отдаёт `role`/`telegram_id`/`deletedAt` — приложение игрока
+ * этих полей не показывает.
+ */
+export function toAppUser(u: DbUser): AppUser {
+  return {
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    surname: u.surname,
+    email: u.email,
+  };
+}
+
+/**
+ * Находит пользователя по email-identity или создаёт нового (беспарольный вход,
+ * Этап 3). Всё в одной транзакции:
+ * - identity `('email', email)` есть → берём её `users`-строку и, если это первый
+ *   вход, проставляем `email_verified_at`;
+ * - identity нет → создаём `users` (username = local-part адреса) и identity с
+ *   `email_verified_at = now()`.
+ *
+ * `email` должен быть уже нормализован. Возвращает `null`, если email-identity
+ * ведёт на soft-deleted аккаунт (`deletedAt != null`): пускать его нельзя —
+ * `requireUser` всё равно отобьёт куку 401, так что честнее отказать здесь, чем
+ * выдать ложно-успешный вход. Оживление/переезд identity удалённого аккаунта —
+ * вне M1.
+ *
+ * Осознанное ограничение M1: если у telegram-юзера в `users.email` записан тот же
+ * адрес, но email-identity ещё нет, здесь создаётся ОТДЕЛЬНЫЙ аккаунт —
+ * `users.email` неуникален и не проверяется. Связывание аккаунтов и уникализация
+ * `users.email` отложены за пределы M1 (см. план M1 «Отложено»); придут с
+ * Telegram-виджетом / отдельным merge.
+ */
+export async function findOrCreateEmailUser(
+  email: string,
+): Promise<DbUser | null> {
+  return db.transaction(async (tx) => {
+    const identity = await tx.query.userIdentities.findFirst({
+      where: and(
+        eq(userIdentities.provider, 'email'),
+        eq(userIdentities.providerId, email),
+      ),
+    });
+
+    if (identity) {
+      const user = await tx.query.users.findFirst({
+        where: eq(users.id, identity.userId),
+      });
+      if (!user) throw new Error('Identity ссылается на несуществующего юзера');
+      if (user.deletedAt !== null) return null; // tombstone — вход невозможен
+      if (identity.emailVerifiedAt === null) {
+        await tx
+          .update(userIdentities)
+          .set({ emailVerifiedAt: new Date() })
+          .where(eq(userIdentities.id, identity.id));
+      }
+      return user;
+    }
+
+    const username = email.split('@')[0] ?? email;
+    const [created] = await tx
+      .insert(users)
+      .values({ username, email })
+      .returning();
+    if (!created) throw new Error('Не удалось создать пользователя');
+
+    await tx.insert(userIdentities).values({
+      userId: created.id,
+      provider: 'email',
+      providerId: email,
+      emailVerifiedAt: new Date(),
+    });
+
+    return created;
+  });
 }
 
 /** Ошибка валидации профиля — текст пригоден для показа пользователю. */

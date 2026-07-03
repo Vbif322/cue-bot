@@ -66,7 +66,6 @@ describe('authMiddleware — telegram identity', () => {
     expect(identities).toHaveLength(1);
     expect(identities[0]?.provider).toBe('telegram');
     expect(identities[0]?.providerId).toBe('987654');
-    expect(identities[0]?.passwordHash).toBeNull();
     expect(identities[0]?.emailVerifiedAt).toBeNull();
   });
 
