@@ -2,7 +2,12 @@ import { eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { users, loginTokens, dialogSessions } from '@/db/schema.js';
+import {
+  users,
+  loginTokens,
+  dialogSessions,
+  userIdentities,
+} from '@/db/schema.js';
 import type { DbUser } from '@/bot/types.js';
 import type { ApiUser } from '@/bot/@types/user.js';
 
@@ -100,6 +105,9 @@ export async function updateUserProfile(
  * как «{@link DELETED_USERNAME}». Обнуление `telegram_id` освобождает условный
  * уникальный индекс и делает строку «мёртвой»: повторный вход того же человека
  * создаст новую запись. Логин-токены удаляются, чтобы оборвать активные сессии.
+ * Identity-строки (`user_identities`) удаляются явно: строка `users` не удаляется,
+ * поэтому FK `ON DELETE CASCADE` не срабатывает, а висячая identity дала бы конфликт
+ * по UNIQUE(provider, provider_id) при повторном входе того же telegram-аккаунта.
  */
 export async function anonymizeUser(userId: UUID): Promise<void> {
   await db.transaction(async (tx) => {
@@ -124,6 +132,9 @@ export async function anonymizeUser(userId: UUID): Promise<void> {
       .where(eq(users.id, userId));
 
     await tx.delete(loginTokens).where(eq(loginTokens.userId, userId));
+    await tx
+      .delete(userIdentities)
+      .where(eq(userIdentities.userId, userId));
 
     // Обрываем активные wizard/диалоговые сессии этого telegram-аккаунта.
     if (existing?.telegram_id != null) {

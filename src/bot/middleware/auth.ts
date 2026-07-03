@@ -2,7 +2,7 @@ import type { NextFunction } from 'grammy';
 import { and, eq, isNotNull, ne, sql } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
-import { users } from '@/db/schema.js';
+import { userIdentities, users } from '@/db/schema.js';
 
 import type { BotContext } from '../types.js';
 
@@ -61,6 +61,26 @@ export async function authMiddleware(
           set: { username: desired },
         })
         .returning();
+
+      if (!existing) {
+        throw new Error('Failed to create user');
+      }
+
+      // Реестр способов входа (S2-2). Аддитивно: бот по-прежнему идентифицирует
+      // юзера по users.telegram_id, но новая identity-строка готовит почву под
+      // web-логин (Этап 3). Существующим юзерам identity создаёт бэкфилл миграции;
+      // здесь покрываем только новосозданных. onConflictDoNothing защищает от гонки
+      // первого входа (два конкурентных tx резолвятся в один users.id).
+      await tx
+        .insert(userIdentities)
+        .values({
+          userId: existing.id,
+          provider: 'telegram',
+          providerId: telegramId,
+        })
+        .onConflictDoNothing({
+          target: [userIdentities.provider, userIdentities.providerId],
+        });
     } else if (existing.username !== desired) {
       await tx
         .update(users)
@@ -71,10 +91,6 @@ export async function authMiddleware(
 
     return existing;
   });
-
-  if (!dbUser) {
-    throw new Error('Failed to get or create user');
-  }
 
   ctx.dbUser = dbUser;
   return next();
