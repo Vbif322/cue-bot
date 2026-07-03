@@ -1,12 +1,10 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { and, eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
-import { db } from '@/db/db.js';
-import { tournamentParticipants } from '@/db/schema/tournamentParticipants.js';
 import {
+  cancelRegistration,
   getTournament,
   getUserTournamentParticipations,
   registerParticipant,
@@ -20,16 +18,6 @@ import {
 import type { BotContext } from '../types.js';
 
 export const registrationCommands = new Composer<BotContext>();
-
-// Получить регистрацию пользователя на турнир
-async function getUserParticipation(tournamentId: UUID, userId: UUID) {
-  return db.query.tournamentParticipants.findFirst({
-    where: and(
-      eq(tournamentParticipants.tournamentId, tournamentId),
-      eq(tournamentParticipants.userId, userId),
-    ),
-  });
-}
 
 // === РЕГИСТРАЦИЯ НА ТУРНИР ===
 registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
@@ -104,8 +92,22 @@ registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
   const tournamentId = match1 as UUID;
   const userId = ctx.dbUser.id;
 
-  const tournament = await getTournament(tournamentId);
+  const outcome = await cancelRegistration(tournamentId, userId);
 
+  if (!outcome.ok) {
+    const alerts: Record<typeof outcome.reason, string> = {
+      not_found: 'Турнир не найден',
+      tournament_started: 'Нельзя отменить регистрацию после начала турнира',
+      not_registered: 'Вы не зарегистрированы на этот турнир',
+    };
+    await ctx.answerCallbackQuery({
+      text: alerts[outcome.reason],
+      show_alert: true,
+    });
+    return;
+  }
+
+  const tournament = await getTournament(tournamentId);
   if (!tournament) {
     await ctx.answerCallbackQuery({
       text: 'Турнир не найден',
@@ -113,39 +115,6 @@ registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
     });
     return;
   }
-
-  // Проверить, можно ли отменить (только до начала турнира)
-  if (
-    tournament.status === 'in_progress' ||
-    tournament.status === 'completed'
-  ) {
-    await ctx.answerCallbackQuery({
-      text: 'Нельзя отменить регистрацию после начала турнира',
-      show_alert: true,
-    });
-    return;
-  }
-
-  const participation = await getUserParticipation(tournamentId, userId);
-
-  if (!participation || participation.status === 'cancelled') {
-    await ctx.answerCallbackQuery({
-      text: 'Вы не зарегистрированы на этот турнир',
-      show_alert: true,
-    });
-    return;
-  }
-
-  // Обновить статус на cancelled
-  await db
-    .update(tournamentParticipants)
-    .set({ status: 'cancelled' })
-    .where(
-      and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        eq(tournamentParticipants.userId, userId),
-      ),
-    );
 
   await ctx.answerCallbackQuery({ text: 'Регистрация отменена' });
 
