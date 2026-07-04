@@ -31,7 +31,7 @@ import type {
   IGroupDraw,
   ParticipantStatus,
 } from '@/db/schema.js';
-import { validateGroupConfig } from '@/admin/server/tournamentOptions.js';
+import { validateGroupConfig } from '@/shared/tournament/tournamentOptions.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
@@ -1148,4 +1148,231 @@ export async function registerParticipant(
       reregistered: existing != null,
     };
   });
+}
+
+/**
+ * Count slot-occupying participants (`pending` + `confirmed`) of a tournament.
+ * Excludes `cancelled`/`invited`/`disqualified`.
+ */
+export async function getParticipantsCount(tournamentId: UUID): Promise<number> {
+  const result = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+      ),
+    );
+  return result[0]?.count ?? 0;
+}
+
+/**
+ * Raw participant row for a (tournament, user) pair, or undefined if none.
+ * Includes any status (`cancelled`/`invited`/…) — callers filter as needed.
+ */
+export async function getUserParticipation(tournamentId: UUID, userId: UUID) {
+  return db.query.tournamentParticipants.findFirst({
+    where: and(
+      eq(tournamentParticipants.tournamentId, tournamentId),
+      eq(tournamentParticipants.userId, userId),
+    ),
+  });
+}
+
+export type CancelRegistrationOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' | 'not_registered' | 'tournament_started' };
+
+/**
+ * Cancel a user's registration (any active status → `cancelled`, clearing the
+ * seed). Refuses once the tournament has started. No side effects.
+ */
+export async function cancelRegistration(
+  tournamentId: UUID,
+  userId: UUID,
+): Promise<CancelRegistrationOutcome> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return { ok: false, reason: 'not_found' };
+
+  if (tournament.status === 'in_progress' || tournament.status === 'completed') {
+    return { ok: false, reason: 'tournament_started' };
+  }
+
+  const participation = await getUserParticipation(tournamentId, userId);
+  if (!participation || participation.status === 'cancelled') {
+    return { ok: false, reason: 'not_registered' };
+  }
+
+  await db
+    .update(tournamentParticipants)
+    .set({ status: 'cancelled', seed: null })
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    );
+
+  return { ok: true };
+}
+
+export type InviteParticipantOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' | 'already_participant' | 'full' };
+
+/**
+ * Invite a user into a tournament (`→ invited`). Serialized per-tournament by a
+ * transaction-scoped advisory lock (same pattern as `registerParticipant`) so
+ * the cap check and the write can't race. An `invited` row does not itself
+ * occupy a slot; the cap is re-checked on accept.
+ */
+export async function inviteParticipant(
+  tournamentId: UUID,
+  userId: UUID,
+): Promise<InviteParticipantOutcome> {
+  return db.transaction(async (tx): Promise<InviteParticipantOutcome> => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
+    );
+
+    const tournament = await tx.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournamentId),
+    });
+    if (!tournament) return { ok: false, reason: 'not_found' };
+
+    const existing = await tx.query.tournamentParticipants.findFirst({
+      where: and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    });
+    if (
+      existing &&
+      (existing.status === 'confirmed' ||
+        existing.status === 'pending' ||
+        existing.status === 'invited')
+    ) {
+      return { ok: false, reason: 'already_participant' };
+    }
+
+    const [active] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tournamentParticipants)
+      .where(
+        and(
+          eq(tournamentParticipants.tournamentId, tournamentId),
+          inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+        ),
+      );
+    if ((active?.count ?? 0) >= tournament.maxParticipants) {
+      return { ok: false, reason: 'full' };
+    }
+
+    if (existing) {
+      await tx
+        .update(tournamentParticipants)
+        .set({ status: 'invited', seed: null, createdAt: new Date() })
+        .where(
+          and(
+            eq(tournamentParticipants.tournamentId, tournamentId),
+            eq(tournamentParticipants.userId, userId),
+          ),
+        );
+    } else {
+      await tx
+        .insert(tournamentParticipants)
+        .values({ tournamentId, userId, status: 'invited' });
+    }
+
+    return { ok: true };
+  });
+}
+
+export type AcceptInvitationOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' | 'not_invited' | 'full' };
+
+/**
+ * Accept a pending invitation (`invited → confirmed`), enforcing the cap under a
+ * transaction-scoped advisory lock (same pattern as `registerParticipant`).
+ */
+export async function acceptInvitation(
+  tournamentId: UUID,
+  userId: UUID,
+): Promise<AcceptInvitationOutcome> {
+  return db.transaction(async (tx): Promise<AcceptInvitationOutcome> => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
+    );
+
+    const tournament = await tx.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournamentId),
+    });
+    if (!tournament) return { ok: false, reason: 'not_found' };
+
+    const participation = await tx.query.tournamentParticipants.findFirst({
+      where: and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    });
+    if (participation?.status !== 'invited') {
+      return { ok: false, reason: 'not_invited' };
+    }
+
+    const [active] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tournamentParticipants)
+      .where(
+        and(
+          eq(tournamentParticipants.tournamentId, tournamentId),
+          inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+        ),
+      );
+    if ((active?.count ?? 0) >= tournament.maxParticipants) {
+      return { ok: false, reason: 'full' };
+    }
+
+    await tx
+      .update(tournamentParticipants)
+      .set({ status: 'confirmed' })
+      .where(
+        and(
+          eq(tournamentParticipants.tournamentId, tournamentId),
+          eq(tournamentParticipants.userId, userId),
+        ),
+      );
+
+    return { ok: true };
+  });
+}
+
+export type DeclineInvitationOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' | 'not_invited' };
+
+/**
+ * Decline a pending invitation (`invited → cancelled`, clearing the seed).
+ */
+export async function declineInvitation(
+  tournamentId: UUID,
+  userId: UUID,
+): Promise<DeclineInvitationOutcome> {
+  const participation = await getUserParticipation(tournamentId, userId);
+  if (participation?.status !== 'invited') {
+    return { ok: false, reason: 'not_invited' };
+  }
+
+  await db
+    .update(tournamentParticipants)
+    .set({ status: 'cancelled', seed: null })
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.userId, userId),
+      ),
+    );
+
+  return { ok: true };
 }

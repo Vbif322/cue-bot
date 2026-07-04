@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne, or, asc } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, asc, desc } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
@@ -221,6 +221,37 @@ export async function getPlayerActiveMatches(
   const matchesWithPlayers: MatchWithPlayers[] = [];
   for (const r of result) {
     const match = await getMatch(r.matches.id);
+    if (match) matchesWithPlayers.push(match);
+  }
+
+  return matchesWithPlayers;
+}
+
+/**
+ * Get a player's completed matches across all tournaments, newest first.
+ * История матчей игрока для профиля (`/api/app/me/matches`).
+ */
+export async function getPlayerMatchHistory(
+  userId: UUID,
+  options: { limit?: number } = {},
+): Promise<MatchWithPlayers[]> {
+  const { limit = 20 } = options;
+
+  const result = await db
+    .select({ id: matches.id })
+    .from(matches)
+    .where(
+      and(
+        eq(matches.status, 'completed'),
+        or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
+      ),
+    )
+    .orderBy(desc(matches.completedAt))
+    .limit(limit);
+
+  const matchesWithPlayers: MatchWithPlayers[] = [];
+  for (const r of result) {
+    const match = await getMatch(r.id);
     if (match) matchesWithPlayers.push(match);
   }
 
@@ -515,6 +546,13 @@ export async function confirmResult(
   }
   if (match.player1Id !== confirmerId && match.player2Id !== confirmerId) {
     return { success: false, error: 'Вы не являетесь участником этого матча' };
+  }
+  // S2-10: подтвердить может только соперник, а не автор отчёта.
+  if (match.reportedBy === confirmerId) {
+    return {
+      success: false,
+      error: 'Нельзя подтверждать собственный отчёт',
+    };
   }
 
   const updated = await db

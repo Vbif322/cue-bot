@@ -1,0 +1,16 @@
+/*
+ * design-sync CSS entry for @cue-bot/ui.
+ *
+ * Compiles the Tailwind v4 utilities the components actually use PLUS the
+ * @theme semantic tokens into one static stylesheet, which the converter ships
+ * as _ds_bundle.css. theme.css alone only DEFINES the tokens — it does not emit
+ * the bg-primary / px-2.5 / bg-tone-*-bg utilities the components apply, so the
+ * previews (and any design built with the DS) would render unstyled without this.
+ *
+ * Recompile whenever component classes change (see cfg.buildCmd / NOTES.md):
+ *   node .ds-sync/node_modules/@tailwindcss/cli/dist/index.mjs \
+ *     -i .design-sync/tailwind-entry.css -o packages/ui/.ds-compiled.css
+ */
+@import 'tailwindcss';
+@import '../packages/ui/src/theme.css';
+@source '../packages/ui/src';

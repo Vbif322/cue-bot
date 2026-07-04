@@ -8,6 +8,11 @@ export default tseslint.config(
     ignores: [
       'build/**',
       'admin/**', // separate Vite/React project with its own toolchain
+      'app/**', // separate Vite/React SPA (player app) with its own toolchain
+      'packages/**', // shared UI package (@cue-bot/ui) with its own React/Vite toolchain
+      '.design-sync/**', // DesignSync-generated .tsx previews, not part of the typed project
+      '.ds-sync/**', // DesignSync working dir with its own node_modules/toolchain
+      'ds-bundle/**', // DesignSync build output
       'drizzle/**',
       'coverage/**',
       'temp/**',

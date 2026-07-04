@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 
 import {
   JWT_SECRET,
+  signAppToken,
   signToken,
   type AdminUser,
 } from '@/admin/server/middleware.js';
@@ -22,6 +23,11 @@ function tokenPayload(user: TokenUser): AdminUser {
 /** `Cookie` header value carrying a valid 24h admin token for `user`. */
 export function adminCookie(user: TokenUser): string {
   return `admin_token=${signToken(tokenPayload(user))}`;
+}
+
+/** `Cookie` header value carrying a valid 30d app token for `userId`. */
+export function appCookie(userId: UUID): string {
+  return `app_token=${signAppToken(userId)}`;
 }
 
 /** `Cookie` header value carrying an already-expired token (for negative tests). */

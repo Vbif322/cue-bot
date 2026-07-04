@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { validateGroupConfig } from '@/admin/server/tournamentOptions.js';
+import { validateGroupConfig } from '@/shared/tournament/tournamentOptions.js';
 
 describe('validateGroupConfig', () => {
   it('accepts a valid configuration', () => {

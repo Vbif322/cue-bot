@@ -65,6 +65,7 @@ cd admin && npm install && cd ..
 
 ```env
 BOT_TOKEN=your_telegram_bot_token_here
+BOT_USERNAME=your_bot_username        # без @; нужен Telegram Login Widget на сайте игрока
 DATABASE_URL=postgresql://user:password@localhost:5432/cuebot
 JWT_SECRET=your_jwt_secret_here
 ADMIN_PORT=3000
@@ -72,6 +73,9 @@ NODE_ENV=development
 ```
 
 5. Получить токен можно у [@BotFather](https://t.me/botfather) в Telegram
+
+`BOT_USERNAME` — username бота (без `@`); отдаётся публичным `GET /api/app/config`
+и подставляется в Telegram Login Widget на сайте игрока (см. «Вход через Telegram»).
 
 ## Запуск
 
@@ -144,10 +148,24 @@ ssh -N \
   -o "ServerAliveInterval 30" \
   -o "ServerAliveCountMax 3" \
   -R 8080:localhost:5173 \
-  user@cuebot.ru
+  user@your-server
 ```
 
-После этого Web App будет доступен по адресу `https://cuebot.ru` (через nginx, проксирующий порт 8080).
+После этого Web App будет доступен по вашему публичному адресу (через nginx, проксирующий порт 8080). `allowedHosts` в `vite.config.ts` выставлен в `true`, поэтому туннель с любым доменом принимается.
+
+### Вход через Telegram (Telegram Login Widget)
+
+На сайте игрока (`app/`) наряду с входом по коду на почту доступен вход через
+Telegram Login Widget. Для его работы нужно:
+
+1. Задать `BOT_USERNAME` (username бота без `@`) — виджет получает его из
+   `GET /api/app/config`.
+2. Привязать домен сайта у [@BotFather](https://t.me/botfather): команда
+   `/setdomain` → выбрать бота → указать домен сайта игрока (например,
+   `cuebot.ru`). Без этого Telegram не отрисует виджет.
+
+Виджет **не работает с `localhost`** (Telegram требует публичный домен из
+`/setdomain`). Для живой проверки используйте SSH-туннель (см. выше) или прод.
 
 ### Сборка проекта
 
@@ -163,7 +181,67 @@ npm run build:admin
 npm run build
 ```
 
-В продакшене Hono раздаёт собранный SPA из `admin/dist/`.
+В продакшене Hono раздаёт оба собранных SPA одним процессом, выбирая `dist` по
+заголовку `Host`: админку (`admin/dist/`) — на админ-хосте (`ADMIN_BASE_URL`), сайт
+игрока (`app/dist/`) — на публичном хосте (`PUBLIC_BASE_URL`). nginx для обоих
+поддоменов делает простой `proxy_pass` на один и тот же `ADMIN_PORT` и **обязан**
+пробрасывать исходный `Host` (`proxy_set_header Host $host`) — иначе Node всегда отдаст
+SPA игрока. Готовый конфиг — в `deploy/nginx/` (см. раздел «nginx» ниже).
+
+### Продакшен: вебхук Telegram
+
+В продакшене (`NODE_ENV=production`) бот получает обновления через **вебхук**, а не long
+polling. Дополнительно к базовым переменным задайте в `.env`:
+
+```env
+NODE_ENV=production
+PUBLIC_BASE_URL=https://example.com          # публичный HTTPS-адрес деплоя (сайт игрока + вебхук)
+ADMIN_BASE_URL=https://admin.example.com     # HTTPS-адрес админки (поддомен)
+TELEGRAM_WEBHOOK_SECRET=<длинная_случайная_строка>
+```
+
+В продакшене `PUBLIC_BASE_URL` и `ADMIN_BASE_URL` **обязательны** (без них бот не настроит
+вебхук / статику и сообщит об этом в лог). Подставьте свои реальные адреса.
+
+`ADMIN_BASE_URL` задаёт хост админки: из него строится ссылка команды `/dashboard`,
+по `new URL(ADMIN_BASE_URL).host` Node выбирает, какой SPA отдать (диспетчеризация по
+`Host`), а старые кнопки «Открыть панель» из истории чатов (вели на `PUBLIC_BASE_URL`)
+редиректятся сюда до погашения одноразового токена входа.
+
+При старте бот сам вызывает `setWebhook` на
+`https://<PUBLIC_BASE_URL>/api/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>`. Секрет также
+проверяется по заголовку `X-Telegram-Bot-Api-Secret-Token` (грамматика grammY возвращает
+`401` при несовпадении). Убедитесь, что nginx проксирует `/api/` на порт `ADMIN_PORT` —
+отдельного правила для вебхука не требуется, он живёт под `/api/`.
+
+Проверить: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`.
+
+### Продакшен: nginx
+
+Готовый конфиг лежит в `deploy/nginx/cuebot.conf` — два HTTPS-vhost-а (сайт игрока и
+админка) проксируют на один и тот же `ADMIN_PORT`, а Node выбирает нужный SPA по
+заголовку `Host`. Сам домен в репозитории не хранится: `server_name` и пути к
+сертификатам вынесены в подключаемые сниппеты, которые вы создаёте на сервере из
+образца `deploy/nginx/snippets/host.conf.example`.
+
+```bash
+# 1. Сертификаты (или один wildcard *.example.com + example.com)
+sudo certbot --nginx -d example.com
+sudo certbot --nginx -d admin.example.com
+
+# 2. Сниппеты с реальными хостами (в git НЕ добавляются)
+sudo mkdir -p /etc/nginx/snippets
+sudo cp deploy/nginx/snippets/host.conf.example /etc/nginx/snippets/cuebot-player-host.conf
+sudo cp deploy/nginx/snippets/host.conf.example /etc/nginx/snippets/cuebot-admin-host.conf
+# отредактировать оба: server_name + пути к сертификатам под свои хосты
+
+# 3. Подключить конфиг из репозитория симлинком и перезагрузить nginx
+sudo ln -s "$(pwd)/deploy/nginx/cuebot.conf" /etc/nginx/sites-enabled/cuebot.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Ключевой момент — `proxy_set_header Host $host` в обоих `location /` (уже в конфиге):
+без него Node не сможет отличить админ-хост от публичного и всегда отдаст SPA игрока.
 
 ## Структура проекта
 
