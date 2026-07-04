@@ -1,0 +1,13 @@
+# Образец подключаемого сниппета для одного хоста (см. deploy/nginx/cuebot.conf).
+#
+# Скопируйте этот файл на сервере в два места, подставив реальные хосты, и НЕ добавляйте
+# копии в git (в них — ваш домен):
+#   /etc/nginx/snippets/cuebot-player-host.conf   → server_name вашего публичного хоста
+#   /etc/nginx/snippets/cuebot-admin-host.conf    → server_name админ-поддомена
+#
+# Если оформлен один wildcard-сертификат (*.example.com + example.com), пути к серту в обоих
+# сниппетах будут одинаковыми, а различаться будет только server_name.
+
+server_name example.com;
+ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;

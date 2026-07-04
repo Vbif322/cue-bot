@@ -16,8 +16,8 @@ git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH"
 
 echo "==> [2/6] Installing dependencies"
+# admin and app are npm workspaces — the root `npm ci` installs all of them.
 npm ci
-npm ci --prefix admin
 
 echo "==> [3/6] Backing up database"
 mkdir -p "$BACKUP_DIR"
@@ -39,6 +39,7 @@ npm run db:migrate
 echo "==> [5/6] Building"
 npm run build
 npm run build:admin
+npm run build:app
 
 echo "==> [6/6] Restarting $SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"

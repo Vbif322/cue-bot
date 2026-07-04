@@ -139,6 +139,16 @@ describe('matchService lifecycle', () => {
         error: 'Вы не являетесь участником этого матча',
       });
     });
+
+    it('rejects the reporter confirming their own report (S2-10)', async () => {
+      const { match, p1 } = await freshMatch();
+      await reportResult(match.id, p1, 3, 0);
+      const res = await confirmResult(match.id, p1);
+      expect(res).toEqual({
+        success: false,
+        error: 'Нельзя подтверждать собственный отчёт',
+      });
+    });
   });
 
   describe('disputeResult', () => {

@@ -17,9 +17,9 @@ import {
 import { users } from './users.js';
 import { venues } from './venues.js';
 
-export { formats, type ITournamentFormat } from '../../admin/server/formats.js';
-import { formats } from '../../admin/server/formats.js';
-import type { ITournamentFormat } from '../../admin/server/formats.js';
+export { formats, type ITournamentFormat } from '../../shared/tournament/formats.js';
+import { formats } from '../../shared/tournament/formats.js';
+import type { ITournamentFormat } from '../../shared/tournament/formats.js';
 export {
   maxParticipants,
   winScores,
@@ -35,12 +35,12 @@ export {
   type ITournamentMergeRound,
   type IGroupDraw,
   type GroupConfig,
-} from '../../admin/server/tournamentOptions.js';
-import { groupDraws } from '../../admin/server/tournamentOptions.js';
+} from '../../shared/tournament/tournamentOptions.js';
+import { groupDraws } from '../../shared/tournament/tournamentOptions.js';
 import type {
   IGroupDraw,
   ITournamentWinScore,
-} from '../../admin/server/tournamentOptions.js';
+} from '../../shared/tournament/tournamentOptions.js';
 
 export const statuses = [
   'draft',

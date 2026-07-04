@@ -491,13 +491,64 @@ export async function notifyRegistrationRejected(
 }
 
 /**
- * Mark notification as read
+ * Mark a single notification as read. Scoped by owner (`userId`) — без этого
+ * фильтра любой аутентифицированный пользователь мог бы прочитать чужое
+ * уведомление (IDOR). Возвращает `true`, если строка обновлена (уведомление
+ * существует и принадлежит пользователю), иначе `false`.
  */
-export async function markAsRead(notificationId: UUID): Promise<void> {
+export async function markAsRead(
+  notificationId: UUID,
+  userId: UUID,
+): Promise<boolean> {
+  const updated = await db
+    .update(notifications)
+    .set({ isRead: true })
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(notifications.userId, userId),
+      ),
+    )
+    .returning({ id: notifications.id });
+
+  return updated.length > 0;
+}
+
+/**
+ * Mark all of a user's unread notifications as read.
+ */
+export async function markAllAsRead(userId: UUID): Promise<void> {
   await db
     .update(notifications)
     .set({ isRead: true })
-    .where(eq(notifications.id, notificationId));
+    .where(
+      and(
+        eq(notifications.userId, userId),
+        eq(notifications.isRead, false),
+      ),
+    );
+}
+
+/**
+ * Get a user's notifications, newest first, with pagination. `unreadOnly`
+ * ограничивает выборку непрочитанными.
+ */
+export async function getNotifications(
+  userId: UUID,
+  options: { limit?: number; unreadOnly?: boolean } = {},
+): Promise<INotification[]> {
+  const { limit = 50, unreadOnly = false } = options;
+
+  return db.query.notifications.findMany({
+    where: unreadOnly
+      ? and(
+          eq(notifications.userId, userId),
+          eq(notifications.isRead, false),
+        )
+      : eq(notifications.userId, userId),
+    orderBy: (n, { desc }) => [desc(n.createdAt)],
+    limit,
+  });
 }
 
 /**
