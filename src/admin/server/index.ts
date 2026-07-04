@@ -5,6 +5,10 @@ import { webhookCallback } from 'grammy';
 import { bot } from '../../bot/instance.js';
 import { createAuthRouter } from './auth.js';
 import { createAppAuthRouter } from '../../app/server/routes/auth.js';
+import { createAppTournamentsRouter } from '../../app/server/routes/tournaments.js';
+import { createAppMatchesRouter } from '../../app/server/routes/matches.js';
+import { createAppMeRouter } from '../../app/server/routes/me.js';
+import { createAppNotificationsRouter } from '../../app/server/routes/notifications.js';
 import { createTournamentsRouter } from './routes/tournaments.js';
 import { createMatchesRouter } from './routes/matches.js';
 import { createUsersRouter } from './routes/users.js';
@@ -54,6 +58,13 @@ export function createAdminServer() {
 
   // Беспарольный вход игрока (код на почту) — общий бэкенд для SPA app/ (Этап 3).
   app.route('/api/app/auth', createAppAuthRouter());
+
+  // REST API игрока для SPA app/ (Этап 4). Каждый роутер сам вешает requireUser
+  // (кроме публичных GET-ов ленты/карточки внутри tournaments).
+  app.route('/api/app/tournaments', createAppTournamentsRouter());
+  app.route('/api/app/matches', createAppMatchesRouter(bot.api));
+  app.route('/api/app/me', createAppMeRouter());
+  app.route('/api/app/notifications', createAppNotificationsRouter());
 
   // Protected routes
   app.route('/api/tournaments', createTournamentsRouter(bot.api));
