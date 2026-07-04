@@ -16,6 +16,14 @@ const COOKIE_OPTS = {
   path: '/',
 } as const;
 
+// Admin host, derived from ADMIN_BASE_URL — used to redirect the legacy /dashboard
+// button (which pointed at PUBLIC_BASE_URL) onto the admin subdomain before the
+// login token is spent, so the admin_token cookie is set on the admin host. Only
+// consulted by the prod-gated shim below; ADMIN_BASE_URL's presence in production is
+// enforced at startup in src/index.ts.
+const adminBaseUrl = process.env.ADMIN_BASE_URL;
+const adminHost = adminBaseUrl ? new URL(adminBaseUrl).host : undefined;
+
 export function createAuthRouter() {
   const auth = new Hono();
 
@@ -29,6 +37,19 @@ export function createAuthRouter() {
   });
 
   auth.get('/token', tokenRateLimit, async (c) => {
+    // Legacy "Открыть панель" buttons in chat history point at PUBLIC_BASE_URL.
+    // Bounce them to the admin subdomain BEFORE spending the one-time token, so the
+    // admin_token cookie lands on the admin host. Prod-only: in dev the token comes
+    // in on localhost (host !== adminHost) and must not be redirected to the domain.
+    if (
+      process.env.NODE_ENV === 'production' &&
+      adminBaseUrl &&
+      c.req.header('host') !== adminHost
+    ) {
+      const u = new URL(c.req.url);
+      return c.redirect(`${adminBaseUrl}${u.pathname}${u.search}`, 302);
+    }
+
     const t = c.req.query('t');
     if (!t) {
       return c.redirect('/login?error=invalid');
