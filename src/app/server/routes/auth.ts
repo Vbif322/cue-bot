@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { setCookie, deleteCookie } from 'hono/cookie';
-import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 
 import { RateLimiter } from '@/lib/rateLimiter.js';
@@ -20,6 +19,7 @@ import {
   hashCode,
   normalizeEmail,
 } from '../authCrypto.js';
+import { validateJson } from './_shared.js';
 
 const APP_COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 дней
 
@@ -41,26 +41,10 @@ export const emailCodeLimiter = new RateLimiter({
   refillPerSec: 3 / (15 * 60),
 });
 
-/**
- * `zValidator('json', …)` с единым конвертом ошибок: на невалидный ввод отдаёт
- * `400 { error: '<по-русски>' }` вместо сырого ZodError (это и утечка внутренних
- * regex, и рассинхрон с остальными ответами `{data}`/`{error}`). Тип `valid('json')`
- * сохраняется — hook лишь перехватывает провал валидации.
- */
-function validateJson<T extends z.ZodType>(schema: T) {
-  return zValidator('json', schema, (result, c) => {
-    if (!result.success) {
-      const field = result.error.issues[0]?.path[0];
-      const message =
-        field === 'email'
-          ? 'Некорректный email'
-          : field === 'code'
-            ? 'Некорректный код'
-            : 'Некорректные данные запроса';
-      return c.json({ error: message }, 400);
-    }
-  });
-}
+const AUTH_FIELD_MESSAGES = {
+  email: 'Некорректный email',
+  code: 'Некорректный код',
+} as const;
 
 export function createAppAuthRouter() {
   const auth = new Hono();
@@ -72,7 +56,7 @@ export function createAppAuthRouter() {
   auth.post(
     '/request-code',
     requestIpLimit,
-    validateJson(z.object({ email: z.email() })),
+    validateJson(z.object({ email: z.email() }), AUTH_FIELD_MESSAGES),
     async (c) => {
       const email = normalizeEmail(c.req.valid('json').email);
 
@@ -97,6 +81,7 @@ export function createAppAuthRouter() {
     verifyIpLimit,
     validateJson(
       z.object({ email: z.email(), code: z.string().regex(/^\d{6}$/) }),
+      AUTH_FIELD_MESSAGES,
     ),
     async (c) => {
       const { email: rawEmail, code } = c.req.valid('json');

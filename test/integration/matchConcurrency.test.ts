@@ -51,13 +51,15 @@ describe('matchService concurrency (race-safe paths)', () => {
     await truncateAll();
   });
 
-  it('double confirm: two players confirm at once → exactly one succeeds', async () => {
+  it('double confirm: opponent confirms twice at once → exactly one succeeds', async () => {
     const { matchId, p1, p2 } = await freshMatch();
     // Report a 3-0 win for player1 so the match awaits confirmation.
+    // S2-10: only the opponent (p2, non-reporter) may confirm, so a genuine
+    // race is two concurrent confirm calls by the same opponent (double-click).
     expect((await reportResult(matchId, p1, 3, 0)).success).toBe(true);
 
     const [a, b] = await Promise.all([
-      confirmResult(matchId, p1),
+      confirmResult(matchId, p2),
       confirmResult(matchId, p2),
     ]);
 
@@ -80,9 +82,10 @@ describe('matchService concurrency (race-safe paths)', () => {
     const { matchId, p1, p2 } = await freshMatch();
     expect((await reportResult(matchId, p1, 3, 0)).success).toBe(true);
 
+    // p2 (opponent) confirms; p1 (reporter) disputes — both are permitted actors.
     const [confirm, dispute] = await Promise.all([
-      confirmResult(matchId, p1),
-      disputeResult(matchId, p2),
+      confirmResult(matchId, p2),
+      disputeResult(matchId, p1),
     ]);
 
     // Exactly one of the two transitions claimed the pending_confirmation row.
