@@ -10,26 +10,28 @@
 
 ## Архитектура / инфраструктура
 
-- Дизайн-система (частично): создан монорепо-каркас (npm workspaces) и пакет
+- Дизайн-система (частично): монорепо (npm workspaces: `admin`, `app`, `packages/*`) и пакет
   `packages/ui` (`@cue-bot/ui`) с дизайн-токенами (Tailwind v4 `@theme`) и презентационными
-  примитивами (Badge/StatusBadge, InfoRow, Chevron, Button, Input/Select, Modal); админка
-  переведена на них. Осталось: при появлении SPA игрока (`app/`) добавить его в workspaces и
-  переиспользовать пакет; по мере надобности выносить оставшиеся inline-паттерны и, если
-  потребуется, не-UI общий код в `packages/shared`. Фиче-компоненты (`tournament-detail/*`,
-  модалки создания турнира) намеренно оставлены в `admin` — они завязаны на TanStack Query.
+  примитивами (Badge/StatusBadge, InfoRow, Chevron, Button, Input/Select, Modal); админка и
+  SPA игрока переведены на них. Осталось: по мере надобности выносить оставшиеся
+  inline-паттерны и, если потребуется, не-UI общий код в `packages/shared`. Фиче-компоненты
+  (`tournament-detail/*`, модалки, завязанные на TanStack Query) намеренно живут в `admin`/`app`.
 
-## Веб для игроков (M1) — см. ROADMAP.md
+## Веб для игроков (M1) — готово, см. ROADMAP.md
 
-Предусловия из аудита: S2-2 (идентичность — согласовать `user_identities` с переходом на telegram_id).
+Реализовано: монорепо (`admin`, `app`, `packages/*`); `user_identities` + бэкфилл
+telegram-аккаунтов (закрыло предусловие S2-2 из аудита); беспарольный вход — коды на почту
+(`email_login_codes` + mailService) и Telegram Login Widget (`verifyTelegramLogin`,
+`POST /api/app/auth/telegram`, привязка `POST /api/app/me/telegram`); JWT в куке `app_token`
++ `requireUser`; регистрация/отмена/приглашения извлечены из бот-хендлеров в
+`tournamentService`; API игрока `/api/app/*` (auth, me, tournaments, matches, notifications);
+SPA `app/`; раздача по поддоменам (игрок — cuebot.ru, админка — admin.cuebot.ru,
+Host-диспетчеризация в Node).
 
-- Монорепо: npm workspaces (admin, app, packages/shared), один lockfile
-- Идентичность: таблица user_identities + миграция и бэкфилл telegram-аккаунтов
-- Беспарольный вход: код на почту / Telegram; JWT в куке app_token, middleware requireUser
-- Почта: mailService (nodemailer/SMTP) + таблица email_login_codes (одноразовые коды входа)
-- Извлечь регистрацию/отмену/приглашения из хендлеров бота в tournamentService
-- API игрока /api/app/\* (auth, me, tournaments, matches, notifications)
-- SPA app/ (лента турниров, карточка+сетка, мои турниры/матчи, профиль, уведомления)
-- Раздача статики: игрок на /, админка переезжает на /admin
-- Вход через Telegram на сайте (Login Widget / Mini App initData) в дополнение к
-  коду на почту; переиспользовать код-/токен-мост (`src/admin/server/auth.ts`,
-  `loginCodes`/`loginTokens`) и `user_identities`. Связано с M6.
+Хвосты M1:
+
+- Мост из бота на сайт игрока: команда бота (напр. `/site`), выдающая одноразовую
+  ссылку по образцу админского `/dashboard` (`loginTokens`, TTL 5 мин), + публичный
+  `GET /api/app/auth/token`, который тратит токен, ставит `app_token` любому юзеру
+  (без проверки роли) и редиректит на `PUBLIC_BASE_URL`.
+- Mini App initData (M6): второй источник входа, сходится в те же `user_identities`.

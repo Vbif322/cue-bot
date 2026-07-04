@@ -5,10 +5,15 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, type BadgeTone } from '@cue-bot/ui';
 import { meApi } from '../lib/api.ts';
+import type { TelegramAuthData } from '../lib/types.ts';
 import { useMe, useLogout } from '../lib/useAuth.ts';
 import { displayName, initials, gradientFor, formatDate } from '../lib/format.ts';
 import { Btn, Field, Labeled } from '../components/controls.tsx';
 import { ErrorBox, Loader, StatTile } from '../components/ui.tsx';
+import {
+  TelegramLoginButton,
+  useBotUsername,
+} from '../components/TelegramLoginButton.tsx';
 
 type Tab = 'overview' | 'settings';
 
@@ -16,6 +21,7 @@ export default function ProfilePage() {
   const qc = useQueryClient();
   const nav = useNavigate();
   const { data: me } = useMe();
+  const botUsername = useBotUsername();
   const [tab, setTab] = useState<Tab>('overview');
 
   const { data: profile, isLoading } = useQuery({
@@ -39,6 +45,13 @@ export default function ProfilePage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['me', 'profile'] });
       qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
+  });
+
+  const linkTelegramMut = useMutation({
+    mutationFn: (payload: TelegramAuthData) => meApi.linkTelegram(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me', 'profile'] });
     },
   });
 
@@ -270,6 +283,43 @@ export default function ProfilePage() {
               {updateMut.isPending ? 'Сохранение…' : 'Сохранить'}
             </Btn>
           </div>
+
+          {/* Telegram — скрываем блок целиком, если вход через Telegram не
+              настроен (нет BOT_USERNAME) и аккаунт ещё не привязан. */}
+          {(botUsername || profile.telegramLinked) && (
+            <div
+              style={{
+                boxSizing: 'border-box',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14,
+                background: '#17181e',
+                border: '1px solid rgba(255,255,255,0.07)',
+                borderRadius: 16,
+                padding: 18,
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>Telegram</span>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>
+                  Привяжите Telegram, чтобы входить через него и получать уведомления в боте.
+                </span>
+              </div>
+              {profile.telegramLinked ? (
+                <div style={{ fontSize: 14, color: '#6ee7b7' }}>Привязан.</div>
+              ) : (
+                <>
+                  <TelegramLoginButton
+                    size="medium"
+                    onAuth={(payload) => linkTelegramMut.mutate(payload)}
+                  />
+                  {linkTelegramMut.error && (
+                    <ErrorBox message={linkTelegramMut.error.message} />
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           <Btn
             variant="danger"

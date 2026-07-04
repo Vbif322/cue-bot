@@ -3,14 +3,21 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { appAuth } from '../lib/api.ts';
+import type { TelegramAuthData } from '../lib/types.ts';
 import { Btn, Field } from '../components/controls.tsx';
 import { ErrorBox } from '../components/ui.tsx';
+import {
+  TelegramLoginButton,
+  useBotUsername,
+} from '../components/TelegramLoginButton.tsx';
 
 export default function LoginPage() {
   const nav = useNavigate();
   const loc = useLocation();
   const qc = useQueryClient();
   const from = (loc.state as { from?: string } | null)?.from ?? '/';
+
+  const botUsername = useBotUsername();
 
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
@@ -23,6 +30,14 @@ export default function LoginPage() {
 
   const verifyMut = useMutation({
     mutationFn: () => appAuth.verifyCode(email.trim(), code.trim()),
+    onSuccess: (data) => {
+      qc.setQueryData(['auth', 'me'], { user: data.user });
+      nav(from, { replace: true });
+    },
+  });
+
+  const telegramMut = useMutation({
+    mutationFn: (payload: TelegramAuthData) => appAuth.telegramLogin(payload),
     onSuccess: (data) => {
       qc.setQueryData(['auth', 'me'], { user: data.user });
       nav(from, { replace: true });
@@ -151,6 +166,28 @@ export default function LoginPage() {
               ← Изменить почту
             </button>
           </form>
+        )}
+
+        {step === 'email' && botUsername && (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                color: '#4b5563',
+                fontSize: 12,
+              }}
+            >
+              <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+              или
+              <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <TelegramLoginButton onAuth={(payload) => telegramMut.mutate(payload)} />
+            </div>
+            {telegramMut.error && <ErrorBox message={telegramMut.error.message} />}
+          </>
         )}
       </div>
     </div>

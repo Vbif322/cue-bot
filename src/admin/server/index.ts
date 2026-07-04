@@ -56,7 +56,14 @@ export function createAdminServer() {
   // Auth routes (no auth middleware)
   app.route('/api/auth', createAuthRouter());
 
-  // Беспарольный вход игрока (код на почту) — общий бэкенд для SPA app/ (Этап 3).
+  // Публичный конфиг для SPA игрока: username бота нужен Telegram Login Widget
+  // (Этап 7). Статичное значение из env — без rate-limit.
+  app.get('/api/app/config', (c) =>
+    c.json({ data: { botUsername: process.env.BOT_USERNAME ?? null } }),
+  );
+
+  // Беспарольный вход игрока (код на почту + Telegram-виджет) — общий бэкенд для
+  // SPA app/ (Этапы 3, 7).
   app.route('/api/app/auth', createAppAuthRouter());
 
   // REST API игрока для SPA app/ (Этап 4). Каждый роутер сам вешает requireUser

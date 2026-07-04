@@ -65,6 +65,7 @@ cd admin && npm install && cd ..
 
 ```env
 BOT_TOKEN=your_telegram_bot_token_here
+BOT_USERNAME=your_bot_username        # без @; нужен Telegram Login Widget на сайте игрока
 DATABASE_URL=postgresql://user:password@localhost:5432/cuebot
 JWT_SECRET=your_jwt_secret_here
 ADMIN_PORT=3000
@@ -72,6 +73,9 @@ NODE_ENV=development
 ```
 
 5. Получить токен можно у [@BotFather](https://t.me/botfather) в Telegram
+
+`BOT_USERNAME` — username бота (без `@`); отдаётся публичным `GET /api/app/config`
+и подставляется в Telegram Login Widget на сайте игрока (см. «Вход через Telegram»).
 
 ## Запуск
 
@@ -148,6 +152,20 @@ ssh -N \
 ```
 
 После этого Web App будет доступен по вашему публичному адресу (через nginx, проксирующий порт 8080). `allowedHosts` в `vite.config.ts` выставлен в `true`, поэтому туннель с любым доменом принимается.
+
+### Вход через Telegram (Telegram Login Widget)
+
+На сайте игрока (`app/`) наряду с входом по коду на почту доступен вход через
+Telegram Login Widget. Для его работы нужно:
+
+1. Задать `BOT_USERNAME` (username бота без `@`) — виджет получает его из
+   `GET /api/app/config`.
+2. Привязать домен сайта у [@BotFather](https://t.me/botfather): команда
+   `/setdomain` → выбрать бота → указать домен сайта игрока (например,
+   `cuebot.ru`). Без этого Telegram не отрисует виджет.
+
+Виджет **не работает с `localhost`** (Telegram требует публичный домен из
+`/setdomain`). Для живой проверки используйте SSH-туннель (см. выше) или прод.
 
 ### Сборка проекта
 

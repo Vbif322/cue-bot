@@ -1,19 +1,27 @@
 import { Hono } from 'hono';
 import { setCookie, deleteCookie } from 'hono/cookie';
 import { z } from 'zod';
+import { and, eq } from 'drizzle-orm';
 
+import { db } from '@/db/db.js';
+import { userIdentities, users } from '@/db/schema.js';
 import { RateLimiter } from '@/lib/rateLimiter.js';
 import { createIpRateLimit } from '@/admin/server/middleware/rateLimit.js';
 import {
   requireUser,
   signAppToken,
 } from '@/admin/server/middleware.js';
-import { findOrCreateEmailUser, toAppUser } from '@/services/userService.js';
+import {
+  findOrCreateEmailUser,
+  getOrCreateTelegramUser,
+  toAppUser,
+} from '@/services/userService.js';
 import {
   issueLoginCode,
   verifyLoginCode,
 } from '@/services/emailLoginCodeService.js';
 import { sendLoginCodeEmail } from '@/services/mailService.js';
+import { verifyTelegramLogin } from '../telegramLogin.js';
 import {
   generateLoginCode,
   hashCode,
@@ -106,6 +114,68 @@ export function createAppAuthRouter() {
       return c.json({ data: { user: toAppUser(user) } });
     },
   );
+
+  // Вход через Telegram Login Widget (Этап 7). Публичный, пер-IP анти-флуд.
+  // Сходится в те же user_identities, что и вход по коду: identity ('telegram', id)
+  // есть → её юзер; нет → getOrCreateTelegramUser. Невалидная подпись/просроченный
+  // auth_date → 401. Payload читаем сырым (не через validateJson): data_check_string
+  // строится по ВСЕМ присланным полям, а strip неизвестных ключей сломал бы подпись.
+  const telegramIpLimit = createIpRateLimit({
+    capacity: 20,
+    refillPerSec: 20 / 900,
+  });
+
+  auth.post('/telegram', telegramIpLimit, async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Некорректные данные Telegram' }, 400);
+    }
+
+    const verified = verifyTelegramLogin(body, process.env.BOT_TOKEN ?? '');
+    if (!verified.ok) {
+      // Причину не раскрываем — единый ответ на любую неудачу проверки.
+      return c.json({ error: 'Не удалось войти через Telegram' }, 401);
+    }
+    const tg = verified.data;
+
+    const identity = await db.query.userIdentities.findFirst({
+      where: and(
+        eq(userIdentities.provider, 'telegram'),
+        eq(userIdentities.providerId, tg.id),
+      ),
+    });
+
+    let user;
+    if (identity) {
+      user = await db.query.users.findFirst({
+        where: eq(users.id, identity.userId),
+      });
+    } else {
+      user = await getOrCreateTelegramUser(tg.id, {
+        username: tg.username ?? tg.firstName,
+        name: tg.firstName,
+        surname: tg.lastName,
+      });
+    }
+
+    // Паритет с email-входом: identity на soft-deleted аккаунт (теоретически —
+    // anonymize удаляет identity) → отказ без куки.
+    if (!user) {
+      return c.json({ error: 'Не удалось войти через Telegram' }, 401);
+    }
+    if (user.deletedAt !== null) {
+      return c.json({ error: 'Не удалось войти через Telegram' }, 401);
+    }
+
+    setCookie(c, 'app_token', signAppToken(user.id), {
+      ...APP_COOKIE_OPTS,
+      maxAge: APP_COOKIE_MAX_AGE,
+    });
+
+    return c.json({ data: { user: toAppUser(user) } });
+  });
 
   auth.post('/logout', (c) => {
     deleteCookie(c, 'app_token', APP_COOKIE_OPTS);

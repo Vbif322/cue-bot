@@ -12,6 +12,7 @@ import type {
   MeProfile,
   MeStats,
   RegisterResult,
+  TelegramAuthData,
 } from './types.ts';
 
 export * from './types.ts';
@@ -61,6 +62,13 @@ export const appAuth = {
       ...jsonBody({ email, code }),
     }),
 
+  /** Вход через Telegram Login Widget — payload виджета уходит на верификацию. */
+  telegramLogin: (payload: TelegramAuthData) =>
+    apiFetch<{ user: AppUser }>('/api/app/auth/telegram', {
+      method: 'POST',
+      ...jsonBody(payload),
+    }),
+
   logout: () =>
     apiFetch<{ ok: boolean }>('/api/app/auth/logout', { method: 'POST' }),
 
@@ -72,6 +80,13 @@ export const appAuth = {
       return null;
     }
   },
+};
+
+// ── Config (публичный конфиг для SPA) ─────────────────────────────────────────
+
+export const configApi = {
+  /** Публичный конфиг: username бота для Telegram Login Widget. */
+  get: () => apiFetch<{ botUsername: string | null }>('/api/app/config'),
 };
 
 // ── Tournaments ───────────────────────────────────────────────────────────────
@@ -153,6 +168,13 @@ export const meApi = {
 
   update: (body: { name?: string | null; surname?: string | null }) =>
     apiFetch<AppUser>('/api/app/me', { method: 'PATCH', ...jsonBody(body) }),
+
+  /** Привязка Telegram к текущему аккаунту (payload виджета). */
+  linkTelegram: (payload: TelegramAuthData) =>
+    apiFetch<{ telegramLinked: boolean }>('/api/app/me/telegram', {
+      method: 'POST',
+      ...jsonBody(payload),
+    }),
 
   stats: () => apiFetch<MeStats>('/api/app/me/stats'),
 
