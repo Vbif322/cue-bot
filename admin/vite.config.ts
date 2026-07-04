@@ -12,7 +12,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    allowedHosts: ['cuebot.ru'],
+    // Dev-only: accept any Host so an ssh-tunnelled domain reaches the Vite server
+    // (see README). Prod serves static via Node, so this has no production effect.
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
