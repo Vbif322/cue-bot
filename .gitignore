@@ -1,6 +1,8 @@
 /node_modules
 /admin/node_modules
 /admin/dist
+/app/node_modules
+/app/dist
 /build
 /temp
 /coverage
