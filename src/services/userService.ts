@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull, ne, sql } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -120,6 +120,98 @@ export async function findOrCreateEmailUser(
     });
 
     return created;
+  });
+}
+
+/** Опции создания/обновления telegram-юзера — см. {@link getOrCreateTelegramUser}. */
+export interface TelegramUserInput {
+  /** Желаемый username (для бота: `telegram.username ?? 'user_<id>'`). */
+  username: string;
+  name?: string | undefined;
+  surname?: string | undefined;
+}
+
+/**
+ * Находит пользователя по `telegram_id` или создаёт нового вместе с
+ * telegram-identity — общий код для `authMiddleware` (бот) и web-входа через
+ * Telegram Login Widget (Этап 7). Всё в одной транзакции:
+ *
+ * 1. Освобождаем `username` от «протухшей» telegram-строки: usernames в Telegram
+ *    переиспользуемы, а частичный уникальный индекс `users_username_telegram_unique`
+ *    (WHERE telegram_id IS NOT NULL) иначе отбил бы вставку/апдейт.
+ * 2. Ищем по `telegram_id`; нет → upsert `users` (onConflictDoUpdate по telegram_id),
+ *    есть, но username устарел → синхронизируем.
+ * 3. Вставляем identity `('telegram', telegramId)` с `onConflictDoNothing` — всегда:
+ *    для бэкфилленных бот-юзеров это no-op, а для web-first случая (telegram_id есть,
+ *    identity ещё нет) — доводит реестр входов до консистентного состояния.
+ *
+ * Tombstone-ветки нет: {@link anonymizeUser} зануляет `telegram_id` и удаляет
+ * identity, поэтому soft-deleted аккаунт по `telegram_id` не находится — повторный
+ * вход штатно создаёт новую строку.
+ */
+export async function getOrCreateTelegramUser(
+  telegramId: string,
+  opts: TelegramUserInput,
+): Promise<DbUser> {
+  const { username: desired, name, surname } = opts;
+
+  return db.transaction(async (tx) => {
+    let existing = await tx.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    });
+
+    const needsClaim = existing?.username !== desired;
+    if (needsClaim) {
+      await tx
+        .update(users)
+        .set({ username: sql`'user_' || ${users.telegram_id}` })
+        .where(
+          and(
+            eq(users.username, desired),
+            isNotNull(users.telegram_id),
+            existing ? ne(users.id, existing.id) : sql`true`,
+          ),
+        );
+    }
+
+    if (!existing) {
+      [existing] = await tx
+        .insert(users)
+        .values({
+          telegram_id: telegramId,
+          username: desired,
+          name,
+          surname,
+        })
+        .onConflictDoUpdate({
+          target: users.telegram_id,
+          set: { username: desired },
+        })
+        .returning();
+
+      if (!existing) {
+        throw new Error('Не удалось создать пользователя');
+      }
+    } else if (existing.username !== desired) {
+      await tx
+        .update(users)
+        .set({ username: desired })
+        .where(eq(users.id, existing.id));
+      existing.username = desired;
+    }
+
+    await tx
+      .insert(userIdentities)
+      .values({
+        userId: existing.id,
+        provider: 'telegram',
+        providerId: telegramId,
+      })
+      .onConflictDoNothing({
+        target: [userIdentities.provider, userIdentities.providerId],
+      });
+
+    return existing;
   });
 }
 
