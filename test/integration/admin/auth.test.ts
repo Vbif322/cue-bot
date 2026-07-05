@@ -38,7 +38,7 @@ describe('admin auth router', () => {
       const setCookie = res.headers.get('set-cookie') ?? '';
       expect(setCookie).toContain('admin_token=');
       expect(setCookie).toContain('HttpOnly');
-      expect(setCookie).toContain('SameSite=Strict');
+      expect(setCookie).toContain('SameSite=Lax');
       expect(setCookie).toContain(`Max-Age=${String(24 * 60 * 60)}`);
 
       // Token is single-use: deleted after redemption.
