@@ -1,7 +1,13 @@
+import type { UUID } from 'crypto';
 import { Hono } from 'hono';
-import { setCookie, deleteCookie } from 'hono/cookie';
+import {
+  setCookie,
+  deleteCookie,
+  setSignedCookie,
+  getSignedCookie,
+} from 'hono/cookie';
 import { z } from 'zod';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
 import { userIdentities, users } from '@/db/schema.js';
@@ -10,6 +16,8 @@ import { createIpRateLimit } from '@/admin/server/middleware/rateLimit.js';
 import {
   requireUser,
   signAppToken,
+  resolveUserFromCookie,
+  JWT_SECRET,
 } from '@/admin/server/middleware.js';
 import {
   findOrCreateEmailUser,
@@ -21,7 +29,15 @@ import {
   verifyLoginCode,
 } from '@/services/emailLoginCodeService.js';
 import { sendLoginCodeEmail } from '@/services/mailService.js';
-import { verifyTelegramLogin } from '../telegramLogin.js';
+import {
+  createPkce,
+  createState,
+  buildAuthUrl,
+  exchangeCode,
+  verifyIdToken,
+  redirectUri,
+  type TelegramOidcClaims,
+} from '../telegramOidc.js';
 import {
   generateLoginCode,
   hashCode,
@@ -57,6 +73,57 @@ const AUTH_FIELD_MESSAGES = {
   email: 'Некорректный email',
   code: 'Некорректный код',
 } as const;
+
+/**
+ * Привязка Telegram к аккаунту `userId` (OIDC-возврат, intent='link'). Инварианты
+ * те же, что раньше в POST /api/app/me/telegram: этот Telegram свободен и у аккаунта
+ * ещё нет своего Telegram. Возвращает код статуса для query-параметра редиректа:
+ * 'linked' | 'exists' (Telegram уже за другим) | 'has_other' (у аккаунта уже есть) |
+ * 'error' (сессия истекла/аккаунт исчез).
+ */
+async function linkTelegram(
+  userId: UUID | null,
+  telegramId: string,
+): Promise<'linked' | 'exists' | 'has_other' | 'error'> {
+  if (!userId) return 'error';
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (user?.deletedAt !== null) return 'error';
+
+  const existing = await db.query.userIdentities.findFirst({
+    where: and(
+      eq(userIdentities.provider, 'telegram'),
+      eq(userIdentities.providerId, telegramId),
+    ),
+  });
+  if (existing) {
+    return existing.userId === userId ? 'linked' : 'exists'; // свой — идемпотентно
+  }
+
+  const ownTelegram = await db.query.userIdentities.findFirst({
+    where: and(
+      eq(userIdentities.userId, userId),
+      eq(userIdentities.provider, 'telegram'),
+    ),
+  });
+  if (ownTelegram) return 'has_other';
+
+  // Вставляем identity и заполняем users.telegram_id, если он пуст — после этого
+  // юзеру доставляются Telegram-уведомления (инвариант бота).
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(userIdentities)
+      .values({ userId, provider: 'telegram', providerId: telegramId })
+      .onConflictDoNothing({
+        target: [userIdentities.provider, userIdentities.providerId],
+      });
+    await tx
+      .update(users)
+      .set({ telegram_id: telegramId })
+      .where(and(eq(users.id, userId), isNull(users.telegram_id)));
+  });
+
+  return 'linked';
+}
 
 export function createAppAuthRouter() {
   const auth = new Hono();
@@ -124,38 +191,122 @@ export function createAppAuthRouter() {
     },
   );
 
-  // Вход через Telegram Login Widget (Этап 7). Публичный, пер-IP анти-флуд.
-  // Сходится в те же user_identities, что и вход по коду: identity ('telegram', id)
-  // есть → её юзер; нет → getOrCreateTelegramUser. Невалидная подпись/просроченный
-  // auth_date → 401. Payload читаем сырым (не через validateJson): data_check_string
-  // строится по ВСЕМ присланным полям, а strip неизвестных ключей сломал бы подпись.
+  // Вход/привязка через Telegram по OIDC (Authorization Code Flow + PKCE). Два
+  // редирект-эндпоинта вместо прежнего POST с HMAC-подписью виджета:
+  //   GET /telegram/start[?link=1]  — заводит PKCE+state, редиректит на oauth.telegram.org
+  //   GET /telegram/callback        — обменивает code на id_token, ставит сессию/привязку
+  // state/verifier/intent храним в короткоживущей ПОДПИСАННОЙ куке tg_oauth (переживает
+  // рестарт, без общего стора). SameSite=Lax: кука едет на top-level GET-возврате из
+  // Telegram. Пер-IP анти-флуд на оба шага.
   const telegramIpLimit = createIpRateLimit({
     capacity: 20,
     refillPerSec: 20 / 900,
   });
 
-  auth.post('/telegram', telegramIpLimit, async (c) => {
-    let body: unknown;
+  // Кука с параметрами OIDC-потока: живёт до возврата из Telegram.
+  const OAUTH_COOKIE = 'tg_oauth';
+  const OAUTH_COOKIE_MAX_AGE = 10 * 60; // 10 минут на прохождение согласия
+  const OAUTH_COOKIE_OPTS = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'Lax',
+    path: '/',
+  } as const;
+
+  auth.get('/telegram/start', telegramIpLimit, async (c) => {
+    const link = c.req.query('link') === '1';
+
+    // Привязка требует уже вошедшего пользователя — фиксируем его id в куке, чтобы
+    // callback знал, к какому аккаунту цеплять Telegram (сессии в куке нет смысла
+    // перечитывать в callback — там мы вернёмся тем же браузером).
+    let userId: string | null = null;
+    if (link) {
+      const user = await resolveUserFromCookie(c, 'app_token');
+      if (!user) return c.redirect('/login?telegram=auth_required');
+      userId = user.id;
+    }
+
+    const state = createState();
+    const { codeVerifier, codeChallenge } = createPkce();
+
+    await setSignedCookie(
+      c,
+      OAUTH_COOKIE,
+      JSON.stringify({ state, codeVerifier, intent: link ? 'link' : 'login', userId }),
+      JWT_SECRET,
+      { ...OAUTH_COOKIE_OPTS, maxAge: OAUTH_COOKIE_MAX_AGE },
+    );
+
+    let url: string;
     try {
-      body = await c.req.json();
+      url = buildAuthUrl({ state, codeChallenge, redirectUri: redirectUri() });
+    } catch (err) {
+      console.error('Telegram OIDC start failed:', err);
+      return c.redirect(link ? '/profile?telegram=error' : '/login?telegram=error');
+    }
+    return c.redirect(url);
+  });
+
+  auth.get('/telegram/callback', telegramIpLimit, async (c) => {
+    // Разбираем куку потока и сразу её гасим (одноразовая).
+    const raw = await getSignedCookie(c, JWT_SECRET, OAUTH_COOKIE);
+    deleteCookie(c, OAUTH_COOKIE, OAUTH_COOKIE_OPTS);
+
+    // getSignedCookie → false при битой подписи, undefined если куки нет.
+    if (!raw) return c.redirect('/login?telegram=error');
+    let flow: {
+      state: string;
+      codeVerifier: string;
+      intent: string;
+      userId: UUID | null;
+    };
+    try {
+      flow = JSON.parse(raw) as typeof flow;
     } catch {
-      return c.json({ error: 'Некорректные данные Telegram' }, 400);
+      return c.redirect('/login?telegram=error');
+    }
+    const isLink = flow.intent === 'link';
+    const failRedirect = (code: string): Response =>
+      c.redirect(`${isLink ? '/profile' : '/login'}?telegram=${code}`);
+
+    // Пользователь отменил согласие или Telegram вернул ошибку.
+    if (c.req.query('error')) return failRedirect('cancelled');
+
+    const code = c.req.query('code');
+    const state = c.req.query('state');
+    if (!code || !state || state !== flow.state) {
+      console.warn('Telegram OIDC callback: state/code mismatch');
+      return failRedirect('error');
     }
 
-    const verified = verifyTelegramLogin(body, process.env.BOT_TOKEN ?? '');
-    if (!verified.ok) {
-      // Клиенту причину не раскрываем — единый ответ на любую неудачу проверки. Но в лог
-      // пишем конкретный reason: без него провал входа в проде не диагностируется
-      // (подпись → BOT_TOKEN/домен vs auth_date → окно/часы сервера — неразличимы).
-      console.warn('Telegram login rejected:', verified.reason);
-      return c.json({ error: 'Не удалось войти через Telegram' }, 401);
+    let claims: TelegramOidcClaims;
+    try {
+      const idToken = await exchangeCode({
+        code,
+        codeVerifier: flow.codeVerifier,
+        redirectUri: redirectUri(),
+      });
+      const verified = verifyIdToken(idToken);
+      if (!verified.ok) {
+        console.warn('Telegram OIDC id_token rejected:', verified.reason);
+        return failRedirect('error');
+      }
+      claims = verified.data;
+    } catch (err) {
+      console.warn('Telegram OIDC token exchange failed:', err);
+      return failRedirect('error');
     }
-    const tg = verified.data;
 
+    if (isLink) {
+      const result = await linkTelegram(flow.userId, claims.id);
+      return c.redirect(`/profile?telegram=${result}`);
+    }
+
+    // Вход: сходится в те же user_identities, что и вход по коду.
     const identity = await db.query.userIdentities.findFirst({
       where: and(
         eq(userIdentities.provider, 'telegram'),
-        eq(userIdentities.providerId, tg.id),
+        eq(userIdentities.providerId, claims.id),
       ),
     });
 
@@ -165,28 +316,20 @@ export function createAppAuthRouter() {
         where: eq(users.id, identity.userId),
       });
     } else {
-      user = await getOrCreateTelegramUser(tg.id, {
-        username: tg.username ?? tg.firstName,
-        name: tg.firstName,
-        surname: tg.lastName,
+      user = await getOrCreateTelegramUser(claims.id, {
+        username: claims.username ?? claims.firstName,
+        name: claims.firstName,
       });
     }
 
-    // Паритет с email-входом: identity на soft-deleted аккаунт (теоретически —
-    // anonymize удаляет identity) → отказ без куки.
-    if (!user) {
-      return c.json({ error: 'Не удалось войти через Telegram' }, 401);
-    }
-    if (user.deletedAt !== null) {
-      return c.json({ error: 'Не удалось войти через Telegram' }, 401);
-    }
+    // Паритет с email-входом: identity на soft-deleted аккаунт → отказ без куки.
+    if (user?.deletedAt !== null) return failRedirect('error');
 
     setCookie(c, 'app_token', signAppToken(user.id), {
       ...APP_COOKIE_OPTS,
       maxAge: APP_COOKIE_MAX_AGE,
     });
-
-    return c.json({ data: { user: toAppUser(user) } });
+    return c.redirect('/');
   });
 
   auth.post('/logout', (c) => {

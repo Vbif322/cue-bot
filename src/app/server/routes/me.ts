@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { and, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
-import { userIdentities, users } from '@/db/schema.js';
+import { userIdentities } from '@/db/schema.js';
 import {
   toAppUser,
   updateUserProfile,
@@ -11,7 +11,6 @@ import {
   MAX_NAME_LENGTH,
   MAX_SURNAME_LENGTH,
 } from '@/services/userService.js';
-import { verifyTelegramLogin } from '../telegramLogin.js';
 import { getUserTournaments } from '@/services/tournamentService.js';
 import {
   getUserMatchStats,
@@ -67,74 +66,9 @@ export function createAppMeRouter() {
     });
   });
 
-  // Привязка Telegram к текущему аккаунту из профиля (Этап 7). Payload читаем
-  // сырым — как в /api/app/auth/telegram (см. коммент там про data_check_string).
-  router.post('/telegram', async (c) => {
-    const user = c.get('appUser');
-
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: 'Некорректные данные Telegram' }, 400);
-    }
-
-    const verified = verifyTelegramLogin(body, process.env.BOT_TOKEN ?? '');
-    if (!verified.ok) {
-      // Причину клиенту не раскрываем; в лог — конкретный reason для диагностики.
-      console.warn('Telegram link rejected:', verified.reason);
-      return c.json({ error: 'Не удалось подтвердить Telegram' }, 401);
-    }
-    const tg = verified.data;
-
-    // Этот Telegram уже привязан к какому-то аккаунту?
-    const existing = await db.query.userIdentities.findFirst({
-      where: and(
-        eq(userIdentities.provider, 'telegram'),
-        eq(userIdentities.providerId, tg.id),
-      ),
-    });
-    if (existing) {
-      if (existing.userId === user.id) {
-        return c.json({ data: { telegramLinked: true } }); // уже привязан — идемпотентно
-      }
-      return c.json(
-        { error: 'Этот Telegram уже привязан к другому аккаунту' },
-        409,
-      );
-    }
-
-    // У текущего аккаунта уже есть другой Telegram? (уникальность (user_id, provider))
-    const ownTelegram = await db.query.userIdentities.findFirst({
-      where: and(
-        eq(userIdentities.userId, user.id),
-        eq(userIdentities.provider, 'telegram'),
-      ),
-    });
-    if (ownTelegram) {
-      return c.json(
-        { error: 'К аккаунту уже привязан другой Telegram' },
-        409,
-      );
-    }
-
-    // Вставляем identity и заполняем users.telegram_id, если он пуст — после этого
-    // юзеру доставляются Telegram-уведомления (инвариант бота).
-    await db.transaction(async (tx) => {
-      await tx
-        .insert(userIdentities)
-        .values({ userId: user.id, provider: 'telegram', providerId: tg.id })
-        .onConflictDoNothing({
-          target: [userIdentities.provider, userIdentities.providerId],
-        });
-      await tx
-        .update(users)
-        .set({ telegram_id: tg.id })
-        .where(and(eq(users.id, user.id), isNull(users.telegram_id)));
-    });
-
-    return c.json({ data: { telegramLinked: true } });
-  });
+  // Привязка Telegram выполняется через OIDC-редирект:
+  // GET /api/app/auth/telegram/start?link=1 → callback (см. app/server/routes/auth.ts).
+  // Здесь POST-эндпоинта больше нет — виджет/HMAC-подпись сняты вместе с миграцией.
 
   router.patch('/', validateJson(profileBody, PROFILE_MESSAGES), async (c) => {
     const body = c.req.valid('json');
