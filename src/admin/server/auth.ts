@@ -8,11 +8,14 @@ import { signToken, JWT_SECRET, type AdminUser } from './middleware.js';
 import { createIpRateLimit } from './middleware/rateLimit.js';
 
 // Secure-флаг ставим только в production: на http://localhost браузер иначе
-// молча отбросил бы cookie в dev.
+// молча отбросил бы cookie в dev. SameSite=Lax (не Strict): Strict-куку браузер не
+// шлёт при межсайтовых top-level переходах (напр. переход по /dashboard-ссылке из
+// Telegram), из-за чего только что установленная сессия выглядит «потерянной»; на
+// кросс-сайтовых POST Lax не отправляется, так что CSRF-защита мутаций сохраняется.
 const COOKIE_OPTS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'Strict',
+  sameSite: 'Lax',
   path: '/',
 } as const;
 

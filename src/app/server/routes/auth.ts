@@ -32,10 +32,14 @@ import { validateJson } from './_shared.js';
 const APP_COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 дней
 
 // Secure-флаг только в проде: на http://localhost браузер иначе отбросит куку в dev.
+// SameSite=Lax (не Strict): Strict-куку браузер не шлёт при межсайтовых top-level
+// переходах (заход по ссылке из Telegram, возврат из OAuth-попапа), из-за чего только
+// что установленная сессия выглядит «потерянной». Lax это чинит и по-прежнему не
+// отправляется на кросс-сайтовых POST — CSRF-защита мутаций сохраняется.
 const APP_COOKIE_OPTS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'Strict',
+  sameSite: 'Lax',
   path: '/',
 } as const;
 
@@ -140,7 +144,10 @@ export function createAppAuthRouter() {
 
     const verified = verifyTelegramLogin(body, process.env.BOT_TOKEN ?? '');
     if (!verified.ok) {
-      // Причину не раскрываем — единый ответ на любую неудачу проверки.
+      // Клиенту причину не раскрываем — единый ответ на любую неудачу проверки. Но в лог
+      // пишем конкретный reason: без него провал входа в проде не диагностируется
+      // (подпись → BOT_TOKEN/домен vs auth_date → окно/часы сервера — неразличимы).
+      console.warn('Telegram login rejected:', verified.reason);
       return c.json({ error: 'Не удалось войти через Telegram' }, 401);
     }
     const tg = verified.data;

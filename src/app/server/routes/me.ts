@@ -81,6 +81,8 @@ export function createAppMeRouter() {
 
     const verified = verifyTelegramLogin(body, process.env.BOT_TOKEN ?? '');
     if (!verified.ok) {
+      // Причину клиенту не раскрываем; в лог — конкретный reason для диагностики.
+      console.warn('Telegram link rejected:', verified.reason);
       return c.json({ error: 'Не удалось подтвердить Telegram' }, 401);
     }
     const tg = verified.data;
