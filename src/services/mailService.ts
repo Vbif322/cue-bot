@@ -40,6 +40,12 @@ function getTransporter(): Transporter {
         process.env.SMTP_USER && process.env.SMTP_PASS
           ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
           : undefined,
+      // Недоступный SMTP должен падать быстро, а не висеть ~2 мин на дефолтных
+      // таймаутах nodemailer (иначе синхронное ожидание отправки упирается в
+      // прокси-таймаут и отдаёт 504). См. фоновую отправку в request-code.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     });
   } else {
     // Dev-режим: письма не уходят, тело логируется (код виден в консоли).

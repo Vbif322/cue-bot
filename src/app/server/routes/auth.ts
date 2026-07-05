@@ -73,10 +73,15 @@ export function createAppAuthRouter() {
         try {
           const code = generateLoginCode();
           await issueLoginCode(email, hashCode(code));
-          await sendLoginCodeEmail(email, code);
+          // Отправку письма НЕ ждём: SMTP-сбой/задержка не должны держать HTTP-ответ
+          // (иначе прокси рвёт на таймауте → 504). Ответ 200 одинаков для любого
+          // email (анти-энумерация), так что фон ничего не меняет для клиента.
+          void sendLoginCodeEmail(email, code).catch((err: unknown) => {
+            console.error('Ошибка отправки кода входа:', err);
+          });
         } catch (err) {
           // Ответ не должен зависеть от инфраструктурных сбоев (тайминг/enumeration).
-          console.error('Ошибка отправки кода входа:', err);
+          console.error('Ошибка выпуска кода входа:', err);
         }
       }
 
