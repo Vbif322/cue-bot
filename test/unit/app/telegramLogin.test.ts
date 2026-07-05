@@ -52,11 +52,14 @@ describe('verifyTelegramLogin', () => {
     expect(result.data).toEqual({ id: '42', firstName: 'A' });
   });
 
-  it('отклоняет подделанный hash', () => {
+  it('отклоняет подделанный hash с reason «Неверная подпись»', () => {
     const payload = { ...validPayload(), hash: 'deadbeef'.repeat(8) };
     const result = verifyTelegramLogin(payload, TOKEN, NOW_MS);
 
     expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // reason логируется на 401 в маршрутах — фиксируем его точность.
+    expect(result.reason).toBe('Неверная подпись');
   });
 
   it('отклоняет payload, подписанный другим токеном', () => {
