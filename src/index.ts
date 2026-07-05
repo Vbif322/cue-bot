@@ -152,10 +152,16 @@ bot.catch((err) => {
 const MAX_BOT_START_RETRIES = 5;
 const BOT_START_RETRY_DELAY_MS = 5000;
 
-// В production бот получает обновления через вебхук (Telegram пушит их на HTTP-эндпоинт),
-// в dev — через long polling (нет публичного HTTPS-URL). Переключатель — NODE_ENV,
-// как и для отдачи статики SPA.
-const useWebhook = process.env.NODE_ENV === 'production';
+// В production бот по умолчанию получает обновления через вебхук (Telegram пушит их на
+// HTTP-эндпоинт), в dev — через long polling (нет публичного HTTPS-URL). Режим бота развязан
+// от NODE_ENV отдельным флагом BOT_UPDATE_MODE: на площадках, где Telegram не может стабильно
+// достучаться до нас входящим соединением (напр. RU-хостинг с фильтрацией Telegram по IPv4),
+// вебхук доставляется через таймауты/ретраи — тогда ставим BOT_UPDATE_MODE=polling, и апдейты
+// забираем сами исходящим запросом (этот путь по IPv6 работает). Отдача статики SPA
+// по-прежнему завязана на NODE_ENV и этим флагом не затрагивается.
+const useWebhook =
+  process.env.NODE_ENV === 'production' &&
+  process.env.BOT_UPDATE_MODE !== 'polling';
 
 // bot.start() резолвится только при bot.stop(), а его внутренний polling уже сам
 // ретраит транзиентные ошибки. Незакрытый зазор — начальная инициализация
