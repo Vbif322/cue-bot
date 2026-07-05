@@ -1,5 +1,5 @@
 import type { UUID } from 'crypto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
@@ -57,6 +57,10 @@ function hasAppTokenCookie(res: Response): boolean {
   return (res.headers.get('set-cookie') ?? '').includes('app_token=');
 }
 
+function appTokenSetCookie(res: Response): string {
+  return res.headers.get('set-cookie') ?? '';
+}
+
 describe('app telegram auth router — вход через виджет', () => {
   beforeEach(async () => {
     app = createAdminServer();
@@ -76,6 +80,9 @@ describe('app telegram auth router — вход через виджет', () => 
     expect(res.status).toBe(200);
     expect(res.body.data.user.id).toBe(existing.id);
     expect(hasAppTokenCookie(res.res)).toBe(true);
+    // Кука сессии — SameSite=Lax (не Strict), иначе она «теряется» на межсайтовых
+    // переходах (заход по ссылке из Telegram, возврат из OAuth-попапа).
+    expect(appTokenSetCookie(res.res)).toMatch(/SameSite=Lax/i);
 
     // Ни лишних users с этим telegram_id, ни дублей telegram-identity.
     const sameTg = await db.query.users.findMany({
@@ -107,20 +114,27 @@ describe('app telegram auth router — вход через виджет', () => 
     expect(identities[0]?.providerId).toBe('555000');
   });
 
-  it('невалидный hash → 401 без куки', async () => {
+  it('невалидный hash → 401 без куки, причина в логе', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const bad = { ...tgPayload(), hash: 'deadbeef'.repeat(8) };
     const res = await apiRequest(app, 'POST', AUTH, { body: bad });
 
     expect(res.status).toBe(401);
     expect(hasAppTokenCookie(res.res)).toBe(false);
+    // Клиенту причину не раскрываем, но в лог пишем конкретный reason (диагностика прода).
+    expect(warn).toHaveBeenCalledWith('Telegram login rejected:', 'Неверная подпись');
+    warn.mockRestore();
   });
 
-  it('просроченный auth_date → 401 без куки', async () => {
+  it('просроченный auth_date → 401 без куки, причина в логе', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const stale = tgPayload({ auth_date: Math.floor(Date.now() / 1000) - 600 });
     const res = await apiRequest(app, 'POST', AUTH, { body: stale });
 
     expect(res.status).toBe(401);
     expect(hasAppTokenCookie(res.res)).toBe(false);
+    expect(warn).toHaveBeenCalledWith('Telegram login rejected:', 'Ссылка устарела');
+    warn.mockRestore();
   });
 
   it('username берётся из first_name, если в payload нет username', async () => {
