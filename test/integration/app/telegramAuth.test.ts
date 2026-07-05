@@ -67,6 +67,14 @@ describe('app telegram auth router — вход через виджет', () => 
     await truncateAll();
   });
 
+  it('COOP=same-origin-allow-popups — попап oauth.telegram.org может вернуть результат', async () => {
+    // Дефолтный same-origin рвёт window.opener → Telegram Login Widget «молча» не входит.
+    const res = await apiRequest(app, 'POST', AUTH, { body: tgPayload({ id: 987654 }) });
+    expect(res.res.headers.get('cross-origin-opener-policy')).toBe(
+      'same-origin-allow-popups',
+    );
+  });
+
   it('вход существующего (бэкфилленного) бот-юзера → тот же аккаунт, без дублей', async () => {
     const existing = await seedBackfilledBotUser('987654');
 
@@ -115,7 +123,7 @@ describe('app telegram auth router — вход через виджет', () => 
   });
 
   it('невалидный hash → 401 без куки, причина в логе', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const bad = { ...tgPayload(), hash: 'deadbeef'.repeat(8) };
     const res = await apiRequest(app, 'POST', AUTH, { body: bad });
 
@@ -127,7 +135,7 @@ describe('app telegram auth router — вход через виджет', () => 
   });
 
   it('просроченный auth_date → 401 без куки, причина в логе', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const stale = tgPayload({ auth_date: Math.floor(Date.now() / 1000) - 600 });
     const res = await apiRequest(app, 'POST', AUTH, { body: stale });
 

@@ -20,7 +20,15 @@ export function createAdminServer() {
 
   // Security headers (defaults: X-Frame-Options, nosniff, HSTS, Referrer-Policy, …)
   // на все ответы, включая статику SPA. Без CSP, чтобы не ломать React-приложение.
-  app.use('*', secureHeaders());
+  //
+  // COOP ослаблен с дефолтного 'same-origin' до 'same-origin-allow-popups': дефолт
+  // разрывает window.opener между страницей и попапом oauth.telegram.org, из-за чего
+  // Telegram Login Widget (callback-режим, data-onauth) не может вернуть результат в
+  // страницу через opener.postMessage — вход «молча» не срабатывает (запрос на сервер
+  // не уходит). 'allow-popups' сохраняет остальную COOP-изоляцию, но позволяет
+  // открытым попапам достучаться до опенера. Проявлялось только в проде: в dev HTML
+  // отдаёт Vite без secure-заголовков.
+  app.use('*', secureHeaders({ crossOriginOpenerPolicy: 'same-origin-allow-popups' }));
 
   // CORS for Vite dev server (dev only)
   if (process.env.NODE_ENV === 'development') {
