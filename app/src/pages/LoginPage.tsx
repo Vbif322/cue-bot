@@ -3,13 +3,19 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { appAuth } from '../lib/api.ts';
-import type { TelegramAuthData } from '../lib/types.ts';
 import { Btn, Field } from '../components/controls.tsx';
 import { ErrorBox } from '../components/ui.tsx';
 import {
   TelegramLoginButton,
-  useBotUsername,
+  useTelegramLoginEnabled,
 } from '../components/TelegramLoginButton.tsx';
+
+// Сообщения по коду ошибки из ?telegram= (редирект бэкенда после OIDC-возврата).
+const TELEGRAM_ERRORS: Record<string, string> = {
+  error: 'Не удалось войти через Telegram. Попробуйте ещё раз.',
+  cancelled: 'Вход через Telegram отменён.',
+  auth_required: 'Сначала войдите в аккаунт.',
+};
 
 export default function LoginPage() {
   const nav = useNavigate();
@@ -17,7 +23,9 @@ export default function LoginPage() {
   const qc = useQueryClient();
   const from = (loc.state as { from?: string } | null)?.from ?? '/';
 
-  const botUsername = useBotUsername();
+  const telegramEnabled = useTelegramLoginEnabled();
+  const telegramError =
+    TELEGRAM_ERRORS[new URLSearchParams(loc.search).get('telegram') ?? ''];
 
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
@@ -30,14 +38,6 @@ export default function LoginPage() {
 
   const verifyMut = useMutation({
     mutationFn: () => appAuth.verifyCode(email.trim(), code.trim()),
-    onSuccess: (data) => {
-      qc.setQueryData(['auth', 'me'], { user: data.user });
-      nav(from, { replace: true });
-    },
-  });
-
-  const telegramMut = useMutation({
-    mutationFn: (payload: TelegramAuthData) => appAuth.telegramLogin(payload),
     onSuccess: (data) => {
       qc.setQueryData(['auth', 'me'], { user: data.user });
       nav(from, { replace: true });
@@ -168,7 +168,7 @@ export default function LoginPage() {
           </form>
         )}
 
-        {step === 'email' && botUsername && (
+        {step === 'email' && telegramEnabled && (
           <>
             <div
               style={{
@@ -184,9 +184,9 @@ export default function LoginPage() {
               <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <TelegramLoginButton onAuth={(payload) => telegramMut.mutate(payload)} />
+              <TelegramLoginButton />
             </div>
-            {telegramMut.error && <ErrorBox message={telegramMut.error.message} />}
+            {telegramError && <ErrorBox message={telegramError} />}
           </>
         )}
       </div>

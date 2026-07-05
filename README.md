@@ -65,17 +65,23 @@ cd admin && npm install && cd ..
 
 ```env
 BOT_TOKEN=your_telegram_bot_token_here
-BOT_USERNAME=your_bot_username        # без @; нужен Telegram Login Widget на сайте игрока
 DATABASE_URL=postgresql://user:password@localhost:5432/cuebot
 JWT_SECRET=your_jwt_secret_here
 ADMIN_PORT=3000
 NODE_ENV=development
+
+# Вход через Telegram (OIDC) на сайте игрока — см. «Вход через Telegram»:
+TELEGRAM_CLIENT_ID=your_oidc_client_id
+TELEGRAM_CLIENT_SECRET=your_oidc_client_secret
+# redirect_uri, зарегистрированный в BotFather. В dev — origin Vite:
+TELEGRAM_REDIRECT_URI=http://localhost:5173/api/app/auth/telegram/callback
 ```
 
 5. Получить токен можно у [@BotFather](https://t.me/botfather) в Telegram
 
-`BOT_USERNAME` — username бота (без `@`); отдаётся публичным `GET /api/app/config`
-и подставляется в Telegram Login Widget на сайте игрока (см. «Вход через Telegram»).
+`TELEGRAM_CLIENT_ID` / `TELEGRAM_CLIENT_SECRET` — выдаёт BotFather (Bot Settings →
+Web Login). Наличие `TELEGRAM_CLIENT_ID` включает кнопку входа: публичный
+`GET /api/app/config` отдаёт `telegramLoginEnabled`.
 
 ## Запуск
 
@@ -153,19 +159,28 @@ ssh -N \
 
 После этого Web App будет доступен по вашему публичному адресу (через nginx, проксирующий порт 8080). `allowedHosts` в `vite.config.ts` выставлен в `true`, поэтому туннель с любым доменом принимается.
 
-### Вход через Telegram (Telegram Login Widget)
+### Вход через Telegram (OIDC)
 
 На сайте игрока (`app/`) наряду с входом по коду на почту доступен вход через
-Telegram Login Widget. Для его работы нужно:
+Telegram по OpenID Connect (Authorization Code Flow + PKCE). Кнопка — обычная
+ссылка на `GET /api/app/auth/telegram/start`; бэкенд уводит браузер на
+`oauth.telegram.org`, обменивает `code` на `id_token` server-to-server и ставит
+сессию. Привязка из профиля — тот же поток с `?link=1`.
 
-1. Задать `BOT_USERNAME` (username бота без `@`) — виджет получает его из
-   `GET /api/app/config`.
-2. Привязать домен сайта у [@BotFather](https://t.me/botfather): команда
-   `/setdomain` → выбрать бота → указать домен сайта игрока (например,
-   `cuebot.ru`). Без этого Telegram не отрисует виджет.
+Настройка у [@BotFather](https://t.me/botfather) → **Bot Settings → Web Login**:
 
-Виджет **не работает с `localhost`** (Telegram требует публичный домен из
-`/setdomain`). Для живой проверки используйте SSH-туннель (см. выше) или прод.
+1. Переключить бота на OpenID Connect Login → получить **Client ID** и
+   **Client Secret** → положить в `TELEGRAM_CLIENT_ID` / `TELEGRAM_CLIENT_SECRET`.
+2. В **Allowed URLs** добавить:
+   - **Trusted Origins** (origin, без пути): прод — `https://<домен>`;
+     dev — `http://localhost:5173`.
+   - **Redirect URIs** (полный URL): прод —
+     `https://<домен>/api/app/auth/telegram/callback`; dev —
+     `http://localhost:5173/api/app/auth/telegram/callback` (Vite проксирует
+     `/api` на `:3000`). Значение должно совпадать с `TELEGRAM_REDIRECT_URI`.
+
+Подпись `id_token` не проверяется: токен приходит по прямому TLS-каналу с token
+endpoint (OIDC Core §3.1.3.7), сверяются `iss`/`aud`/`exp`.
 
 ### Сборка проекта
 

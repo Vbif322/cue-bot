@@ -1,75 +1,59 @@
-// Telegram Login Widget: подгружает telegram-widget.js с data-telegram-login =
-// username бота (из GET /api/app/config) и вызывает onAuth с payload виджета.
-// Виджет умеет вернуть данные только через ГЛОБАЛЬНУЮ функцию (data-onauth),
-// поэтому на каждый монтаж вешаем уникально именованный колбэк на window и
-// снимаем его при размонтировании. Не работает с localhost — нужен домен из
-// /setdomain у @BotFather (см. README «Вход через Telegram»).
-import { useEffect, useRef } from 'react';
+// Вход/привязка через Telegram по OIDC — простой полностраничный редирект на
+// бэкенд (GET /api/app/auth/telegram/start), никакого виджета/скрипта/попапа. Сервер
+// уводит браузер на oauth.telegram.org и возвращает обратно, выставив сессию (или
+// привязав Telegram при ?link=1). Кнопка — обычная ссылка.
 import { useQuery } from '@tanstack/react-query';
 import { configApi } from '../lib/api.ts';
-import type { TelegramAuthData } from '../lib/types.ts';
-
-let callbackSeq = 0;
 
 interface Props {
-  onAuth: (data: TelegramAuthData) => void;
-  size?: 'large' | 'medium' | 'small';
+  /** true → привязка к текущему аккаунту (start?link=1); иначе вход. */
+  link?: boolean;
+  size?: 'large' | 'medium';
 }
 
-type WindowWithCallbacks = Window &
-  Record<string, ((user: TelegramAuthData) => void) | undefined>;
-
 /**
- * Username бота из публичного конфига (GET /api/app/config), `null` пока не
- * загружен или если `BOT_USERNAME` не задан на сервере. Позволяет странице
- * скрыть всю обёртку вокруг виджета (разделитель, заголовок блока), а не только
- * саму кнопку, когда вход через Telegram недоступен. Запрос дедуплицируется с
- * тем, что делает {@link TelegramLoginButton} — общий ключ ['config'].
+ * Включён ли вход через Telegram (GET /api/app/config → telegramLoginEnabled),
+ * `false` пока не загружен. Позволяет странице скрыть всю обёртку (разделитель,
+ * заголовок), а не только кнопку. Запрос дедуплицируется общим ключом ['config'].
  */
-export function useBotUsername(): string | null {
-  const { data: config } = useQuery({
+export function useTelegramLoginEnabled(): boolean {
+  const { data } = useQuery({
     queryKey: ['config'],
     queryFn: () => configApi.get(),
     staleTime: Infinity,
   });
-  return config?.botUsername ?? null;
+  return data?.telegramLoginEnabled ?? false;
 }
 
-export function TelegramLoginButton({ onAuth, size = 'large' }: Props) {
-  const botUsername = useBotUsername();
+export function TelegramLoginButton({ link = false, size = 'large' }: Props) {
+  const enabled = useTelegramLoginEnabled();
+  if (!enabled) return null;
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  // Держим актуальный onAuth в ref — глобальный колбэк ниже вешается один раз на
-  // монтаж, но должен звать текущий обработчик без переинъекции скрипта.
-  const onAuthRef = useRef(onAuth);
-  onAuthRef.current = onAuth;
+  const href = `/api/app/auth/telegram/start${link ? '?link=1' : ''}`;
+  const pad = size === 'large' ? '11px 18px' : '9px 14px';
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!botUsername || !container) return;
-
-    const win = window as unknown as WindowWithCallbacks;
-    const callbackName = `onTelegramAuth_${String(callbackSeq++)}`;
-    win[callbackName] = (user) => {
-      onAuthRef.current(user);
-    };
-
-    const script = document.createElement('script');
-    script.src = 'https://telegram.org/js/telegram-widget.js?22';
-    script.async = true;
-    script.setAttribute('data-telegram-login', botUsername);
-    script.setAttribute('data-size', size);
-    script.setAttribute('data-userpic', 'false');
-    script.setAttribute('data-request-access', 'write');
-    script.setAttribute('data-onauth', `${callbackName}(user)`);
-    container.appendChild(script);
-
-    return () => {
-      container.innerHTML = '';
-      win[callbackName] = undefined;
-    };
-  }, [botUsername, size]);
-
-  if (!botUsername) return null;
-  return <div ref={containerRef} />;
+  return (
+    <a
+      href={href}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: pad,
+        borderRadius: 10,
+        background: '#54a9eb',
+        color: '#fff',
+        fontWeight: 600,
+        fontSize: size === 'large' ? 15 : 14,
+        textDecoration: 'none',
+        border: 'none',
+        cursor: 'pointer',
+      }}
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+        <path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0Zm5.56 8.16-1.86 8.76c-.14.62-.5.77-1.02.48l-2.82-2.08-1.36 1.31c-.15.15-.28.28-.57.28l.2-2.88 5.24-4.73c.23-.2-.05-.31-.35-.11l-6.48 4.08-2.79-.87c-.61-.19-.62-.61.13-.9l10.9-4.2c.5-.19.95.11.79.9Z" />
+      </svg>
+      {link ? 'Привязать Telegram' : 'Войти через Telegram'}
+    </a>
+  );
 }
