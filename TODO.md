@@ -5,8 +5,67 @@
 
 ## P2 — Техдолг / UX (Low)
 
-- Прочий Low-долг (детали — `audit/FINDINGS.md`): S2-7…S2-10, S3-5…S3-7,
-  S4-4, S4-5, S5-4, S5-5, S6-2, S6-3, S7-5
+Порядок групп по польза/цена: **3 → 5 → 6 → 1 → 2 → 4**.
+
+### Группа 1 — Валидация path-параметров в admin-API (S2-8, + часть S3-6)
+
+Player-роуты уже валидируют `id` через `validateParam` (`src/app/server/routes/_shared.ts`);
+admin-роуты `users.ts`/`matches.ts`/`tournaments.ts` кастуют `c.req.param('id') as UUID` без
+проверки → битый id доходит до Postgres и даёт 500.
+
+- Добавить admin-`_shared.ts` (или переиспользовать паттерн) с
+  `zValidator('param', z.object({ id: z.uuid() }))`, прогнать по всем `:id`/`:tournamentId`/`:userId`.
+- Побочно снижает счётчик `as UUID` (~101 по `src/`). Образцы: `routes/tables.ts:42`, `venues.ts:46,68`.
+
+### Группа 2 — Дедупликация и N+1 в matchService (S3-5)
+
+Всё в `src/services/matchService.ts`, без изменения поведения:
+
+- Общий select+mapping `MatchWithPlayers` (дубль в `getMatch` :123-165 и `getTournamentMatches` :273-312).
+- Устранить N+1: `getPlayerActiveMatches` (:201-228), `getPlayerCurrentMatch` (:171-196),
+  `getPlayerMatchHistory` (:234-259) — зовут `getMatch` в цикле.
+- Батчевая вставка в `createMatches` (:53-108) вместо `insert().returning()` в цикле.
+
+### Группа 3 — Чистка roleCommands (S3-5 + остаток S3-6)
+
+Всё в `src/bot/handlers/roleCommands.ts`:
+
+- Вынести `findUserByHandle()` — 4 копии блока «@username → username, иначе telegram_id»
+  (:32-41, :84-95, :151-162, :230-241).
+- `parseInt(telegram_id)` → radix 10 (:61, :120, :190, :264) — единственные места без radix.
+
+### Группа 4 — Доменные CHECK-ограничения в БД (S5-4)
+
+Enum-CHECK'и и партиал-уник на username уже есть (`schemaHelpers.ts:23-34`, `users.ts:30-32`);
+осталось числовое:
+
+- CHECK на неотрицательность `matches.player1Score/player2Score/round/position`
+  (`schema/matches.ts:47-61`) и `tournaments.maxParticipants/winScore/…` (`tournaments.ts:102-118`).
+- `npm run db:generate` → `db:migrate`.
+
+### Группа 5 — Устойчивость сессии/UX во фронте (S6-2 + S6-3)
+
+Мелкие точечные правки в обеих SPA:
+
+- **S6-2:** глобальная обработка 401 в `admin/src/lib/api.ts` и `app/src/lib/api.ts` — при 401
+  инвалидировать `['auth','me']` / редирект на логин вместо общего Error.
+- **S6-3:** `admin/src/pages/VenuesPage.tsx:218-224` — `referrerPolicy="no-referrer"` на `<img>`
+  (глобальный `Referrer-Policy: no-referrer` от `secureHeaders()` уже стоит — добивка); CSP
+  осознанно отключена (`src/admin/server/index.ts:22`), не трогаем.
+
+### Группа 6 — Воспроизводимость dev-окружения (S7-5)
+
+- Добавить `docker-compose.yml` для dev-Postgres (заменяет опору на вручную созданный
+  контейнер `drizzle-postgres`), обновить `db:up/down` (`package.json:39-42`) и README.
+  Интеграция уже на testcontainers — не трогаем.
+
+### Мелочь (по желанию, дёшево)
+
+- **S3-7:** вынести границы DE-участников `8/128` в общий константный модуль (сейчас magic
+  numbers в `bracketGenerator.ts:252-254` и `tournamentService.ts:359-362`).
+- **S5-5:** `tournaments.confirmedParticipants` — снапшот на `registration_closed`
+  (`tournamentService.ts:889-896`), но читается для размера сетки (`matchService.ts:45`,
+  `matchUI.ts:125`). Вероятно осознанно — задокументировать инвариант в схеме, а не менять.
 
 ## Архитектура / инфраструктура
 
@@ -23,10 +82,11 @@
 telegram-аккаунтов (закрыло предусловие S2-2 из аудита); беспарольный вход — коды на почту
 (`email_login_codes` + mailService) и Telegram Login Widget (`verifyTelegramLogin`,
 `POST /api/app/auth/telegram`, привязка `POST /api/app/me/telegram`); JWT в куке `app_token`
-+ `requireUser`; регистрация/отмена/приглашения извлечены из бот-хендлеров в
-`tournamentService`; API игрока `/api/app/*` (auth, me, tournaments, matches, notifications);
-SPA `app/`; раздача по поддоменам (игрок — cuebot.ru, админка — admin.cuebot.ru,
-Host-диспетчеризация в Node).
+
+- `requireUser`; регистрация/отмена/приглашения извлечены из бот-хендлеров в
+  `tournamentService`; API игрока `/api/app/*` (auth, me, tournaments, matches, notifications);
+  SPA `app/`; раздача по поддоменам (игрок — cuebot.ru, админка — admin.cuebot.ru,
+  Host-диспетчеризация в Node).
 
 Хвосты M1:
 
