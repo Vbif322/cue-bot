@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { webhookCallback } from 'grammy';
-import { bot } from '../../bot/instance.js';
+import { bot, useWebhook } from '../../bot/instance.js';
 import { createAuthRouter } from './auth.js';
 import { createAppAuthRouter } from '../../app/server/routes/auth.js';
 import { createAppTournamentsRouter } from '../../app/server/routes/tournaments.js';
@@ -36,21 +36,24 @@ export function createAdminServer() {
   // Health check
   app.get('/api/health', (c) => c.json({ ok: true }));
 
-  // Telegram webhook (production). The secret is embedded in the path AND verified
-  // against the X-Telegram-Bot-Api-Secret-Token header by grammY (secretToken), which
-  // auto-replies 401 on mismatch. Registered here so it precedes the serveStatic('/*')
-  // catch-all that index.ts adds after this factory returns (Hono matches in order).
-  // When TELEGRAM_WEBHOOK_SECRET is unset (dev/polling), the route simply isn't mounted.
-  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (webhookSecret) {
-    app.post(
-      `/api/telegram/webhook/${webhookSecret}`,
-      webhookCallback(bot, 'hono', { secretToken: webhookSecret }),
-    );
-  } else if (process.env.NODE_ENV === 'production') {
-    console.warn(
-      'TELEGRAM_WEBHOOK_SECRET не задан — вебхук не смонтирован, бот не будет получать обновления.',
-    );
+  // Telegram webhook — монтируется ТОЛЬКО в webhook-режиме (useWebhook). Иначе grammY
+  // `webhookCallback` подменяет `bot.start` заглушкой, и polling-ветка в index.ts падает
+  // с «You already started the bot via webhooks». Секрет вшит в путь И проверяется grammY
+  // по заголовку X-Telegram-Bot-Api-Secret-Token (secretToken, авто-401 при несовпадении).
+  // Регистрируется здесь, чтобы предшествовать serveStatic('/*'), который index.ts добавляет
+  // после этой фабрики (Hono матчит в порядке регистрации).
+  if (useWebhook) {
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      app.post(
+        `/api/telegram/webhook/${webhookSecret}`,
+        webhookCallback(bot, 'hono', { secretToken: webhookSecret }),
+      );
+    } else {
+      console.warn(
+        'TELEGRAM_WEBHOOK_SECRET не задан — вебхук не смонтирован, бот не будет получать обновления.',
+      );
+    }
   }
 
   // Auth routes (no auth middleware)
