@@ -20,15 +20,9 @@ export function createAdminServer() {
 
   // Security headers (defaults: X-Frame-Options, nosniff, HSTS, Referrer-Policy, …)
   // на все ответы, включая статику SPA. Без CSP, чтобы не ломать React-приложение.
-  //
-  // COOP ослаблен с дефолтного 'same-origin' до 'same-origin-allow-popups': дефолт
-  // разрывает window.opener между страницей и попапом oauth.telegram.org, из-за чего
-  // Telegram Login Widget (callback-режим, data-onauth) не может вернуть результат в
-  // страницу через opener.postMessage — вход «молча» не срабатывает (запрос на сервер
-  // не уходит). 'allow-popups' сохраняет остальную COOP-изоляцию, но позволяет
-  // открытым попапам достучаться до опенера. Проявлялось только в проде: в dev HTML
-  // отдаёт Vite без secure-заголовков.
-  app.use('*', secureHeaders({ crossOriginOpenerPolicy: 'same-origin-allow-popups' }));
+  // COOP оставляем дефолтным: вход через Telegram теперь редиректный (OIDC), попап
+  // oauth.telegram.org и window.opener больше не задействованы.
+  app.use('*', secureHeaders());
 
   // CORS for Vite dev server (dev only)
   if (process.env.NODE_ENV === 'development') {
@@ -67,10 +61,14 @@ export function createAdminServer() {
   // Auth routes (no auth middleware)
   app.route('/api/auth', createAuthRouter());
 
-  // Публичный конфиг для SPA игрока: username бота нужен Telegram Login Widget
-  // (Этап 7). Статичное значение из env — без rate-limit.
+  // Публичный конфиг для SPA игрока: включён ли вход через Telegram. Кнопка входа —
+  // просто ссылка на /api/app/auth/telegram/start (OIDC-редирект), username бота ей не
+  // нужен; достаточно знать, сконфигурирован ли OIDC-клиент (TELEGRAM_CLIENT_ID).
+  // Статичное значение из env — без rate-limit.
   app.get('/api/app/config', (c) =>
-    c.json({ data: { botUsername: process.env.BOT_USERNAME ?? null } }),
+    c.json({
+      data: { telegramLoginEnabled: Boolean(process.env.TELEGRAM_CLIENT_ID) },
+    }),
   );
 
   // Беспарольный вход игрока (код на почту + Telegram-виджет) — общий бэкенд для

@@ -1,27 +1,37 @@
 // Профиль игрока (макет profile): обзор со статистикой и историей + настройки
 // (email read-only, имя/фамилия, выход). Паролей нет — секция пароля не нужна.
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, type BadgeTone } from '@cue-bot/ui';
 import { meApi } from '../lib/api.ts';
-import type { TelegramAuthData } from '../lib/types.ts';
 import { useMe, useLogout } from '../lib/useAuth.ts';
 import { displayName, initials, gradientFor, formatDate } from '../lib/format.ts';
 import { Btn, Field, Labeled } from '../components/controls.tsx';
 import { ErrorBox, Loader, StatTile } from '../components/ui.tsx';
 import {
   TelegramLoginButton,
-  useBotUsername,
+  useTelegramLoginEnabled,
 } from '../components/TelegramLoginButton.tsx';
 
 type Tab = 'overview' | 'settings';
 
+// Сообщения по коду из ?telegram= (редирект бэкенда после OIDC-привязки).
+const TELEGRAM_LINK_ERRORS: Record<string, string> = {
+  error: 'Не удалось привязать Telegram. Попробуйте ещё раз.',
+  cancelled: 'Привязка Telegram отменена.',
+  exists: 'Этот Telegram уже привязан к другому аккаунту.',
+  has_other: 'К аккаунту уже привязан другой Telegram.',
+};
+
 export default function ProfilePage() {
   const qc = useQueryClient();
   const nav = useNavigate();
+  const loc = useLocation();
   const { data: me } = useMe();
-  const botUsername = useBotUsername();
+  const telegramEnabled = useTelegramLoginEnabled();
+  const telegramLinkError =
+    TELEGRAM_LINK_ERRORS[new URLSearchParams(loc.search).get('telegram') ?? ''];
   const [tab, setTab] = useState<Tab>('overview');
 
   const { data: profile, isLoading } = useQuery({
@@ -45,13 +55,6 @@ export default function ProfilePage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['me', 'profile'] });
       qc.invalidateQueries({ queryKey: ['auth', 'me'] });
-    },
-  });
-
-  const linkTelegramMut = useMutation({
-    mutationFn: (payload: TelegramAuthData) => meApi.linkTelegram(payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['me', 'profile'] });
     },
   });
 
@@ -285,8 +288,8 @@ export default function ProfilePage() {
           </div>
 
           {/* Telegram — скрываем блок целиком, если вход через Telegram не
-              настроен (нет BOT_USERNAME) и аккаунт ещё не привязан. */}
-          {(botUsername || profile.telegramLinked) && (
+              настроен (нет OIDC-клиента) и аккаунт ещё не привязан. */}
+          {(telegramEnabled || profile.telegramLinked) && (
             <div
               style={{
                 boxSizing: 'border-box',
@@ -309,13 +312,8 @@ export default function ProfilePage() {
                 <div style={{ fontSize: 14, color: '#6ee7b7' }}>Привязан.</div>
               ) : (
                 <>
-                  <TelegramLoginButton
-                    size="medium"
-                    onAuth={(payload) => linkTelegramMut.mutate(payload)}
-                  />
-                  {linkTelegramMut.error && (
-                    <ErrorBox message={linkTelegramMut.error.message} />
-                  )}
+                  <TelegramLoginButton link size="medium" />
+                  {telegramLinkError && <ErrorBox message={telegramLinkError} />}
                 </>
               )}
             </div>
