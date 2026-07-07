@@ -43,15 +43,15 @@ export default function InvitePage() {
 
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '24px 20px', boxSizing: 'border-box' }}>
-      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>Вас пригласили в турнир</div>
+      <div style={{ fontSize: 13, color: 'var(--text-faint)', marginBottom: 14 }}>Вас пригласили в турнир</div>
       <div
         style={{
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
           gap: 16,
-          background: '#191b22',
-          border: '1px solid rgba(255,255,255,0.09)',
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border-default)',
           borderRadius: 18,
           padding: 20,
         }}
@@ -63,7 +63,7 @@ export default function InvitePage() {
               fontWeight: 600,
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              color: '#6b7280',
+              color: 'var(--text-faint)',
             }}
           >
             {disciplineLabel(t.discipline)}
@@ -71,13 +71,13 @@ export default function InvitePage() {
           <TournamentStatusBadge status={t.status} />
         </div>
         <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.15 }}>{t.name}</div>
-        <div style={{ fontSize: 13, color: '#9aa0aa' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           {t.startDate ? formatDateTime(t.startDate) : 'Дата не назначена'}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-            <span style={{ color: '#6b7280' }}>Участники</span>
-            <span style={{ color: '#d1d5db', fontWeight: 600 }}>
+            <span style={{ color: 'var(--text-faint)' }}>Участники</span>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
               {t.confirmedCount} / {t.maxParticipants}
             </span>
           </div>

@@ -38,7 +38,7 @@ export default function AppModal({
         position: 'fixed',
         inset: 0,
         zIndex: 50,
-        background: 'rgba(3,4,8,0.66)',
+        background: 'var(--scrim)',
         backdropFilter: 'blur(6px)',
         display: 'flex',
         alignItems: 'flex-start',
@@ -55,10 +55,10 @@ export default function AppModal({
           width: '100%',
           maxWidth,
           boxSizing: 'border-box',
-          background: '#15161c',
-          border: '1px solid rgba(255,255,255,0.10)',
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border-default)',
           borderRadius: 20,
-          boxShadow: '0 24px 70px rgba(0,0,0,0.6)',
+          boxShadow: 'var(--shadow-modal)',
           overflow: 'hidden',
           margin: 'auto',
         }}
@@ -70,12 +70,12 @@ export default function AppModal({
               alignItems: 'center',
               gap: 12,
               padding: '16px 18px',
-              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              borderBottom: '1px solid var(--border-subtle)',
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 700 }}>{title}</div>
-              {subtitle && <div style={{ fontSize: 12, color: '#6b7280' }}>{subtitle}</div>}
+              {subtitle && <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{subtitle}</div>}
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
               {rightSlot}
@@ -87,9 +87,9 @@ export default function AppModal({
                   width: 30,
                   height: 30,
                   borderRadius: 8,
-                  border: '1px solid rgba(255,255,255,0.10)',
-                  background: 'rgba(255,255,255,0.04)',
-                  color: '#9aa0aa',
+                  border: '1px solid var(--border-default)',
+                  background: 'var(--surface-inset)',
+                  color: 'var(--text-muted)',
                   fontSize: 15,
                   cursor: 'pointer',
                   flex: 'none',

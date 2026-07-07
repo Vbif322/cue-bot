@@ -128,7 +128,7 @@ function BracketCard({
         style={{
           fontSize: 13,
           fontWeight: lead ? 700 : 500,
-          color: lead ? '#f3f4f6' : '#9aa0aa',
+          color: lead ? 'var(--text-primary)' : 'var(--text-muted)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -140,7 +140,7 @@ function BracketCard({
         style={{
           fontSize: 14,
           fontWeight: 700,
-          color: lead ? '#f3f4f6' : '#6b7280',
+          color: lead ? 'var(--text-primary)' : 'var(--text-faint)',
           fontVariantNumeric: 'tabular-nums',
           flex: 'none',
         }}
@@ -162,11 +162,11 @@ function BracketCard({
         height: CARD_H,
         boxSizing: 'border-box',
         textAlign: 'left',
-        background: '#17181e',
+        background: 'var(--surface-2)',
         border: card.onPath
-          ? '1px solid rgba(59,130,246,0.6)'
-          : '1px solid rgba(255,255,255,0.08)',
-        boxShadow: card.onPath ? '0 0 0 1px rgba(59,130,246,0.18)' : 'none',
+          ? '1px solid var(--accent-border)'
+          : '1px solid var(--border-default)',
+        boxShadow: card.onPath ? '0 0 0 1px var(--accent-glow)' : 'none',
         borderRadius: 12,
         cursor: 'pointer',
         padding: '9px 11px',
@@ -179,7 +179,7 @@ function BracketCard({
     >
       {row(sideName(m, 1, players), s1, lead1)}
       {row(sideName(m, 2, players), s2, lead2)}
-      <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', marginTop: 'auto' }} />
+      <div style={{ height: 1, background: 'var(--border-subtle)', marginTop: 'auto' }} />
       <div style={{ display: 'flex' }}>
         <MatchStatusBadge status={m.status} />
       </div>
@@ -230,7 +230,7 @@ export default function Bracket({
                   fontWeight: 600,
                   letterSpacing: '0.06em',
                   textTransform: 'uppercase',
-                  color: '#6b7280',
+                  color: 'var(--text-faint)',
                 }}
               >
                 {SECTION_TITLES[key] ?? key}
@@ -250,7 +250,7 @@ export default function Bracket({
                     textAlign: 'center',
                     fontSize: 13,
                     fontWeight: 700,
-                    color: '#e5e7eb',
+                    color: 'var(--text-secondary)',
                   }}
                 >
                   {key === 'grand_final'
@@ -274,7 +274,7 @@ export default function Bracket({
                     key={i}
                     points={c.points}
                     fill="none"
-                    stroke={c.highlight ? 'var(--color-primary)' : 'rgba(255,255,255,0.12)'}
+                    stroke={c.highlight ? 'var(--color-primary)' : 'var(--border-default)'}
                     strokeWidth={c.highlight ? 2.5 : 1.5}
                     strokeLinejoin="round"
                   />

@@ -66,25 +66,3 @@ Enum-CHECK'и и партиал-уник на username уже есть (`schemaH
 - **S5-5:** `tournaments.confirmedParticipants` — снапшот на `registration_closed`
   (`tournamentService.ts:889-896`), но читается для размера сетки (`matchService.ts:45`,
   `matchUI.ts:125`). Вероятно осознанно — задокументировать инвариант в схеме, а не менять.
-
-## Архитектура / инфраструктура
-
-- Дизайн-система (частично): монорепо (npm workspaces: `admin`, `app`, `packages/*`) и пакет
-  `packages/ui` (`@cue-bot/ui`) с дизайн-токенами (Tailwind v4 `@theme`) и презентационными
-  примитивами (Badge/StatusBadge, InfoRow, Chevron, Button, Input/Select, Modal); админка и
-  SPA игрока переведены на них. Осталось: по мере надобности выносить оставшиеся
-  inline-паттерны и, если потребуется, не-UI общий код в `packages/shared`. Фиче-компоненты
-  (`tournament-detail/*`, модалки, завязанные на TanStack Query) намеренно живут в `admin`/`app`.
-
-## Веб для игроков (M1) — готово, см. ROADMAP.md
-
-Реализовано: монорепо (`admin`, `app`, `packages/*`); `user_identities` + бэкфилл
-telegram-аккаунтов (закрыло предусловие S2-2 из аудита); беспарольный вход — коды на почту
-(`email_login_codes` + mailService) и вход через Telegram по OIDC (Authorization Code + PKCE:
-`src/app/server/telegramOidc.ts`, `GET /api/app/auth/telegram/start` + `/callback`, привязка
-через тот же поток с `?link=1`); JWT в куке `app_token`
-
-- `requireUser`; регистрация/отмена/приглашения извлечены из бот-хендлеров в
-  `tournamentService`; API игрока `/api/app/*` (auth, me, tournaments, matches, notifications);
-  SPA `app/`; раздача по поддоменам (игрок — cuebot.ru, админка — admin.cuebot.ru,
-  Host-диспетчеризация в Node).
