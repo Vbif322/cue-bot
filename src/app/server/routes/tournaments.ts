@@ -18,7 +18,11 @@ import {
 import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 import { getBracketReadModel } from '@/services/bracketReadService.js';
 import { getGroupStandings } from '@/services/groupPhaseService.js';
-import { requireUser, resolveUserFromCookie } from '@/admin/server/middleware.js';
+import {
+  APP_SESSION,
+  requireUser,
+  resolveUserFromCookie,
+} from '@/admin/server/middleware.js';
 
 import { validateParam, outcomeError } from './_shared.js';
 
@@ -53,11 +57,13 @@ function visibleTo(
 }
 
 /**
- * Достаёт id пользователя из куки без обязательности входа — для публичных GET,
- * где вход опционален и влияет только на видимость private-турниров.
+ * Достаёт id пользователя из сессии без обязательности входа — для публичных GET,
+ * где вход опционален и влияет только на видимость private-турниров. Опции те же,
+ * что у requireUser (кука + Bearer): Mini App-сессия без куки должна видеть свои
+ * private-турниры так же, как на защищённых эндпоинтах.
  */
 async function optionalUserId(c: Context): Promise<UUID | null> {
-  const user = await resolveUserFromCookie(c, 'app_token');
+  const user = await resolveUserFromCookie(c, APP_SESSION);
   return user?.id ?? null;
 }
 
