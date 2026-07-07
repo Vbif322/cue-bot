@@ -51,6 +51,7 @@ import { getGroupStandings } from '@/services/groupPhaseService.js';
 import { clinchedUserIds } from '@/services/standingsService.js';
 import { getTournamentTables } from '@/services/tableService.js';
 import { requireAdmin } from '../middleware.js';
+import { validateParam, idParam, idUserIdParam } from './_shared.js';
 
 // Shared create/update body schema. For groups_playoff the four group fields are
 // required and validated together; for the other formats maxParticipants must be
@@ -141,21 +142,23 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ data: list });
   });
 
-  router.get('/:id', async (c) => {
-    const tournament = await getTournament(c.req.param('id') as UUID);
+  router.get('/:id', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const tournament = await getTournament(id);
     if (!tournament) return c.json({ error: 'Не найден' }, 404);
     return c.json({ data: tournament });
   });
 
-  router.get('/:id/tables', async (c) => {
-    const list = await getTournamentTables(c.req.param('id') as UUID);
+  router.get('/:id/tables', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const list = await getTournamentTables(id);
     return c.json({ data: list });
   });
 
   // Group-stage standings for the groups_playoff format (empty array otherwise).
   // Rows are enriched with player display names for the SPA.
-  router.get('/:id/standings', async (c) => {
-    const id = c.req.param('id') as UUID;
+  router.get('/:id/standings', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
     const [standings, tournament] = await Promise.all([
       getGroupStandings(id),
       getTournament(id),
@@ -239,9 +242,10 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.patch(
     '/:id',
+    validateParam(idParam),
     zValidator('json', tournamentBodySchema),
     async (c) => {
-      const id = c.req.param('id') as UUID;
+      const { id } = c.req.valid('param');
       const body = c.req.valid('json');
 
       const existing = await getTournament(id);
@@ -292,6 +296,7 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.patch(
     '/:id/status',
+    validateParam(idParam),
     zValidator(
       'json',
       z.object({
@@ -300,7 +305,7 @@ export function createTournamentsRouter(botApi: Api) {
     ),
     async (c) => {
       const { status } = c.req.valid('json');
-      const id = c.req.param('id') as UUID;
+      const { id } = c.req.valid('param');
 
       const tournament = await getTournament(id);
       if (!tournament) return c.json({ error: 'Не найден' }, 404);
@@ -331,8 +336,8 @@ export function createTournamentsRouter(botApi: Api) {
     },
   );
 
-  router.post('/:id/start', async (c) => {
-    const id = c.req.param('id') as UUID;
+  router.post('/:id/start', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
 
     const canStart = await canStartTournament(id);
     if (!canStart.canStart) {
@@ -350,8 +355,8 @@ export function createTournamentsRouter(botApi: Api) {
     }
   });
 
-  router.delete('/:id', async (c) => {
-    const id = c.req.param('id') as UUID;
+  router.delete('/:id', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
     const tournament = await getTournament(id);
 
     if (!tournament) return c.json({ error: 'Не найден' }, 404);
@@ -367,8 +372,8 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ ok: true });
   });
 
-  router.get('/:id/participants', async (c) => {
-    const id = c.req.param('id') as UUID;
+  router.get('/:id/participants', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
 
     const dbParticipants = await db
       .select({
@@ -385,13 +390,15 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ data: dbParticipants });
   });
 
-  router.get('/:id/stats', async (c) => {
-    const stats = await getMatchStats(c.req.param('id') as UUID);
+  router.get('/:id/stats', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const stats = await getMatchStats(id);
     return c.json({ data: stats });
   });
 
   router.post(
     '/:id/participants',
+    validateParam(idParam),
     zValidator(
       'json',
       z.discriminatedUnion('type', [
@@ -404,7 +411,7 @@ export function createTournamentsRouter(botApi: Api) {
       ]),
     ),
     async (c) => {
-      const tournamentId = c.req.param('id') as UUID;
+      const { id: tournamentId } = c.req.valid('param');
       const body = c.req.valid('json');
 
       let userId: UUID;
@@ -449,13 +456,13 @@ export function createTournamentsRouter(botApi: Api) {
 
   router.patch(
     '/:id/participants/:userId',
+    validateParam(idUserIdParam),
     zValidator('json', z.object({ action: z.enum(['confirm', 'reject']) })),
     async (c) => {
-      const tournamentId = c.req.param('id');
-      const userId = c.req.param('userId');
+      const { id: tournamentId, userId } = c.req.valid('param');
       const { action } = c.req.valid('json');
 
-      const tournament = await getTournament(tournamentId as UUID);
+      const tournament = await getTournament(tournamentId);
       if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
 
       if (
@@ -497,21 +504,24 @@ export function createTournamentsRouter(botApi: Api) {
     },
   );
 
-  router.delete('/:id/participants/:userId', async (c) => {
-    const tournamentId = c.req.param('id') as UUID;
-    const userId = c.req.param('userId') as UUID;
+  router.delete(
+    '/:id/participants/:userId',
+    validateParam(idUserIdParam),
+    async (c) => {
+      const { id: tournamentId, userId } = c.req.valid('param');
 
-    await deleteParticipant(tournamentId, userId);
+      await deleteParticipant(tournamentId, userId);
 
-    return c.json({ ok: true });
-  });
+      return c.json({ ok: true });
+    },
+  );
 
   router.patch(
     '/:id/participants/:userId/seed',
+    validateParam(idUserIdParam),
     zValidator('json', z.object({ seed: z.number().int().min(1).nullable() })),
     async (c) => {
-      const tournamentId = c.req.param('id') as UUID;
-      const userId = c.req.param('userId') as UUID;
+      const { id: tournamentId, userId } = c.req.valid('param');
       const { seed } = c.req.valid('json');
 
       const tournament = await getTournament(tournamentId);
@@ -542,25 +552,29 @@ export function createTournamentsRouter(botApi: Api) {
     },
   );
 
-  router.post('/:id/participants/seeds/randomize', async (c) => {
-    const tournamentId = c.req.param('id') as UUID;
+  router.post(
+    '/:id/participants/seeds/randomize',
+    validateParam(idParam),
+    async (c) => {
+      const { id: tournamentId } = c.req.valid('param');
 
-    const tournament = await getTournament(tournamentId);
-    if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
+      const tournament = await getTournament(tournamentId);
+      if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
 
-    if (
-      tournament.status !== 'registration_open' &&
-      tournament.status !== 'registration_closed'
-    ) {
-      return c.json(
-        { error: 'Сиды можно менять только во время регистрации' },
-        400,
-      );
-    }
+      if (
+        tournament.status !== 'registration_open' &&
+        tournament.status !== 'registration_closed'
+      ) {
+        return c.json(
+          { error: 'Сиды можно менять только во время регистрации' },
+          400,
+        );
+      }
 
-    await randomizeSeeds(tournamentId);
-    return c.json({ ok: true });
-  });
+      await randomizeSeeds(tournamentId);
+      return c.json({ ok: true });
+    },
+  );
 
   return router;
 }

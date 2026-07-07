@@ -10,6 +10,7 @@ import {
 } from '@/services/tableService.js';
 
 import { requireAdmin } from '../middleware.js';
+import { validateParam, idParam } from './_shared.js';
 
 export function createTablesRouter() {
   const router = new Hono();
@@ -37,16 +38,12 @@ export function createTablesRouter() {
     },
   );
 
-  router.delete(
-    '/:id',
-    zValidator('param', z.object({ id: z.uuid() })),
-    async (c) => {
-      const { id } = c.req.valid('param');
-      const deleted = await deleteTable(id as UUID);
-      if (!deleted) return c.json({ error: 'Not found' }, 404);
-      return c.json({ ok: true });
-    },
-  );
+  router.delete('/:id', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const deleted = await deleteTable(id);
+    if (!deleted) return c.json({ error: 'Not found' }, 404);
+    return c.json({ ok: true });
+  });
 
   return router;
 }

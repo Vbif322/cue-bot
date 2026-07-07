@@ -5,17 +5,7 @@
 
 ## P2 — Техдолг / UX (Low)
 
-Порядок групп по польза/цена: **6 → 1 → 2 → 4**. (Группа 6 — сделана.)
-
-### Группа 1 — Валидация path-параметров в admin-API (S2-8, + часть S3-6)
-
-Player-роуты уже валидируют `id` через `validateParam` (`src/app/server/routes/_shared.ts`);
-admin-роуты `users.ts`/`matches.ts`/`tournaments.ts` кастуют `c.req.param('id') as UUID` без
-проверки → битый id доходит до Postgres и даёт 500.
-
-- Добавить admin-`_shared.ts` (или переиспользовать паттерн) с
-  `zValidator('param', z.object({ id: z.uuid() }))`, прогнать по всем `:id`/`:tournamentId`/`:userId`.
-- Побочно снижает счётчик `as UUID` (~101 по `src/`). Образцы: `routes/tables.ts:42`, `venues.ts:46,68`.
+Порядок групп по польза/цена: **2 → 4**. (Группа 6 — сделана.)
 
 ### Группа 2 — Дедупликация и N+1 в matchService (S3-5)
 
@@ -33,14 +23,7 @@ Enum-CHECK'и и партиал-уник на username уже есть (`schemaH
 
 - CHECK на неотрицательность `matches.player1Score/player2Score/round/position`
   (`schema/matches.ts:47-61`) и `tournaments.maxParticipants/winScore/…` (`tournaments.ts:102-118`).
-- `npm run db:generate` → `db:migrate`.
-
-### Группа 6 — Воспроизводимость dev-окружения (S7-5) ✅
-
-- [x] Добавлен `docker-compose.yml` (parametrized `POSTGRES_*`, healthcheck, named volume
-  `cue-bot-pgdata`); `db:up/down` переведены на `docker compose up --wait` / `stop`
-  (`package.json`); README/CLAUDE.md/.env.example/seed-correction-smoke обновлены.
-  Интеграция на testcontainers не тронута.
+- `npm run db:generate` → `db:migrate`..
 
 ### Мелочь (по желанию, дёшево)
 
