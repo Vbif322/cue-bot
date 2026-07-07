@@ -1,5 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 
+import { asString, type TelegramClaims } from './telegramClaims.js';
+
 /**
  * Чистые (без БД) хелперы OIDC-входа через Telegram (Authorization Code Flow + PKCE).
  * Вынесены отдельно, чтобы юнит-тесты не тянули пул/сервер (как telegramLogin.ts до
@@ -21,12 +23,7 @@ const AUTH_ENDPOINT = `${ISSUER}/auth`;
 const TOKEN_ENDPOINT = `${ISSUER}/token`;
 
 /** Нормализованные данные пользователя из id_token после проверки. */
-export interface TelegramOidcClaims {
-  id: string;
-  firstName: string;
-  username?: string;
-  photoUrl?: string;
-}
+export type TelegramOidcClaims = TelegramClaims;
 
 export type TelegramOidcResult =
   | { ok: true; data: TelegramOidcClaims }
@@ -150,10 +147,6 @@ function decodeJwtPayload(idToken: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-function asString(v: unknown): string | undefined {
-  return typeof v === 'string' && v !== '' ? v : undefined;
 }
 
 /**

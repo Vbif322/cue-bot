@@ -16,24 +16,53 @@ import type {
 
 export * from './types.ts';
 
+// Bearer-токен для Telegram Mini App: в WebView куки ненадёжны, поэтому там сессию
+// держим в памяти (короткоживущий токен из ответа /telegram/miniapp) и шлём заголовком.
+// В обычном браузере токен не ставится — работает кука. См. setAuthToken/useMe.
+let authToken: string | null = null;
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+
+/** Ошибка HTTP-уровня: по `status` вызывающие отличают 401 (гость) от транзиентных. */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...options?.headers,
     },
   });
 
-  const data = (await res.json()) as { data?: T; error?: string } | T;
+  // Тело может быть не-JSON (HTML 502/504 от прокси) — не даём SyntaxError затмить статус.
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* статус скажет сам за себя */
+  }
 
   if (!res.ok) {
+    // Протухший Bearer не должен вечно перебивать возможную куку: сбрасываем, следующий
+    // refetch ['auth','me'] прозрачно перелогинит по initData (см. useMe).
+    if (res.status === 401 && authToken) setAuthToken(null);
     const err =
       typeof data === 'object' && data !== null && 'error' in data
         ? String((data as { error: string }).error)
-        : `HTTP ${res.status}`;
-    throw new Error(err);
+        : `HTTP ${String(res.status)}`;
+    throw new ApiError(res.status, err);
   }
 
   // Распаковка конверта { data: T }.
@@ -61,18 +90,34 @@ export const appAuth = {
       ...jsonBody({ email, code }),
     }),
 
-  // Вход через Telegram — редиректный OIDC-поток, не fetch: браузер уходит на
-  // GET /api/app/auth/telegram/start (см. TelegramLoginButton). Клиентского вызова нет.
+  // Вход через Telegram в браузере — редиректный OIDC-поток, не fetch: браузер уходит
+  // на GET /api/app/auth/telegram/start (см. TelegramLoginButton). Клиентского вызова нет.
+
+  /**
+   * Авто-вход из Telegram Mini App: подписанный initData уходит на верификацию.
+   * Возвращает и `token` (app_token) — фронт кладёт его в Bearer на случай, если
+   * кука в WebView не сохранилась.
+   */
+  miniAppLogin: (initData: string) =>
+    apiFetch<{ user: AppUser; token: string }>('/api/app/auth/telegram/miniapp', {
+      method: 'POST',
+      ...jsonBody({ initData }),
+    }),
 
   logout: () =>
     apiFetch<{ ok: boolean }>('/api/app/auth/logout', { method: 'POST' }),
 
-  /** Проверка сессии. На 401 возвращаем null (гость), не бросаем ошибку. */
+  /**
+   * Проверка сессии. ТОЛЬКО на 401 возвращаем null (гость); транзиентные ошибки
+   * (5xx, сеть) пробрасываем — иначе сбой /me неотличим от «не залогинен» и, например,
+   * запускал бы авто-вход Mini App поверх живой email-сессии.
+   */
   me: async (): Promise<{ user: AppUser } | null> => {
     try {
       return await apiFetch<{ user: AppUser }>('/api/app/auth/me');
-    } catch {
-      return null;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) return null;
+      throw e;
     }
   },
 };
