@@ -32,3 +32,13 @@ export function enumCheck(
   const list = values.map((v) => `'${v.replace(/'/g, "''")}'`).join(', ');
   return check(name, sql`${column} IN (${sql.raw(list)})`);
 }
+
+/**
+ * DB-level CHECK constraint enforcing a numeric column is non-negative (>= 0).
+ * NULL passes (NULL >= 0 is unknown), so nullable columns need no special handling.
+ * The `0` is a literal in the static template, not a `${...}` param, so it is not
+ * serialized as a `$1` placeholder (the pitfall enumCheck guards against).
+ */
+export function nonNegativeCheck(name: string, column: AnyPgColumn) {
+  return check(name, sql`${column} >= 0`);
+}
