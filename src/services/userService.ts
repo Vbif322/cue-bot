@@ -215,6 +215,27 @@ export async function getOrCreateTelegramUser(
   });
 }
 
+/**
+ * Разрешает пользователя по аргументу команды: `@username` ищет по `username`
+ * (только среди строк с непустым `telegram_id`), иначе значение трактуется как
+ * `telegram_id`. Возвращает `undefined`, если пользователь не найден.
+ */
+export async function findUserByHandle(
+  handle: string,
+): Promise<DbUser | undefined> {
+  if (handle.startsWith('@')) {
+    return db.query.users.findFirst({
+      where: and(
+        eq(users.username, handle.slice(1)),
+        isNotNull(users.telegram_id),
+      ),
+    });
+  }
+  return db.query.users.findFirst({
+    where: eq(users.telegram_id, handle),
+  });
+}
+
 /** Ошибка валидации профиля — текст пригоден для показа пользователю. */
 export class ProfileValidationError extends Error {}
 
