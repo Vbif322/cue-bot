@@ -5,7 +5,7 @@
 
 ## P2 — Техдолг / UX (Low)
 
-Порядок групп по польза/цена: **6 → 1 → 2 → 4**.
+Порядок групп по польза/цена: **6 → 1 → 2 → 4**. (Группа 6 — сделана.)
 
 ### Группа 1 — Валидация path-параметров в admin-API (S2-8, + часть S3-6)
 
@@ -35,11 +35,12 @@ Enum-CHECK'и и партиал-уник на username уже есть (`schemaH
   (`schema/matches.ts:47-61`) и `tournaments.maxParticipants/winScore/…` (`tournaments.ts:102-118`).
 - `npm run db:generate` → `db:migrate`.
 
-### Группа 6 — Воспроизводимость dev-окружения (S7-5)
+### Группа 6 — Воспроизводимость dev-окружения (S7-5) ✅
 
-- Добавить `docker-compose.yml` для dev-Postgres (заменяет опору на вручную созданный
-  контейнер `drizzle-postgres`), обновить `db:up/down` (`package.json:39-42`) и README.
-  Интеграция уже на testcontainers — не трогаем.
+- [x] Добавлен `docker-compose.yml` (parametrized `POSTGRES_*`, healthcheck, named volume
+  `cue-bot-pgdata`); `db:up/down` переведены на `docker compose up --wait` / `stop`
+  (`package.json`); README/CLAUDE.md/.env.example/seed-correction-smoke обновлены.
+  Интеграция на testcontainers не тронута.
 
 ### Мелочь (по желанию, дёшево)
 

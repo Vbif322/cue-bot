@@ -132,11 +132,11 @@ SCORE-ONLY target — R1 #2 "Игрок 3 : Игрок 4" (completed 3:0):
 Match ids:  M1=${M1}  M2=${M2}  semi5=${M5}  final7=${M7}
 
 Verify in DB (psql):
-  docker exec drizzle-postgres psql -U vbif -d cue_bot -c "SELECT round, position, status, player1_score, player2_score, is_corrected FROM prod.matches WHERE tournament_id='${tid}' ORDER BY round, position;"
-  docker exec drizzle-postgres psql -U vbif -d cue_bot -c "SELECT reason, previous_winner_id, new_winner_id, affected_match_ids FROM prod.match_corrections WHERE tournament_id='${tid}';"
+  docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT round, position, status, player1_score, player2_score, is_corrected FROM prod.matches WHERE tournament_id='${tid}' ORDER BY round, position;"
+  docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT reason, previous_winner_id, new_winner_id, affected_match_ids FROM prod.match_corrections WHERE tournament_id='${tid}';"
 
 Cleanup when done:
-  docker exec drizzle-postgres psql -U vbif -d cue_bot -c "DELETE FROM prod.tournaments WHERE id='${tid}';"
+  docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM prod.tournaments WHERE id='${tid}';"
   (then delete smoke_% users / SMOKE venue, or just re-run this script)
 `);
 }
