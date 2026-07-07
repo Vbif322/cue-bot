@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, type BadgeTone } from '@cue-bot/ui';
 import { meApi } from '../lib/api.ts';
+import { getTelegramInitData } from '../lib/telegram.ts';
 import { useMe, useLogout } from '../lib/useAuth.ts';
 import { displayName, initials, gradientFor, formatDate } from '../lib/format.ts';
 import { Btn, Field, Labeled } from '../components/controls.tsx';
@@ -319,15 +320,19 @@ export default function ProfilePage() {
             </div>
           )}
 
-          <Btn
-            variant="danger"
-            size="sm"
-            style={{ alignSelf: 'flex-start' }}
-            disabled={logoutMut.isPending}
-            onClick={doLogout}
-          >
-            Выйти из аккаунта
-          </Btn>
+          {/* В Mini App выхода нет: сессия привязана к Telegram-аккаунту, и авто-вход
+              по initData тут же вернул бы её (useMe) — кнопка была бы самообманом. */}
+          {getTelegramInitData() === null && (
+            <Btn
+              variant="danger"
+              size="sm"
+              style={{ alignSelf: 'flex-start' }}
+              disabled={logoutMut.isPending}
+              onClick={doLogout}
+            >
+              Выйти из аккаунта
+            </Btn>
+          )}
         </div>
       )}
     </div>

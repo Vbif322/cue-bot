@@ -38,6 +38,9 @@ import {
   redirectUri,
   type TelegramOidcClaims,
 } from '../telegramOidc.js';
+import { verifyMiniAppInitData } from '../telegramMiniApp.js';
+import type { TelegramClaims } from '../telegramClaims.js';
+import type { DbUser } from '@/bot/types.js';
 import {
   generateLoginCode,
   hashCode,
@@ -123,6 +126,36 @@ async function linkTelegram(
   });
 
   return 'linked';
+}
+
+/**
+ * Резолвит вошедшего через Telegram пользователя (общий код для OIDC-callback и
+ * Mini App): identity ('telegram', id) есть → её юзер; нет → getOrCreateTelegramUser.
+ * Возвращает `null`, если identity ведёт на soft-deleted аккаунт (паритет с email-входом).
+ */
+async function loginTelegramUser(claims: TelegramClaims): Promise<DbUser | null> {
+  const identity = await db.query.userIdentities.findFirst({
+    where: and(
+      eq(userIdentities.provider, 'telegram'),
+      eq(userIdentities.providerId, claims.id),
+    ),
+  });
+
+  let user: DbUser | undefined;
+  if (identity) {
+    user = await db.query.users.findFirst({
+      where: eq(users.id, identity.userId),
+    });
+  } else {
+    user = await getOrCreateTelegramUser(claims.id, {
+      username: claims.username ?? claims.firstName,
+      name: claims.firstName,
+      surname: claims.surname,
+    });
+  }
+
+  if (user?.deletedAt !== null) return null;
+  return user;
 }
 
 export function createAppAuthRouter() {
@@ -221,7 +254,8 @@ export function createAppAuthRouter() {
     // перечитывать в callback — там мы вернёмся тем же браузером).
     let userId: string | null = null;
     if (link) {
-      const user = await resolveUserFromCookie(c, 'app_token');
+      // Cookie-only (без Bearer): это браузерный редирект-флоу, заголовков тут нет.
+      const user = await resolveUserFromCookie(c, { cookie: 'app_token', typ: 'app' });
       if (!user) return c.redirect('/login?telegram=auth_required');
       userId = user.id;
     }
@@ -302,28 +336,9 @@ export function createAppAuthRouter() {
       return c.redirect(`/profile?telegram=${result}`);
     }
 
-    // Вход: сходится в те же user_identities, что и вход по коду.
-    const identity = await db.query.userIdentities.findFirst({
-      where: and(
-        eq(userIdentities.provider, 'telegram'),
-        eq(userIdentities.providerId, claims.id),
-      ),
-    });
-
-    let user;
-    if (identity) {
-      user = await db.query.users.findFirst({
-        where: eq(users.id, identity.userId),
-      });
-    } else {
-      user = await getOrCreateTelegramUser(claims.id, {
-        username: claims.username ?? claims.firstName,
-        name: claims.firstName,
-      });
-    }
-
-    // Паритет с email-входом: identity на soft-deleted аккаунт → отказ без куки.
-    if (user?.deletedAt !== null) return failRedirect('error');
+    // Вход: сходится в те же user_identities, что и вход по коду/Mini App.
+    const user = await loginTelegramUser(claims);
+    if (!user) return failRedirect('error');
 
     setCookie(c, 'app_token', signAppToken(user.id), {
       ...APP_COOKIE_OPTS,
@@ -331,6 +346,50 @@ export function createAppAuthRouter() {
     });
     return c.redirect('/');
   });
+
+  // Авто-вход из Telegram Mini App: фронт шлёт `initData` (window.Telegram.WebApp),
+  // проверяем Ed25519-подпись Telegram и заводим ту же сессию, что OIDC/код. В отличие
+  // от OIDC это обычный JSON-эндпоинт (не редирект): вызывается fetch'ем на старте app/.
+  // Rate-limit отдельный от OIDC: авто-вход массовый (каждое открытие Mini App), и за
+  // CGNAT много пользователей делят один IP — общий bucket выбивал бы их из входа.
+  const miniAppIpLimit = createIpRateLimit({
+    capacity: 60,
+    refillPerSec: 60 / 900,
+  });
+
+  auth.post(
+    '/telegram/miniapp',
+    miniAppIpLimit,
+    validateJson(
+      z.object({ initData: z.string().min(1) }),
+      { initData: 'Некорректные данные Telegram' },
+    ),
+    async (c) => {
+      const { initData } = c.req.valid('json');
+
+      const botId = (process.env.BOT_TOKEN ?? '').split(':')[0] ?? '';
+      const verified = verifyMiniAppInitData(initData, botId);
+      if (!verified.ok) {
+        console.warn('Telegram Mini App login rejected:', verified.reason);
+        return c.json({ error: 'Не удалось войти через Telegram' }, 401);
+      }
+
+      const user = await loginTelegramUser(verified.data);
+      if (!user) return c.json({ error: 'Не удалось войти через Telegram' }, 401);
+
+      // Куку ставим (для браузера), НО в WebView Telegram куки ненадёжны — поэтому
+      // дополнительно отдаём токен в теле. Фронт хранит его и шлёт в заголовке
+      // Authorization: Bearer (см. apiFetch); requireUser принимает и куку, и заголовок.
+      // Bearer-токен КОРОЧЕ куки (24ч против 30д): он читаем из JS (XSS-риск) и не
+      // отзываем; перевыпуск в Mini App прозрачен — initData всегда под рукой.
+      setCookie(c, 'app_token', signAppToken(user.id), {
+        ...APP_COOKIE_OPTS,
+        maxAge: APP_COOKIE_MAX_AGE,
+      });
+      const token = signAppToken(user.id, '24h');
+      return c.json({ data: { user: toAppUser(user), token } });
+    },
+  );
 
   auth.post('/logout', (c) => {
     deleteCookie(c, 'app_token', APP_COOKIE_OPTS);
