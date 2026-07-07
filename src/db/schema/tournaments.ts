@@ -11,6 +11,7 @@ import type { UUID } from 'crypto';
 import {
   createdAt,
   enumCheck,
+  nonNegativeCheck,
   prodSchema,
   updatedAt,
 } from '../schemaHelpers.js';
@@ -132,5 +133,21 @@ export const tournaments = prodSchema.table(
     enumCheck('tournaments_visibility_check', t.visibility, visibilities),
     enumCheck('tournaments_schedule_mode_check', t.scheduleMode, scheduleModes),
     enumCheck('tournaments_group_draw_check', t.groupDraw, groupDraws),
+    nonNegativeCheck(
+      'tournaments_confirmed_participants_nonneg',
+      t.confirmedParticipants,
+    ),
+    nonNegativeCheck('tournaments_max_participants_nonneg', t.maxParticipants),
+    nonNegativeCheck('tournaments_win_score_nonneg', t.winScore),
+    nonNegativeCheck('tournaments_merge_round_nonneg', t.mergeRound),
+    nonNegativeCheck('tournaments_groups_count_nonneg', t.groupsCount),
+    nonNegativeCheck(
+      'tournaments_participants_per_group_nonneg',
+      t.participantsPerGroup,
+    ),
+    nonNegativeCheck(
+      'tournaments_qualifiers_per_group_nonneg',
+      t.qualifiersPerGroup,
+    ),
   ],
 );

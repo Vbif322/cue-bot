@@ -12,6 +12,7 @@ import type { UUID } from 'crypto';
 import {
   createdAt,
   enumCheck,
+  nonNegativeCheck,
   prodSchema,
   updatedAt,
 } from '../schemaHelpers.js';
@@ -94,5 +95,14 @@ export const matches = prodSchema.table(
     index('matches_tournament_id_idx').on(table.tournamentId),
     enumCheck('matches_status_check', table.status, matchStatuses),
     enumCheck('matches_phase_check', table.phase, matchPhases),
+    nonNegativeCheck('matches_round_nonneg', table.round),
+    nonNegativeCheck('matches_position_nonneg', table.position),
+    nonNegativeCheck('matches_player1_score_nonneg', table.player1Score),
+    nonNegativeCheck('matches_player2_score_nonneg', table.player2Score),
+    nonNegativeCheck('matches_group_index_nonneg', table.groupIndex),
+    nonNegativeCheck(
+      'matches_losers_next_position_nonneg',
+      table.losersNextMatchPosition,
+    ),
   ],
 );
