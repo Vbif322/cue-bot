@@ -5,7 +5,7 @@
 
 ## P2 — Техдолг / UX (Low)
 
-Порядок групп по польза/цена: **3 → 5 → 6 → 1 → 2 → 4**.
+Порядок групп по польза/цена: **6 → 1 → 2 → 4**.
 
 ### Группа 1 — Валидация path-параметров в admin-API (S2-8, + часть S3-6)
 
@@ -26,14 +26,6 @@ admin-роуты `users.ts`/`matches.ts`/`tournaments.ts` кастуют `c.req.
   `getPlayerMatchHistory` (:234-259) — зовут `getMatch` в цикле.
 - Батчевая вставка в `createMatches` (:53-108) вместо `insert().returning()` в цикле.
 
-### Группа 3 — Чистка roleCommands (S3-5 + остаток S3-6)
-
-Всё в `src/bot/handlers/roleCommands.ts`:
-
-- Вынести `findUserByHandle()` — 4 копии блока «@username → username, иначе telegram_id»
-  (:32-41, :84-95, :151-162, :230-241).
-- `parseInt(telegram_id)` → radix 10 (:61, :120, :190, :264) — единственные места без radix.
-
 ### Группа 4 — Доменные CHECK-ограничения в БД (S5-4)
 
 Enum-CHECK'и и партиал-уник на username уже есть (`schemaHelpers.ts:23-34`, `users.ts:30-32`);
@@ -42,16 +34,6 @@ Enum-CHECK'и и партиал-уник на username уже есть (`schemaH
 - CHECK на неотрицательность `matches.player1Score/player2Score/round/position`
   (`schema/matches.ts:47-61`) и `tournaments.maxParticipants/winScore/…` (`tournaments.ts:102-118`).
 - `npm run db:generate` → `db:migrate`.
-
-### Группа 5 — Устойчивость сессии/UX во фронте (S6-2 + S6-3)
-
-Мелкие точечные правки в обеих SPA:
-
-- **S6-2:** глобальная обработка 401 в `admin/src/lib/api.ts` и `app/src/lib/api.ts` — при 401
-  инвалидировать `['auth','me']` / редирект на логин вместо общего Error.
-- **S6-3:** `admin/src/pages/VenuesPage.tsx:218-224` — `referrerPolicy="no-referrer"` на `<img>`
-  (глобальный `Referrer-Policy: no-referrer` от `secureHeaders()` уже стоит — добивка); CSP
-  осознанно отключена (`src/admin/server/index.ts:22`), не трогаем.
 
 ### Группа 6 — Воспроизводимость dev-окружения (S7-5)
 

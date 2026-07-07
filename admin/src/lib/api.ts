@@ -45,6 +45,17 @@ interface GroupConfigFields {
   groupDraw?: IGroupDraw;
 }
 
+/** Ошибка HTTP-уровня: по `status` глобальный перехватчик отличает 401 от прочих. */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
@@ -55,14 +66,21 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     },
   });
 
-  const data = (await res.json()) as { data?: T; error?: string } | T;
+  // Тело может быть не-JSON (пустой ответ / HTML от прокси на 401/5xx) — не даём
+  // SyntaxError затмить статус, иначе ApiError(401) не построится и перехват не сработает.
+  let data: { data?: T; error?: string } | T | null = null;
+  try {
+    data = (await res.json()) as { data?: T; error?: string } | T;
+  } catch {
+    /* статус скажет сам за себя */
+  }
 
   if (!res.ok) {
     const err =
       typeof data === 'object' && data !== null && 'error' in data
         ? String((data as { error: string }).error)
         : `HTTP ${res.status}`;
-    throw new Error(err);
+    throw new ApiError(res.status, err);
   }
 
   // Unwrap { data: T } envelope if present
