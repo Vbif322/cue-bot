@@ -1,20 +1,33 @@
 import type { UUID } from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
+import jwt from 'jsonwebtoken';
 
 import { db } from '@/db/db.js';
 import { userIdentities, users } from '@/db/schema.js';
 import { createAdminServer } from '@/admin/server/index.js';
+import { JWT_SECRET, signToken } from '@/admin/server/middleware.js';
 
 import { apiRequest, appCookie, type ApiResponse } from '../../helpers/auth.js';
-import { createUser } from '../../helpers/factories.js';
+import {
+  createConfirmedParticipant,
+  createTournament,
+  createUser,
+} from '../../helpers/factories.js';
 import { truncateAll } from '../../helpers/truncate.js';
+import {
+  buildMiniAppInitData,
+  testMiniAppPublicKeyHex,
+} from '../../helpers/telegramMiniApp.js';
 
 // OIDC-клиент для интеграций — telegramOidc читает эти env в рантайме (не при импорте).
 process.env.TELEGRAM_CLIENT_ID = 'test-client';
 process.env.TELEGRAM_CLIENT_SECRET = 'test-secret';
 process.env.TELEGRAM_REDIRECT_URI =
   'http://localhost/api/app/auth/telegram/callback';
+// Mini App: верификатор доверяет нашей тестовой паре (BOT_TOKEN='test-token' в setup).
+process.env.TELEGRAM_MINIAPP_PUBLIC_KEY = testMiniAppPublicKeyHex;
+const BOT_ID = 'test-token';
 
 let app: ReturnType<typeof createAdminServer>;
 
@@ -322,5 +335,189 @@ describe('схождение способов входа', () => {
       (i) => i.provider === 'telegram',
     );
     expect(telegramIdentities).toHaveLength(1);
+  });
+});
+
+describe('app telegram Mini App — авто-вход по initData', () => {
+  const MINIAPP = '/api/app/auth/telegram/miniapp';
+
+  beforeEach(async () => {
+    app = createAdminServer();
+    await truncateAll();
+  });
+
+  it('валидный initData нового юзера → сессия + users + identity', async () => {
+    const initData = buildMiniAppInitData({
+      botId: BOT_ID,
+      user: { id: 771100, first_name: 'Глеб', username: 'gleb' },
+    });
+
+    const res = await apiRequest<{ data: { user: { id: UUID } } }>(
+      app,
+      'POST',
+      MINIAPP,
+      { body: { initData } },
+    );
+
+    expect(res.status).toBe(200);
+    expect(hasAppTokenCookie(res.res)).toBe(true);
+    expect(res.res.headers.get('set-cookie') ?? '').toMatch(/SameSite=Lax/i);
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, '771100'),
+    });
+    if (!user) throw new Error('пользователь не создан');
+    expect(res.body.data.user.id).toBe(user.id);
+    const identities = await identitiesOf(user.id);
+    expect(identities).toHaveLength(1);
+    expect(identities[0]?.providerId).toBe('771100');
+  });
+
+  it('initData существующего бот-юзера → тот же аккаунт, без дублей', async () => {
+    const existing = await seedBackfilledBotUser('987654');
+    const initData = buildMiniAppInitData({
+      botId: BOT_ID,
+      user: { id: 987654, first_name: 'Иван' },
+    });
+
+    const res = await apiRequest<{ data: { user: { id: UUID } } }>(
+      app,
+      'POST',
+      MINIAPP,
+      { body: { initData } },
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.id).toBe(existing.id);
+    const sameTg = await db.query.users.findMany({
+      where: eq(users.telegram_id, '987654'),
+    });
+    expect(sameTg).toHaveLength(1);
+  });
+
+  it('подделанная подпись → 401 без куки, причина в логе', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const initData = buildMiniAppInitData({
+      botId: BOT_ID,
+      user: { id: 5, first_name: 'X' },
+      tamperSignature: true,
+    });
+
+    const res = await apiRequest(app, 'POST', MINIAPP, { body: { initData } });
+
+    expect(res.status).toBe(401);
+    expect(hasAppTokenCookie(res.res)).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('пустой initData → 400', async () => {
+    const res = await apiRequest(app, 'POST', MINIAPP, { body: { initData: '' } });
+    expect(res.status).toBe(400);
+  });
+
+  it('возвращает token, по нему GET /me авторизует через Bearer (без куки)', async () => {
+    const initData = buildMiniAppInitData({
+      botId: BOT_ID,
+      user: { id: 808080, first_name: 'Бэрер' },
+    });
+    const login = await apiRequest<{ data: { token: string } }>(
+      app,
+      'POST',
+      MINIAPP,
+      { body: { initData } },
+    );
+    expect(login.status).toBe(200);
+    const token = login.body.data.token;
+    expect(typeof token).toBe('string');
+
+    // Куку НЕ шлём — только заголовок Authorization. requireUser должен пустить.
+    const me = await apiRequest<{ data: { user: { telegramId: string | null } } }>(
+      app,
+      'GET',
+      '/api/app/auth/me',
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(me.status).toBe(200);
+    expect(me.body.data.user).toBeDefined();
+  });
+
+  it('token в теле — короткоживущий (24ч) app-токен; кука — 30 дней', async () => {
+    const initData = buildMiniAppInitData({
+      botId: BOT_ID,
+      user: { id: 424242, first_name: 'Срок' },
+    });
+    const login = await apiRequest<{ data: { token: string } }>(
+      app,
+      'POST',
+      MINIAPP,
+      { body: { initData } },
+    );
+    expect(login.status).toBe(200);
+
+    const bearer = jwt.decode(login.body.data.token) as {
+      exp: number;
+      iat: number;
+      typ: string;
+    };
+    expect(bearer.typ).toBe('app');
+    expect(bearer.exp - bearer.iat).toBe(24 * 60 * 60);
+
+    const cookieToken = /app_token=([^;]+)/.exec(
+      login.res.headers.get('set-cookie') ?? '',
+    )?.[1];
+    if (!cookieToken) throw new Error('нет app_token в set-cookie');
+    const cookie = jwt.decode(cookieToken) as { exp: number; iat: number };
+    expect(cookie.exp - cookie.iat).toBe(30 * 24 * 60 * 60);
+  });
+
+  it('Bearer действует и на публичных GET: private-турнир виден участнику без куки', async () => {
+    const initData = buildMiniAppInitData({
+      botId: BOT_ID,
+      user: { id: 909090, first_name: 'Приват' },
+    });
+    const login = await apiRequest<{ data: { user: { id: UUID }; token: string } }>(
+      app,
+      'POST',
+      MINIAPP,
+      { body: { initData } },
+    );
+    expect(login.status).toBe(200);
+    const { user, token } = login.body.data;
+
+    const tournament = await createTournament({ visibility: 'private' });
+    await createConfirmedParticipant(tournament.id, { userId: user.id });
+
+    // Гость private-турнир не видит…
+    const anon = await apiRequest(app, 'GET', `/api/app/tournaments/${tournament.id}`);
+    expect(anon.status).toBe(404);
+    // …а Bearer-only сессия участника (кука в WebView не сохранилась) — видит.
+    const asUser = await apiRequest(
+      app,
+      'GET',
+      `/api/app/tournaments/${tournament.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(asUser.status).toBe(200);
+  });
+
+  it('чужой typ: admin_token и токен без typ не проходят как app-сессия', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const adminToken = signToken({
+      id: admin.id,
+      username: admin.username,
+      role: admin.role,
+    });
+    const noTyp = jwt.sign({ id: admin.id }, JWT_SECRET, { expiresIn: '1h' });
+
+    for (const token of [adminToken, noTyp]) {
+      const viaBearer = await apiRequest(app, 'GET', '/api/app/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(viaBearer.status).toBe(401);
+      const viaCookie = await apiRequest(app, 'GET', '/api/app/auth/me', {
+        cookie: `app_token=${token}`,
+      });
+      expect(viaCookie.status).toBe(401);
+    }
   });
 });

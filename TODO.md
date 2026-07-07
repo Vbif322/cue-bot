@@ -80,18 +80,11 @@ Enum-CHECK'и и партиал-уник на username уже есть (`schemaH
 
 Реализовано: монорепо (`admin`, `app`, `packages/*`); `user_identities` + бэкфилл
 telegram-аккаунтов (закрыло предусловие S2-2 из аудита); беспарольный вход — коды на почту
-(`email_login_codes` + mailService) и Telegram Login Widget (`verifyTelegramLogin`,
-`POST /api/app/auth/telegram`, привязка `POST /api/app/me/telegram`); JWT в куке `app_token`
+(`email_login_codes` + mailService) и вход через Telegram по OIDC (Authorization Code + PKCE:
+`src/app/server/telegramOidc.ts`, `GET /api/app/auth/telegram/start` + `/callback`, привязка
+через тот же поток с `?link=1`); JWT в куке `app_token`
 
 - `requireUser`; регистрация/отмена/приглашения извлечены из бот-хендлеров в
   `tournamentService`; API игрока `/api/app/*` (auth, me, tournaments, matches, notifications);
   SPA `app/`; раздача по поддоменам (игрок — cuebot.ru, админка — admin.cuebot.ru,
   Host-диспетчеризация в Node).
-
-Хвосты M1:
-
-- Мост из бота на сайт игрока: команда бота (напр. `/site`), выдающая одноразовую
-  ссылку по образцу админского `/dashboard` (`loginTokens`, TTL 5 мин), + публичный
-  `GET /api/app/auth/token`, который тратит токен, ставит `app_token` любому юзеру
-  (без проверки роли) и редиректит на `PUBLIC_BASE_URL`.
-- Mini App initData (M6): второй источник входа, сходится в те же `user_identities`.
