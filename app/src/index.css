@@ -1,20 +1,18 @@
 @import 'tailwindcss';
 @import '@cue-bot/ui/theme.css';
+@import './theme.css';
 
 /* Tailwind v4 не сканирует внешние пакеты по умолчанию — указываем исходники @cue-bot/ui явно. */
 @source '../../packages/ui/src';
 
-/* Тёмная тема приложения игрока (mobile-first). */
-:root {
-  color-scheme: dark;
-}
+/* Тема (светлая/тёмная) задаётся data-theme на <html> — см. theme.css / lib/theme.ts. */
 
 html,
 body {
   margin: 0;
   min-height: 100%;
-  background: #0d0e12;
-  color: #f3f4f6;
+  background: var(--surface-base);
+  color: var(--text-primary);
   font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
   -webkit-font-smoothing: antialiased;
 }
@@ -23,15 +21,15 @@ body {
   min-height: 100vh;
 }
 
-/* Тонкий скроллбар в тёмной теме. */
+/* Тонкий скроллбар. */
 .cb-scroll::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 .cb-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-default);
   border-radius: 999px;
-  border: 3px solid #0d0e12;
+  border: 3px solid var(--surface-base);
 }
 .cb-chips::-webkit-scrollbar {
   display: none;
@@ -61,7 +59,7 @@ body {
   }
 }
 
-/* ── Тёмные кнопки (по макетам) ─────────────────────────────────────────── */
+/* ── Кнопки (по макетам) ────────────────────────────────────────────────── */
 .cb-btn {
   display: inline-flex;
   align-items: center;
@@ -101,19 +99,18 @@ body {
   background: var(--color-primary-hover);
 }
 .cb-btn-primary:disabled {
-  background: rgba(255, 255, 255, 0.04);
-  color: #6b7280;
-  border-color: rgba(255, 255, 255, 0.06);
+  background: var(--surface-inset);
+  color: var(--text-faint);
+  border-color: var(--border-subtle);
   opacity: 1;
 }
 .cb-btn-danger {
-  background: rgba(220, 38, 38, 0.06);
-  border-color: rgba(248, 113, 113, 0.4);
-  color: #f87171;
+  background: var(--color-tone-danger-bg);
+  border-color: var(--color-tone-danger-fg);
+  color: var(--color-tone-danger-fg);
 }
 .cb-btn-danger:hover:not(:disabled) {
-  background: rgba(220, 38, 38, 0.14);
-  border-color: rgba(248, 113, 113, 0.6);
+  filter: brightness(1.1);
 }
 .cb-btn-solid-danger {
   background: var(--color-red-600, #dc2626);
@@ -123,23 +120,23 @@ body {
   filter: brightness(1.08);
 }
 .cb-btn-ghost {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #f3f4f6;
+  background: var(--surface-inset);
+  border-color: var(--border-default);
+  color: var(--text-primary);
 }
 .cb-btn-ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-3);
 }
 
-/* ── Тёмные поля ввода ──────────────────────────────────────────────────── */
+/* ── Поля ввода ─────────────────────────────────────────────────────────── */
 .cb-field {
   width: 100%;
   box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.03);
-  color: #f3f4f6;
+  border: 1px solid var(--border-default);
+  background: var(--surface-inset);
+  color: var(--text-primary);
   font-size: 14px;
   font-family: inherit;
   line-height: 1.5;
@@ -150,7 +147,7 @@ body {
   border-color: var(--color-primary);
 }
 .cb-field::placeholder {
-  color: #565c66;
+  color: var(--text-disabled);
 }
 
 /* ── Чип-фильтр ─────────────────────────────────────────────────────────── */
@@ -158,9 +155,9 @@ body {
   flex: none;
   padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  color: #9aa0aa;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-inset);
+  color: var(--text-muted);
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
@@ -171,8 +168,8 @@ body {
     color 0.15s ease;
 }
 .cb-chip:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #d1d5db;
+  background: var(--surface-3);
+  color: var(--text-secondary);
 }
 .cb-chip-active {
   border-color: transparent;
@@ -192,6 +189,6 @@ body {
     border-color 0.15s ease;
 }
 .cb-card-link:hover {
-  border-color: rgba(255, 255, 255, 0.16) !important;
-  background: #1b1d24 !important;
+  border-color: var(--border-strong) !important;
+  background: var(--surface-3) !important;
 }

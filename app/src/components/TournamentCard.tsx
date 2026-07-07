@@ -27,8 +27,8 @@ export default function TournamentCard({ tournament }: { tournament: AppTourname
         display: 'flex',
         flexDirection: 'column',
         gap: 13,
-        background: '#17181e',
-        border: '1px solid rgba(255,255,255,0.07)',
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border-subtle)',
         borderRadius: 16,
         padding: 18,
         textDecoration: 'none',
@@ -42,7 +42,7 @@ export default function TournamentCard({ tournament }: { tournament: AppTourname
             fontWeight: 600,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: '#6b7280',
+            color: 'var(--text-faint)',
           }}
         >
           {disciplineLabel(tournament.discipline)}
@@ -52,7 +52,7 @@ export default function TournamentCard({ tournament }: { tournament: AppTourname
 
       <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>{tournament.name}</div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#9aa0aa' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
         <span
           style={{
             width: 5,
@@ -67,9 +67,9 @@ export default function TournamentCard({ tournament }: { tournament: AppTourname
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 12, color: '#6b7280' }}>Участники</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#d1d5db' }}>
-            <span style={{ color: '#f3f4f6' }}>{confirmed}</span> / {max}
+          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Участники</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <span style={{ color: 'var(--text-primary)' }}>{confirmed}</span> / {max}
           </span>
         </div>
         <ProgressBar percent={fillPercent(confirmed, max)} />

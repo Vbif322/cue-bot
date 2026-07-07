@@ -46,8 +46,8 @@ function MatchRow({
         display: 'flex',
         alignItems: 'center',
         gap: 12,
-        background: '#17181e',
-        border: '1px solid rgba(255,255,255,0.07)',
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border-subtle)',
         borderRadius: 14,
         padding: '13px 15px',
         cursor: 'pointer',
@@ -61,7 +61,7 @@ function MatchRow({
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {sideLabel(match, 1, myId)}
           </span>
-          <span style={{ color: '#6b7280', fontVariantNumeric: 'tabular-nums', flex: 'none' }}>
+          <span style={{ color: 'var(--text-faint)', fontVariantNumeric: 'tabular-nums', flex: 'none' }}>
             {scoreText}
           </span>
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -71,13 +71,13 @@ function MatchRow({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <MatchStatusBadge status={match.status} />
           {needsMe && (
-            <span style={{ fontSize: 12, color: '#fcd34d', fontWeight: 600 }}>
+            <span style={{ fontSize: 12, color: 'var(--color-tone-warning-fg)', fontWeight: 600 }}>
               требует подтверждения
             </span>
           )}
         </div>
       </div>
-      <span style={{ fontSize: 18, color: '#4b5563', flex: 'none' }}>→</span>
+      <span style={{ fontSize: 18, color: 'var(--text-disabled)', flex: 'none' }}>→</span>
     </button>
   );
 }
@@ -102,7 +102,7 @@ function Section({
           fontWeight: 600,
           letterSpacing: '0.08em',
           textTransform: 'uppercase',
-          color: '#6b7280',
+          color: 'var(--text-faint)',
         }}
       >
         {title}

@@ -18,14 +18,14 @@ function StandingsTables({ bracket }: { bracket: AppBracket }) {
       {bracket.standings.map((group) => (
         <div key={group.groupIndex} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {multi && (
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#e5e7eb' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
               Группа {groupLetter(group.groupIndex)}
             </div>
           )}
           <div style={{ overflowX: 'auto' }} className="cb-scroll">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 420 }}>
               <thead>
-                <tr style={{ color: '#6b7280', textAlign: 'left' }}>
+                <tr style={{ color: 'var(--text-faint)', textAlign: 'left' }}>
                   <th style={{ padding: '8px 10px', fontWeight: 600 }}>#</th>
                   <th style={{ padding: '8px 10px', fontWeight: 600 }}>Игрок</th>
                   <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'center' }}>И</th>
@@ -39,16 +39,16 @@ function StandingsTables({ bracket }: { bracket: AppBracket }) {
                 {group.rows.map((row) => {
                   const p = bracket.players[row.userId];
                   return (
-                    <tr key={row.userId} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                      <td style={{ padding: '10px', color: '#9aa0aa', fontWeight: 700 }}>{row.rank}</td>
-                      <td style={{ padding: '10px', color: '#f3f4f6' }}>{p ? displayName(p) : 'Игрок'}</td>
-                      <td style={{ padding: '10px', textAlign: 'center', color: '#d1d5db' }}>{row.played}</td>
-                      <td style={{ padding: '10px', textAlign: 'center', color: '#6ee7b7' }}>{row.wins}</td>
-                      <td style={{ padding: '10px', textAlign: 'center', color: '#fca5a5' }}>{row.losses}</td>
-                      <td style={{ padding: '10px', textAlign: 'center', color: '#9aa0aa' }}>
+                    <tr key={row.userId} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>{row.rank}</td>
+                      <td style={{ padding: '10px', color: 'var(--text-primary)' }}>{p ? displayName(p) : 'Игрок'}</td>
+                      <td style={{ padding: '10px', textAlign: 'center', color: 'var(--text-secondary)' }}>{row.played}</td>
+                      <td style={{ padding: '10px', textAlign: 'center', color: 'var(--color-tone-success-fg)' }}>{row.wins}</td>
+                      <td style={{ padding: '10px', textAlign: 'center', color: 'var(--color-tone-danger-fg)' }}>{row.losses}</td>
+                      <td style={{ padding: '10px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         {row.framesWon}:{row.framesLost}
                       </td>
-                      <td style={{ padding: '10px', textAlign: 'center', color: '#d1d5db' }}>
+                      <td style={{ padding: '10px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                         {row.frameDiff > 0 ? `+${row.frameDiff}` : row.frameDiff}
                       </td>
                     </tr>
@@ -96,11 +96,11 @@ export default function BracketPage() {
           alignItems: 'center',
           gap: 12,
           padding: '13px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          background: '#101116',
+          borderBottom: '1px solid var(--border-subtle)',
+          background: 'var(--surface-1)',
         }}
       >
-        <Link to={`/tournaments/${id}`} style={{ fontSize: 18, color: '#6b7280', textDecoration: 'none', lineHeight: 1 }}>
+        <Link to={`/tournaments/${id}`} style={{ fontSize: 18, color: 'var(--text-faint)', textDecoration: 'none', lineHeight: 1 }}>
           ←
         </Link>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
@@ -110,7 +110,7 @@ export default function BracketPage() {
           <div
             style={{
               fontSize: 12,
-              color: '#6b7280',
+              color: 'var(--text-faint)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
