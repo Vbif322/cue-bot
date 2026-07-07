@@ -19,6 +19,7 @@ import {
 import { getUserRefereeTournaments } from '@/bot/permissions.js';
 import type { ApiUserStats } from '@/bot/@types/user.js';
 import { requireAdmin } from '../middleware.js';
+import { validateParam, idParam, idTournamentIdParam } from './_shared.js';
 
 export function createUsersRouter() {
   const router = new Hono();
@@ -35,17 +36,18 @@ export function createUsersRouter() {
   });
 
   // Get single user
-  router.get('/:id', async (c) => {
+  router.get('/:id', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
     const user = await db.query.users.findFirst({
-      where: eq(users.id, c.req.param('id') as UUID),
+      where: eq(users.id, id),
     });
     if (!user) return c.json({ error: 'Не найден' }, 404);
     return c.json({ data: toApiUser(user) });
   });
 
   // Aggregated statistics for the user detail page
-  router.get('/:id/stats', async (c) => {
-    const userId = c.req.param('id') as UUID;
+  router.get('/:id/stats', validateParam(idParam), async (c) => {
+    const { id: userId } = c.req.valid('param');
 
     const [matches, history, refereeIds] = await Promise.all([
       getUserMatchStats(userId),
@@ -82,6 +84,7 @@ export function createUsersRouter() {
   // Update user profile (name / surname)
   router.patch(
     '/:id',
+    validateParam(idParam),
     zValidator(
       'json',
       z.object({
@@ -90,7 +93,7 @@ export function createUsersRouter() {
       }),
     ),
     async (c) => {
-      const targetId = c.req.param('id') as UUID;
+      const { id: targetId } = c.req.valid('param');
       try {
         const updated = await updateUserProfile(targetId, c.req.valid('json'));
         return c.json({ data: toApiUser(updated) });
@@ -106,10 +109,11 @@ export function createUsersRouter() {
   // Update user role
   router.patch(
     '/:id/role',
+    validateParam(idParam),
     zValidator('json', z.object({ role: z.enum(['user', 'admin']) })),
     async (c) => {
       const admin = c.get('adminUser');
-      const targetId = c.req.param('id') as UUID;
+      const { id: targetId } = c.req.valid('param');
 
       if (admin.id === targetId) {
         return c.json({ error: 'Нельзя изменить собственную роль' }, 400);
@@ -131,9 +135,9 @@ export function createUsersRouter() {
 
   // "Delete" user — anonymize (soft-delete). The row is kept so past matches and
   // tournaments stay intact, displayed as «Удалённый аккаунт».
-  router.delete('/:id', async (c) => {
+  router.delete('/:id', validateParam(idParam), async (c) => {
     const admin = c.get('adminUser');
-    const targetId = c.req.param('id') as UUID;
+    const { id: targetId } = c.req.valid('param');
 
     if (admin.id === targetId) {
       return c.json({ error: 'Нельзя удалить собственный аккаунт' }, 400);
@@ -153,9 +157,10 @@ export function createUsersRouter() {
   // Assign referee to tournament
   router.post(
     '/:id/referee',
+    validateParam(idParam),
     zValidator('json', z.object({ tournamentId: z.uuid() })),
     async (c) => {
-      const userId = c.req.param('id') as UUID;
+      const { id: userId } = c.req.valid('param');
       const { tournamentId } = c.req.valid('json') as { tournamentId: UUID };
 
       await db
@@ -168,21 +173,24 @@ export function createUsersRouter() {
   );
 
   // Remove referee from tournament
-  router.delete('/:id/referee/:tournamentId', async (c) => {
-    const userId = c.req.param('id') as UUID;
-    const tournamentId = c.req.param('tournamentId') as UUID;
+  router.delete(
+    '/:id/referee/:tournamentId',
+    validateParam(idTournamentIdParam),
+    async (c) => {
+      const { id: userId, tournamentId } = c.req.valid('param');
 
-    await db
-      .delete(tournamentReferees)
-      .where(
-        and(
-          eq(tournamentReferees.userId, userId),
-          eq(tournamentReferees.tournamentId, tournamentId),
-        ),
-      );
+      await db
+        .delete(tournamentReferees)
+        .where(
+          and(
+            eq(tournamentReferees.userId, userId),
+            eq(tournamentReferees.tournamentId, tournamentId),
+          ),
+        );
 
-    return c.json({ ok: true });
-  });
+      return c.json({ ok: true });
+    },
+  );
 
   return router;
 }

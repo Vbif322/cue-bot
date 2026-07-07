@@ -84,6 +84,17 @@ describe('admin users router', () => {
     expect(body).toEqual({ error: 'Не найден' });
   });
 
+  it('GET /:id returns 400 for a malformed id (never hits the DB)', async () => {
+    const { status, body } = await apiRequest<{ error: string }>(
+      app,
+      'GET',
+      '/api/users/not-a-uuid',
+      { user: admin },
+    );
+    expect(status).toBe(400);
+    expect(body).toEqual({ error: 'Некорректный идентификатор' });
+  });
+
   it('GET /:id/stats returns the aggregated stats shape', async () => {
     const user = await createUser();
     const { status, body } = await apiRequest<{ data: ApiUserStats }>(
