@@ -41,6 +41,9 @@ function deBracketDims(tournament: {
 }): { mergeRound: number; bracketSize: number } {
   return {
     mergeRound: tournament.mergeRound,
+    // confirmedParticipants is the frozen registration-close snapshot, the
+    // immutable bracket-size basis (see tournaments schema) — intentionally NOT
+    // the live confirmedCount.
     bracketSize: getNextPowerOfTwo(
       tournament.confirmedParticipants ?? tournament.maxParticipants,
     ),

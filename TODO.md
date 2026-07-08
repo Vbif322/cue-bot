@@ -73,11 +73,3 @@
   `all_private_chats` (`src/bot/commands.ts:35-42`), по аналогии с per-user scope в
   `roleCommands.ts`.
 - **M3-6:** управление рассылкой по-прежнему в личке/вебе — группа только на приём.
-
-## P2 — Техдолг / UX (Low)
-
-### Мелочь (по желанию, дёшево)
-
-- **S5-5:** `tournaments.confirmedParticipants` — снапшот на `registration_closed`
-  (`tournamentService.ts:889-896`), но читается для размера сетки (`matchService.ts:45`,
-  `matchUI.ts:125`). Вероятно осознанно — задокументировать инвариант в схеме, а не менять.
