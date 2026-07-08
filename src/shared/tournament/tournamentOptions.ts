@@ -63,6 +63,29 @@ export function validateGroupConfig(cfg: GroupConfig): string | null {
   return null;
 }
 
+// Double elimination requires between 8 and 128 participants.
+export const DOUBLE_ELIMINATION_MIN_PARTICIPANTS = 8;
+export const DOUBLE_ELIMINATION_MAX_PARTICIPANTS = 128;
+
+/**
+ * Validate a double-elimination participant count. Returns a Russian error
+ * string or null if valid. Dependency-free (shared by the bracket generator
+ * and the tournament service).
+ */
+export function validateDoubleEliminationSize(count: number): string | null {
+  if (
+    count < DOUBLE_ELIMINATION_MIN_PARTICIPANTS ||
+    count > DOUBLE_ELIMINATION_MAX_PARTICIPANTS
+  ) {
+    return (
+      `Double elimination поддерживает ` +
+      `${String(DOUBLE_ELIMINATION_MIN_PARTICIPANTS)}–${String(DOUBLE_ELIMINATION_MAX_PARTICIPANTS)} ` +
+      `участников. Текущее количество: ${String(count)}`
+    );
+  }
+  return null;
+}
+
 // Double elimination "merge round": after which upper-bracket round the losers
 // bracket merges back into a single-elimination playoff. 2 = standard/default,
 // up to k = log2(bracketSize) (= full double elimination). Max k is 7 (128).
