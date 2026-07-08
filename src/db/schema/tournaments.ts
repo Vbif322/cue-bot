@@ -100,6 +100,17 @@ export const tournaments = prodSchema.table(
       .notNull()
       .default('single_day'),
     startDate: timestamp('start_date'),
+    // Snapshot of the confirmed-participant count, frozen once by
+    // closeRegistrationWithCount on the registration_closed transition (null
+    // before that). Serves as the IMMUTABLE basis for bracket size — read via
+    // getNextPowerOfTwo in matchService.deBracketDims and matchUI.formatMatchCard
+    // to derive round counts / names and the DE random-advancement pool. Do NOT
+    // confuse with the live confirmedCount (confirmedParticipantsLive subquery in
+    // tournamentService): the bracket size is fixed at start, so those read sites
+    // must use this frozen value — switching them to the live count would break
+    // round names / the DE pool if the participant set changes after start. The
+    // invariant that makes them equal: the confirmed set does not change between
+    // registration_closed and start.
     confirmedParticipants: integer('confirmed_participants'),
     // SE/DE/RR use the discrete enum values; groups_playoff stores the derived
     // total (groupsCount × participantsPerGroup), so the column is a plain integer.
