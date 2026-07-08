@@ -31,7 +31,10 @@ import type {
   IGroupDraw,
   ParticipantStatus,
 } from '@/db/schema.js';
-import { validateGroupConfig } from '@/shared/tournament/tournamentOptions.js';
+import {
+  validateGroupConfig,
+  validateDoubleEliminationSize,
+} from '@/shared/tournament/tournamentOptions.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
@@ -356,12 +359,8 @@ export async function startTournament(
   // Validate double elimination participant count (8–128).
   if (tournament.format === 'double_elimination') {
     const participants = await getConfirmedParticipants(tournamentId);
-    if (participants.length < 8 || participants.length > 128) {
-      throw new Error(
-        'Double elimination поддерживает 8–128 участников. ' +
-          `Текущее количество: ${String(participants.length)}`,
-      );
-    }
+    const sizeError = validateDoubleEliminationSize(participants.length);
+    if (sizeError) throw new Error(sizeError);
   }
 
   await executor
