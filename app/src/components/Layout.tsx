@@ -18,7 +18,7 @@ const NAV: NavEntry[] = [
   { to: '/', label: 'Турниры', end: true },
   { to: '/matches', label: 'Матчи' },
   { to: '/my/tournaments', label: 'Мои турниры' },
-  { to: '/notifications', label: 'Уведомления', badge: true },
+  // { to: '/notifications', label: 'Уведомления', badge: true },
   { to: '/profile', label: 'Профиль' },
 ];
 
@@ -26,7 +26,7 @@ const TITLES: Record<string, string> = {
   '/': 'Турниры',
   '/matches': 'Матчи',
   '/my/tournaments': 'Мои турниры',
-  '/notifications': 'Уведомления',
+  // '/notifications': 'Уведомления',
   '/profile': 'Профиль',
 };
 
@@ -83,7 +83,14 @@ function DesktopSidebar({ unread }: { unread: number }) {
         borderRight: '1px solid var(--border-subtle)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 10px 18px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          padding: '6px 10px 18px',
+        }}
+      >
         <span
           style={{
             width: 26,
@@ -100,7 +107,11 @@ function DesktopSidebar({ unread }: { unread: number }) {
         >
           C
         </span>
-        <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em' }}>cue·bot</span>
+        <span
+          style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em' }}
+        >
+          cue·bot
+        </span>
       </div>
 
       {NAV.map((item) => (
@@ -181,7 +192,9 @@ function DesktopSidebar({ unread }: { unread: number }) {
             >
               {displayName(user)}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>Игрок</div>
+            <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+              Игрок
+            </div>
           </div>
         </div>
       )}
@@ -230,8 +243,12 @@ function MobileBottomNav({ unread }: { unread: number }) {
                     width: 7,
                     height: 7,
                     borderRadius: '50%',
-                    background: isActive ? 'var(--color-primary)' : 'transparent',
-                    border: isActive ? 'none' : '1px solid var(--border-strong)',
+                    background: isActive
+                      ? 'var(--color-primary)'
+                      : 'transparent',
+                    border: isActive
+                      ? 'none'
+                      : '1px solid var(--border-strong)',
                   }}
                 />
                 {item.badge && unread > 0 && (
@@ -265,9 +282,22 @@ export default function Layout() {
 
   if (isDesktop) {
     return (
-      <div style={{ display: 'flex', height: '100vh', background: 'var(--surface-base)' }}>
+      <div
+        style={{
+          display: 'flex',
+          height: '100vh',
+          background: 'var(--surface-base)',
+        }}
+      >
         <DesktopSidebar unread={unread} />
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
           <main
             className="cb-scroll"
             style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}
@@ -280,7 +310,14 @@ export default function Layout() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--surface-base)' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        background: 'var(--surface-base)',
+      }}
+    >
       <header
         style={{
           flex: 'none',
