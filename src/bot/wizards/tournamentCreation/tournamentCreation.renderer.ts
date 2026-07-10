@@ -2,6 +2,7 @@ import {
   formatDiscipline,
   formatFormat,
   formatScheduleMode,
+  formatSport,
   formatVisibility,
 } from '@/utils/constants.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
@@ -34,11 +35,15 @@ export interface ITournamentCreationRenderer {
     scheduleMode: Tournament['scheduleMode'],
     venues: Pick<Venue, 'id' | 'name'>[],
   ): Promise<void>; // Step 5
-  showDisciplineStep(ctx: BotContext, venueName: Venue['name']): Promise<void>; // Step 6
+  showSportStep(ctx: BotContext, venueName: Venue['name']): Promise<void>; // Step 6
+  showDisciplineStep(
+    ctx: BotContext,
+    sport: Tournament['sport'],
+  ): Promise<void>; // Step 7
   showFormatStep(
     ctx: BotContext,
     discipline: Tournament['discipline'],
-  ): Promise<void>; // Step 7
+  ): Promise<void>; // Step 8
   showRandomModeStep(
     ctx: BotContext,
     format: Tournament['format'],
@@ -47,7 +52,7 @@ export interface ITournamentCreationRenderer {
     ctx: BotContext,
     format: Tournament['format'],
     randomAdvancement?: boolean,
-  ): Promise<void>; // Step 8
+  ): Promise<void>; // Step 9
   showMergeRoundStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
@@ -63,16 +68,17 @@ export interface ITournamentCreationRenderer {
   showWinScoreStep(
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
-  ): Promise<void>; // Step 9
+  ): Promise<void>; // Step 10
   showTablesStep(
     ctx: BotContext,
     tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
     winScore?: Tournament['winScore'],
-  ): Promise<void>; // Step 10
+  ): Promise<void>; // Step 11
 
   showSessionExpired(ctx: BotContext): Promise<void>;
   showVenueNotFound(ctx: BotContext): Promise<void>;
+  showInvalidSport(ctx: BotContext): Promise<void>;
   showInvalidDiscipline(ctx: BotContext): Promise<void>;
   showInvalidVisibility(ctx: BotContext): Promise<void>;
   showInvalidScheduleMode(ctx: BotContext): Promise<void>;
@@ -205,7 +211,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
-  async showDisciplineStep(
+  async showSportStep(
     ctx: BotContext,
     venueName: Venue['name'],
   ): Promise<void> {
@@ -219,11 +225,33 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     const message = `
     Шаг 6 / ${String(STEPS_COUNT)}
+    Выберите вид бильярда
+    `.trim();
+
+    await ctx.reply(message, {
+      reply_markup: this.keyboards.buildSportKeyboard(),
+    });
+  }
+
+  async showDisciplineStep(
+    ctx: BotContext,
+    sport: Tournament['sport'],
+  ): Promise<void> {
+    const resultMessage = `
+    Установлен вид бильярда: ${formatSport(sport)}
+    `;
+
+    await safeEditMessageText(ctx, {
+      text: resultMessage,
+    });
+
+    const message = `
+    Шаг 7 / ${String(STEPS_COUNT)}
     Выберите дисциплину
     `.trim();
 
     await ctx.reply(message, {
-      reply_markup: this.keyboards.buildDisciplineKeyboard(),
+      reply_markup: this.keyboards.buildDisciplineKeyboard(sport),
     });
   }
 
@@ -240,7 +268,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 7 / ${String(STEPS_COUNT)}
+    Шаг 8 / ${String(STEPS_COUNT)}
     Выберите формат турнира
     `.trim();
 
@@ -288,7 +316,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     }
 
     const message = `
-    Шаг 8 / ${String(STEPS_COUNT)}
+    Шаг 9 / ${String(STEPS_COUNT)}
     Введите максимальное количество участников
     `.trim();
 
@@ -384,7 +412,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
 
     const message = `
-    Шаг 9 / ${String(STEPS_COUNT)}
+    Шаг 10 / ${String(STEPS_COUNT)}
     Введите количество побед при которых игра будет завершена
     `.trim();
 
@@ -409,7 +437,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     if (tables.length === 0) {
       const message = `
-      Шаг 10 / ${String(STEPS_COUNT)}
+      Шаг 11 / ${String(STEPS_COUNT)}
       У выбранной площадки нет столов
       `.trim();
 
@@ -422,7 +450,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     }
 
     const message = `
-    Шаг 10 / ${String(STEPS_COUNT)}
+    Шаг 11 / ${String(STEPS_COUNT)}
     Выберите столы для турнира на этой площадке или пропустите шаг
     `.trim();
 
@@ -445,6 +473,13 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
   async showVenueNotFound(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
       text: `${getMatchStatusEmoji('cancelled')} Площадка не найдена`,
+      show_alert: true,
+    });
+  }
+
+  async showInvalidSport(ctx: BotContext): Promise<void> {
+    await ctx.answerCallbackQuery({
+      text: `${getMatchStatusEmoji('cancelled')} Некорректный вид бильярда`,
       show_alert: true,
     });
   }
@@ -581,6 +616,8 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
         ? this.dateTimeHelper.formatDate(tournament.startDate)
         : '—';
 
+    const formattedSport = formatSport(tournament.sport);
+
     const formattedDiscipline = formatDiscipline(tournament.discipline);
 
     const formattedFormat = formatFormat(tournament.format);
@@ -605,6 +642,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     - Режим расписания: ${formattedScheduleMode}
     - Дата начала: ${formattedStartDate}
     - Площадка: ${venue.name}
+    - Вид бильярда: ${formattedSport}
     - Дисциплина: ${formattedDiscipline}
     - Формат: ${formattedFormat}
     - Случайные пары: ${formattedRandom}

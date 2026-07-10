@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { TournamentCreationKeyboards } from '@/bot/wizards/tournamentCreation/tournamentCreation.keyboards.js';
 import {
-  disciplines,
+  sports,
+  SPORT_DISCIPLINES,
   formats,
   maxParticipants,
   scheduleModes,
@@ -54,10 +55,25 @@ describe('TournamentCreationKeyboards', () => {
     expect(btns.map((b) => b.text)).toEqual(['Один день', 'По матчам']);
   });
 
-  it('buildDisciplineKeyboard: one button per discipline', () => {
-    const btns = buttons(kbds.buildDisciplineKeyboard());
-    expect(btns).toHaveLength(disciplines.length);
-    expect(btns.every((b) => b.data?.startsWith('tc:discipline:'))).toBe(true);
+  it('buildSportKeyboard: one button per sport with tc:sport:<s>', () => {
+    const btns = buttons(kbds.buildSportKeyboard());
+    expect(btns.map((b) => b.data)).toEqual(
+      sports.map((s) => `tc:sport:${s}`),
+    );
+    expect(btns.map((b) => b.text)).toEqual([
+      'Снукер',
+      'Пул',
+      'Русский бильярд',
+    ]);
+  });
+
+  it('buildDisciplineKeyboard: only the chosen sport’s disciplines', () => {
+    for (const sport of sports) {
+      const btns = buttons(kbds.buildDisciplineKeyboard(sport));
+      expect(btns.map((b) => b.data)).toEqual(
+        SPORT_DISCIPLINES[sport].map((d) => `tc:discipline:${d}`),
+      );
+    }
   });
 
   it('buildFormatKeyboard: one button per format', () => {

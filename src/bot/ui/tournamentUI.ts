@@ -3,8 +3,8 @@ import { and, eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import {
-  DISCIPLINE_LABELS,
   formatFormatWithMode,
+  formatSportDiscipline,
   STATUS_LABELS,
 } from '@/utils/constants.js';
 import { db } from '@/db/db.js';
@@ -19,6 +19,7 @@ export type TournamentTab = 'current' | 'archive' | 'my';
 export interface TournamentInfo {
   id: string;
   name: string;
+  sport: string;
   discipline: string;
   format: string;
   randomAdvancement: boolean;
@@ -75,6 +76,7 @@ export async function getTournamentInfo(
   tournament: {
     id: UUID;
     name: string;
+    sport: string;
     discipline: string;
     format: string;
     randomAdvancement: boolean;
@@ -115,7 +117,7 @@ export function buildTournamentMessage(
     `📋 *${info.name}*\n\n` +
     (info.visibility === 'private' ? '🔒 Закрытый турнир\n' : '') +
     `Площадка: ${info.venueName ?? 'Не указана'}\n` +
-    `Дисциплина: ${DISCIPLINE_LABELS[info.discipline] ?? info.discipline}\n` +
+    `Дисциплина: ${formatSportDiscipline(info.sport, info.discipline)}\n` +
     `Формат: ${formatFormatWithMode(info.format, info.randomAdvancement)}\n` +
     `Статус: ${STATUS_LABELS[info.status] ?? info.status}\n` +
     `Участников: ${String(info.participantsCount)}/${String(info.maxParticipants)}\n` +

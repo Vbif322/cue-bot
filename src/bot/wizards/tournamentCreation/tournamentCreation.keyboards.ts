@@ -1,7 +1,8 @@
 import { InlineKeyboard } from 'grammy';
 
 import {
-  disciplines,
+  sports,
+  SPORT_DISCIPLINES,
   maxParticipants,
   formats,
   scheduleModes,
@@ -12,10 +13,12 @@ import {
   participantsPerGroupOptions,
   qualifiersOptionsForGroupSize,
 } from '@/db/schema/tournaments.js';
+import type { ITournamentSport } from '@/db/schema/tournaments.js';
 import {
   formatDiscipline,
   formatFormat,
   formatScheduleMode,
+  formatSport,
   formatVisibility,
 } from '@/utils/constants.js';
 
@@ -30,7 +33,8 @@ export interface ITournamentCreationKeyboards {
   ): InlineKeyboard;
   buildVisibilityKeyboard(): InlineKeyboard;
   buildScheduleModeKeyboard(): InlineKeyboard;
-  buildDisciplineKeyboard(): InlineKeyboard;
+  buildSportKeyboard(): InlineKeyboard;
+  buildDisciplineKeyboard(sport: ITournamentSport): InlineKeyboard;
   buildFormatKeyboard(): InlineKeyboard;
   buildRandomModeKeyboard(): InlineKeyboard;
   buildParticipantsKeyboard(): InlineKeyboard;
@@ -107,14 +111,31 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
   }
 
   /**
-   * Создает клавиатуру для выбора дисциплины турнира
+   * Создает клавиатуру для выбора вида бильярда
    *
-   * @returns {InlineKeyboard} Клавиатура с названиями дисциплин и коллбеком 'discipline:<discipline>' для каждой кнопки
+   * @returns {InlineKeyboard} Клавиатура с названиями видов и коллбеком 'tc:sport:<sport>' для каждой кнопки
    */
-  buildDisciplineKeyboard(): InlineKeyboard {
+  buildSportKeyboard(): InlineKeyboard {
     const keyboard = new InlineKeyboard();
 
-    for (const discipline of disciplines) {
+    for (const sport of sports) {
+      keyboard.text(formatSport(sport), `tc:sport:${sport}`).row();
+    }
+
+    return keyboard;
+  }
+
+  /**
+   * Создает клавиатуру для выбора дисциплины турнира внутри выбранного вида
+   *
+   * @param {ITournamentSport} sport Вид бильярда, дисциплины которого показываются
+   *
+   * @returns {InlineKeyboard} Клавиатура с названиями дисциплин и коллбеком 'tc:discipline:<discipline>' для каждой кнопки
+   */
+  buildDisciplineKeyboard(sport: ITournamentSport): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+
+    for (const discipline of SPORT_DISCIPLINES[sport]) {
       keyboard
         .text(formatDiscipline(discipline), `tc:discipline:${discipline}`)
         .row();

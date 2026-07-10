@@ -23,7 +23,8 @@ describe('randomAdvancement persistence (createTournamentDraft)', () => {
     const t = await createTournamentDraft({
       venueId: venue.id,
       name: 'dbl random',
-      discipline: 'snooker',
+      sport: 'snooker',
+      discipline: 'snooker_15_red',
       format: 'double_elimination',
       randomAdvancement: true,
       maxParticipants: 16,
@@ -45,7 +46,8 @@ describe('randomAdvancement persistence (createTournamentDraft)', () => {
     const t = await createTournamentDraft({
       venueId: venue.id,
       name: 'plain',
-      discipline: 'snooker',
+      sport: 'snooker',
+      discipline: 'snooker_15_red',
       format: 'double_elimination',
       maxParticipants: 16,
       winScore: 3,

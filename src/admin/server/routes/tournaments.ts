@@ -11,6 +11,8 @@ import {
   maxParticipants,
   mergeRounds,
   scheduleModes,
+  sports,
+  disciplines,
   statuses,
   tournamentParticipants,
   users,
@@ -18,6 +20,7 @@ import {
   winScores,
   groupDraws,
   validateGroupConfig,
+  validateSportDiscipline,
   type ITournamentWinScore,
 } from '@/db/schema.js';
 import {
@@ -62,6 +65,9 @@ const tournamentBodySchema = z
     name: z.string().min(1),
     description: z.string().optional(),
     rules: z.string().optional(),
+    // Immutable after create: PATCH accepts but ignores the pair.
+    sport: z.enum(sports),
+    discipline: z.enum(disciplines),
     format: z.enum(formats),
     randomAdvancement: z.boolean().default(false),
     visibility: z.enum(visibilities).default('public'),
@@ -88,6 +94,9 @@ const tournamentBodySchema = z
     tableIds: z.array(z.uuid()).optional(),
   })
   .superRefine((data, ctx) => {
+    const sportError = validateSportDiscipline(data.sport, data.discipline);
+    if (sportError) ctx.addIssue({ code: 'custom', message: sportError });
+
     if (data.format === 'groups_playoff') {
       if (
         data.groupsCount == null ||
@@ -207,7 +216,8 @@ export function createTournamentsRouter(botApi: Api) {
           name: body.name,
           description: body.description ?? null,
           rules: body.rules ?? null,
-          discipline: 'snooker',
+          sport: body.sport,
+          discipline: body.discipline,
           format: body.format,
           randomAdvancement: body.randomAdvancement,
           visibility: body.visibility,
