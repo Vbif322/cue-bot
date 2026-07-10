@@ -13,6 +13,8 @@ interface TelegramWebApp {
   initData?: string;
   colorScheme?: TelegramColorScheme;
   themeParams?: TelegramThemeParams;
+  version?: string;
+  isVersionAtLeast?: (version: string) => boolean;
   ready?: () => void;
   setBackgroundColor?: (color: string) => void;
   setHeaderColor?: (color: string) => void;
