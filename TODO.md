@@ -7,23 +7,6 @@
 
 Разбивка [ROADMAP.md](ROADMAP.md) на задачи.
 
-- **M2-1:** двухуровневая модель вид→дисциплина вместо плоского `discipline`: `disciplines`
-  (`src/db/schema/tournaments.ts:57-64`) и `DISCIPLINE_LABELS` (`src/utils/constants.ts:1-6`)
-  → новая колонка `sport` + пересобранный `discipline` per sport (снукер 15/10/6 красных; пул
-  8/9/10; русский бильярд свободная/комбинированная/динамичная). Миграция Drizzle; разумные
-  дефолты правил/`winScore` (`src/shared/tournament/tournamentOptions.ts:10`) под дисциплину.
-- **M2-2:** двухуровневый выбор в визарде создания турнира — новый шаг `sport` перед
-  `discipline` в `CREATION_STEPS` (`tournamentCreation.const.ts:1-18`), `buildSportKeyboard()` +
-  отфильтрованная `buildDisciplineKeyboard(sport)` (`tournamentCreation.keyboards.ts:110-124`),
-  `handleSportSelection`/обновлённый `handleDisciplineSelection`
-  (`tournamentCreation.flow.ts:451-491`), рендер-шаги
-  (`tournamentCreation.renderer.ts:37-38,208-235`), типы состояния (`tournamentCreation.d.ts`).
-- **M2-3:** админ-SPA — выбор вида+дисциплины при создании/редактировании турнира; сейчас поле
-  вообще не показывается на клиенте, а сервер хардкодит `discipline: 'snooker'`
-  (`src/admin/server/routes/tournaments.ts:210`) — убрать хардкод, прокинуть значения через
-  тело запроса.
-- **M2-4:** все новые строки — на русском (лейблы по образцу `DISCIPLINE_LABELS`).
-
 ### Детальный счёт по фреймам и статистика
 
 - **M2-5:** таблица `match_frames` (`matchId` → `frameNumber`, очки игрока 1/2, победитель
