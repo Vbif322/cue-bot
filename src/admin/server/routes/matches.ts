@@ -27,6 +27,7 @@ import {
 } from '@/services/notificationService.js';
 
 import { requireAdmin } from '../middleware.js';
+import { validateParam, idParam, tournamentIdParam } from './_shared.js';
 
 export function createMatchesRouter(botApi: Api) {
   const router = new Hono();
@@ -34,29 +35,38 @@ export function createMatchesRouter(botApi: Api) {
   router.use('/*', requireAdmin);
 
   // List all matches for a tournament
-  router.get('/tournament/:tournamentId', async (c) => {
-    const matches = await getTournamentMatches(
-      c.req.param('tournamentId') as UUID,
-    );
-    return c.json({ data: matches });
-  });
+  router.get(
+    '/tournament/:tournamentId',
+    validateParam(tournamentIdParam),
+    async (c) => {
+      const { tournamentId } = c.req.valid('param');
+      const matches = await getTournamentMatches(tournamentId);
+      return c.json({ data: matches });
+    },
+  );
 
   // Get match stats for a tournament
-  router.get('/tournament/:tournamentId/stats', async (c) => {
-    const stats = await getMatchStats(c.req.param('tournamentId') as UUID);
-    return c.json({ data: stats });
-  });
+  router.get(
+    '/tournament/:tournamentId/stats',
+    validateParam(tournamentIdParam),
+    async (c) => {
+      const { tournamentId } = c.req.valid('param');
+      const stats = await getMatchStats(tournamentId);
+      return c.json({ data: stats });
+    },
+  );
 
   // Get single match with player info
-  router.get('/:id', async (c) => {
-    const match = await getMatch(c.req.param('id') as UUID);
+  router.get('/:id', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const match = await getMatch(id);
     if (!match) return c.json({ error: 'Матч не найден' }, 404);
     return c.json({ data: match });
   });
 
   // Start a match
-  router.post('/:id/start', async (c) => {
-    const id = c.req.param('id') as UUID;
+  router.post('/:id/start', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
     const result = await startMatch(id);
     if (!result.success) return c.json({ error: result.error }, 400);
 
@@ -78,6 +88,7 @@ export function createMatchesRouter(botApi: Api) {
   // Report result (admin acts as one of the players)
   router.post(
     '/:id/report',
+    validateParam(idParam),
     zValidator(
       'json',
       z.object({
@@ -88,7 +99,7 @@ export function createMatchesRouter(botApi: Api) {
     ),
     async (c) => {
       const { reporterId, player1Score, player2Score } = c.req.valid('json');
-      const matchId = c.req.param('id') as UUID;
+      const { id: matchId } = c.req.valid('param');
       const result = await reportResult(
         matchId,
         reporterId as UUID,
@@ -113,14 +124,12 @@ export function createMatchesRouter(botApi: Api) {
   // Confirm result
   router.post(
     '/:id/confirm',
+    validateParam(idParam),
     zValidator('json', z.object({ confirmerId: z.uuid() })),
     async (c) => {
       const { confirmerId } = c.req.valid('json');
-      const result = await confirmResult(
-        c.req.param('id') as UUID,
-        confirmerId as UUID,
-        botApi,
-      );
+      const { id } = c.req.valid('param');
+      const result = await confirmResult(id, confirmerId as UUID, botApi);
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },
@@ -129,13 +138,12 @@ export function createMatchesRouter(botApi: Api) {
   // Dispute result
   router.post(
     '/:id/dispute',
+    validateParam(idParam),
     zValidator('json', z.object({ userId: z.uuid() })),
     async (c) => {
       const { userId } = c.req.valid('json');
-      const result = await disputeResult(
-        c.req.param('id') as UUID,
-        userId as UUID,
-      );
+      const { id } = c.req.valid('param');
+      const result = await disputeResult(id, userId as UUID);
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },
@@ -144,6 +152,7 @@ export function createMatchesRouter(botApi: Api) {
   // Set technical result
   router.post(
     '/:id/technical',
+    validateParam(idParam),
     zValidator(
       'json',
       z.object({
@@ -153,9 +162,10 @@ export function createMatchesRouter(botApi: Api) {
     ),
     async (c) => {
       const { winnerId, reason } = c.req.valid('json');
+      const { id } = c.req.valid('param');
       const admin = c.get('adminUser');
       const result = await setTechnicalResult(
-        c.req.param('id') as UUID,
+        id,
         winnerId as UUID,
         reason,
         admin.id,
@@ -169,6 +179,7 @@ export function createMatchesRouter(botApi: Api) {
   // Preview a result correction (dry run — no writes)
   router.post(
     '/:id/correct/preview',
+    validateParam(idParam),
     zValidator(
       'json',
       z.object({
@@ -178,11 +189,8 @@ export function createMatchesRouter(botApi: Api) {
     ),
     async (c) => {
       const { player1Score, player2Score } = c.req.valid('json');
-      const preview = await previewCorrection(
-        c.req.param('id') as UUID,
-        player1Score,
-        player2Score,
-      );
+      const { id } = c.req.valid('param');
+      const preview = await previewCorrection(id, player1Score, player2Score);
       return c.json({ data: preview });
     },
   );
@@ -190,6 +198,7 @@ export function createMatchesRouter(botApi: Api) {
   // Correct the result of a completed match (rolls back downstream matches)
   router.post(
     '/:id/correct',
+    validateParam(idParam),
     zValidator(
       'json',
       z.object({
@@ -200,9 +209,10 @@ export function createMatchesRouter(botApi: Api) {
     ),
     async (c) => {
       const { player1Score, player2Score, reason } = c.req.valid('json');
+      const { id } = c.req.valid('param');
       const admin = c.get('adminUser');
       const result = await correctMatchResult(
-        c.req.param('id') as UUID,
+        id,
         player1Score,
         player2Score,
         reason,
@@ -220,8 +230,9 @@ export function createMatchesRouter(botApi: Api) {
   );
 
   // Recovery: re-run advancement for a completed match (idempotent)
-  router.post('/:id/advance', async (c) => {
-    const result = await resyncAdvancement(c.req.param('id') as UUID, botApi);
+  router.post('/:id/advance', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const result = await resyncAdvancement(id, botApi);
     if (!result.success) return c.json({ error: result.error }, 400);
     return c.json({ ok: true });
   });
@@ -229,13 +240,12 @@ export function createMatchesRouter(botApi: Api) {
   // Assign / change / remove table (admin override)
   router.put(
     '/:id/table',
+    validateParam(idParam),
     zValidator('json', z.object({ tableId: z.uuid().nullable() })),
     async (c) => {
       const { tableId } = c.req.valid('json');
-      const result = await setMatchTable(
-        c.req.param('id') as UUID,
-        tableId as UUID | null,
-      );
+      const { id } = c.req.valid('param');
+      const result = await setMatchTable(id, tableId as UUID | null);
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },
@@ -245,12 +255,13 @@ export function createMatchesRouter(botApi: Api) {
   // `scheduledAt` is an ISO-8601 UTC string, or null to clear.
   router.put(
     '/:id/schedule',
+    validateParam(idParam),
     zValidator(
       'json',
       z.object({ scheduledAt: z.iso.datetime().nullable() }),
     ),
     async (c) => {
-      const id = c.req.param('id') as UUID;
+      const { id } = c.req.valid('param');
       const { scheduledAt } = c.req.valid('json');
       const date = scheduledAt ? new Date(scheduledAt) : null;
 

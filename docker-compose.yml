@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cue-bot-postgres
+    restart: "no"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-cuebot}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - cue-bot-pgdata:/var/lib/postgresql/data
+      # Creates the `prod` schema on first init so `db:migrate` works on a fresh volume.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-user} -d $${POSTGRES_DB:-cuebot}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  cue-bot-pgdata:

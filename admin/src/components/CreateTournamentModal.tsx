@@ -11,10 +11,15 @@ import {
   groupsCountOptions,
   participantsPerGroupOptions,
   qualifiersOptionsForGroupSize,
+  sports,
+  SPORT_DISCIPLINES,
+  DEFAULT_WIN_SCORE_BY_DISCIPLINE,
 } from '@server/apiTypes';
 import type {
   ApiTournament,
   ITournamentFormat,
+  ITournamentSport,
+  ITournamentDiscipline,
   IGroupDraw,
   TournamentVisibility,
   TournamentScheduleMode,
@@ -28,6 +33,8 @@ import {
   FORMAT_LABELS,
   VISIBILITY_LABELS,
   SCHEDULE_MODE_LABELS,
+  SPORT_LABELS,
+  DISCIPLINE_LABELS,
 } from '../lib/tournamentLabels.ts';
 
 type Mode = { mode: 'create' } | { mode: 'edit'; tournament: ApiTournament };
@@ -55,6 +62,9 @@ function TournamentFormModal({
     name: tournament?.name ?? '',
     description: tournament?.description ?? '',
     rules: tournament?.rules ?? '',
+    sport: (tournament?.sport ?? 'snooker') as ITournamentSport,
+    discipline: (tournament?.discipline ??
+      'snooker_15_red') as ITournamentDiscipline,
     format: (tournament?.format ?? 'single_elimination') as ITournamentFormat,
     randomAdvancement: tournament?.randomAdvancement ?? false,
     visibility: (tournament?.visibility ?? 'public') as TournamentVisibility,
@@ -224,6 +234,59 @@ function TournamentFormModal({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Вид бильярда
+              </label>
+              <select
+                value={form.sport}
+                disabled={isEdit}
+                onChange={(e) => {
+                  const sport = e.target.value as ITournamentSport;
+                  const discipline = SPORT_DISCIPLINES[sport][0]!;
+                  setForm({
+                    ...form,
+                    sport,
+                    discipline,
+                    winScore: DEFAULT_WIN_SCORE_BY_DISCIPLINE[discipline],
+                  });
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+              >
+                {sports.map((s) => (
+                  <option key={s} value={s}>
+                    {SPORT_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Дисциплина
+              </label>
+              <select
+                value={form.discipline}
+                disabled={isEdit}
+                onChange={(e) => {
+                  const discipline = e.target.value as ITournamentDiscipline;
+                  setForm({
+                    ...form,
+                    discipline,
+                    winScore: DEFAULT_WIN_SCORE_BY_DISCIPLINE[discipline],
+                  });
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+              >
+                {SPORT_DISCIPLINES[form.sport].map((d) => (
+                  <option key={d} value={d}>
+                    {DISCIPLINE_LABELS[d]}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>

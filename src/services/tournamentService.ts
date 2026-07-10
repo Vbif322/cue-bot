@@ -21,8 +21,10 @@ import {
   tournamentParticipants,
   users,
   venues,
+  validateSportDiscipline,
 } from '@/db/schema.js';
 import type {
+  ITournamentSport,
   ITournamentDiscipline,
   ITournamentFormat,
   ITournamentScheduleMode,
@@ -31,7 +33,10 @@ import type {
   IGroupDraw,
   ParticipantStatus,
 } from '@/db/schema.js';
-import { validateGroupConfig } from '@/shared/tournament/tournamentOptions.js';
+import {
+  validateGroupConfig,
+  validateDoubleEliminationSize,
+} from '@/shared/tournament/tournamentOptions.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
@@ -60,6 +65,7 @@ export interface CreateTournamentDraftInput extends GroupConfigInput {
 
   name: string;
   description?: string | null;
+  sport: ITournamentSport;
   discipline: ITournamentDiscipline;
   format: ITournamentFormat;
   randomAdvancement?: boolean;
@@ -356,12 +362,8 @@ export async function startTournament(
   // Validate double elimination participant count (8–128).
   if (tournament.format === 'double_elimination') {
     const participants = await getConfirmedParticipants(tournamentId);
-    if (participants.length < 8 || participants.length > 128) {
-      throw new Error(
-        'Double elimination поддерживает 8–128 участников. ' +
-          `Текущее количество: ${String(participants.length)}`,
-      );
-    }
+    const sizeError = validateDoubleEliminationSize(participants.length);
+    if (sizeError) throw new Error(sizeError);
   }
 
   await executor
@@ -394,6 +396,9 @@ export async function createTournamentDraft(
 
   if (!venue) throw new Error('Площадка не найдена');
 
+  const sportError = validateSportDiscipline(input.sport, input.discipline);
+  if (sportError) throw new Error(sportError);
+
   const uniqueTableIds = Array.from(new Set(input.tableIds ?? []));
 
   await validateTableIdsForVenue(uniqueTableIds, input.venueId);
@@ -406,6 +411,7 @@ export async function createTournamentDraft(
 
         name: input.name,
         description: input.description ?? null,
+        sport: input.sport,
         discipline: input.discipline,
         format: input.format,
         randomAdvancement: input.randomAdvancement ?? false,

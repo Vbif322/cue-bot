@@ -106,7 +106,7 @@ export default function ProfilePage() {
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{displayName(profile)}</div>
-          <div style={{ fontSize: 13, color: '#6b7280' }}>
+          <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>
             {profile.email ?? 'Игрок'}
           </div>
         </div>
@@ -118,8 +118,8 @@ export default function ProfilePage() {
           display: 'flex',
           gap: 6,
           padding: 4,
-          background: 'rgba(255,255,255,0.03)',
-          border: '1px solid rgba(255,255,255,0.06)',
+          background: 'var(--surface-inset)',
+          border: '1px solid var(--border-subtle)',
           borderRadius: 12,
           width: 'fit-content',
         }}
@@ -134,7 +134,7 @@ export default function ProfilePage() {
               border: 'none',
               borderRadius: 9,
               background: tab === key ? 'var(--color-primary)' : 'transparent',
-              color: tab === key ? '#fff' : '#9aa0aa',
+              color: tab === key ? '#fff' : 'var(--text-muted)',
               fontSize: 14,
               fontWeight: tab === key ? 600 : 500,
               cursor: 'pointer',
@@ -150,8 +150,8 @@ export default function ProfilePage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
             <StatTile value={played} label="Сыграно" />
-            <StatTile value={wins} label="Победы" color="#6ee7b7" />
-            <StatTile value={losses} label="Поражения" color="#fca5a5" />
+            <StatTile value={wins} label="Победы" color="var(--color-tone-success-fg)" />
+            <StatTile value={losses} label="Поражения" color="var(--color-tone-danger-fg)" />
           </div>
 
           <div
@@ -160,19 +160,19 @@ export default function ProfilePage() {
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
-              background: '#17181e',
-              border: '1px solid rgba(255,255,255,0.07)',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border-subtle)',
               borderRadius: 14,
               padding: '16px 18px',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: '#9aa0aa' }}>Процент побед</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Процент побед</span>
               <span style={{ fontSize: 15, fontWeight: 700 }}>{winrate}%</span>
             </div>
-            <div style={{ display: 'flex', height: 8, borderRadius: 999, overflow: 'hidden', background: 'rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', height: 8, borderRadius: 999, overflow: 'hidden', background: 'var(--border-default)' }}>
               <div style={{ width: `${winrate}%`, background: 'linear-gradient(90deg,#10b981,#34d399)' }} />
-              <div style={{ flex: 1, background: 'rgba(248,113,113,0.35)' }} />
+              <div style={{ flex: 1, background: 'var(--color-tone-danger-bg)' }} />
             </div>
           </div>
 
@@ -183,13 +183,13 @@ export default function ProfilePage() {
                 fontWeight: 600,
                 letterSpacing: '0.08em',
                 textTransform: 'uppercase',
-                color: '#6b7280',
+                color: 'var(--text-faint)',
               }}
             >
               История турниров
             </div>
             {(stats?.tournamentHistory.length ?? 0) === 0 ? (
-              <div style={{ fontSize: 14, color: '#6b7280' }}>Завершённых турниров пока нет.</div>
+              <div style={{ fontSize: 14, color: 'var(--text-faint)' }}>Завершённых турниров пока нет.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {stats!.tournamentHistory.map((h) => (
@@ -200,8 +200,8 @@ export default function ProfilePage() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
-                      background: '#17181e',
-                      border: '1px solid rgba(255,255,255,0.07)',
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border-subtle)',
                       borderRadius: 12,
                       padding: '13px 15px',
                     }}
@@ -210,7 +210,7 @@ export default function ProfilePage() {
                       <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {h.name}
                       </span>
-                      <span style={{ fontSize: 12, color: '#6b7280' }}>{formatDate(h.completedAt)}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{formatDate(h.completedAt)}</span>
                     </div>
                     <Badge tone={(h.isWinner ? 'warning' : 'neutral') as BadgeTone}>
                       {h.isWinner ? '1 место' : 'Участник'}
@@ -230,15 +230,15 @@ export default function ProfilePage() {
               display: 'flex',
               flexDirection: 'column',
               gap: 14,
-              background: '#17181e',
-              border: '1px solid rgba(255,255,255,0.07)',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border-subtle)',
               borderRadius: 16,
               padding: 18,
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <span style={{ fontSize: 15, fontWeight: 700 }}>Электронная почта</span>
-              <span style={{ fontSize: 12, color: '#6b7280' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
                 Используется для входа.{' '}
                 {profile.emailVerified ? 'Подтверждена.' : 'Не подтверждена.'}
               </span>
@@ -255,8 +255,8 @@ export default function ProfilePage() {
               display: 'flex',
               flexDirection: 'column',
               gap: 14,
-              background: '#17181e',
-              border: '1px solid rgba(255,255,255,0.07)',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border-subtle)',
               borderRadius: 16,
               padding: 18,
             }}
@@ -276,7 +276,7 @@ export default function ProfilePage() {
             </div>
             {updateMut.error && <ErrorBox message={updateMut.error.message} />}
             {updateMut.isSuccess && !updateMut.isPending && (
-              <div style={{ fontSize: 13, color: '#6ee7b7' }}>Сохранено.</div>
+              <div style={{ fontSize: 13, color: 'var(--color-tone-success-fg)' }}>Сохранено.</div>
             )}
             <Btn
               size="sm"
@@ -297,20 +297,20 @@ export default function ProfilePage() {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 14,
-                background: '#17181e',
-                border: '1px solid rgba(255,255,255,0.07)',
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border-subtle)',
                 borderRadius: 16,
                 padding: 18,
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <span style={{ fontSize: 15, fontWeight: 700 }}>Telegram</span>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
                   Привяжите Telegram, чтобы входить через него и получать уведомления в боте.
                 </span>
               </div>
               {profile.telegramLinked ? (
-                <div style={{ fontSize: 14, color: '#6ee7b7' }}>Привязан.</div>
+                <div style={{ fontSize: 14, color: 'var(--color-tone-success-fg)' }}>Привязан.</div>
               ) : (
                 <>
                   <TelegramLoginButton link size="medium" />

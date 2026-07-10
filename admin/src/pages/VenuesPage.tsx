@@ -219,6 +219,7 @@ export default function VenuesPage() {
                     <img
                       src={venue.image}
                       alt={venue.name}
+                      referrerPolicy="no-referrer"
                       className="w-16 h-16 object-cover rounded-md flex-shrink-0"
                     />
                   )}

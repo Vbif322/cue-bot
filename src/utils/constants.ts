@@ -1,8 +1,19 @@
-export const DISCIPLINE_LABELS: Record<string, string> = {
-  // pool: "Пул",
+export const SPORT_LABELS: Record<string, string> = {
   snooker: 'Снукер',
-  // russian_billiards: "Русский бильярд",
-  // carom: "Карамболь",
+  pool: 'Пул',
+  russian_billiards: 'Русский бильярд',
+};
+
+export const DISCIPLINE_LABELS: Record<string, string> = {
+  snooker_15_red: '15 красных',
+  snooker_10_red: '10 красных',
+  snooker_6_red: '6 красных',
+  pool_8: 'Восьмёрка',
+  pool_9: 'Девятка',
+  pool_10: 'Десятка',
+  russian_free: 'Свободная пирамида',
+  russian_combined: 'Комбинированная пирамида',
+  russian_dynamic: 'Динамичная пирамида',
 };
 
 import type { ITournamentFormat } from '@/shared/tournament/formats.js';
@@ -33,8 +44,20 @@ export const SCHEDULE_MODE_LABELS: Record<string, string> = {
   per_match: 'По матчам',
 };
 
+export function formatSport(sport: string): string {
+  return SPORT_LABELS[sport] ?? sport;
+}
+
 export function formatDiscipline(discipline: string): string {
   return DISCIPLINE_LABELS[discipline] ?? discipline;
+}
+
+/** «Снукер — 15 красных» — full sport + discipline label for cards/summaries. */
+export function formatSportDiscipline(
+  sport: string,
+  discipline: string,
+): string {
+  return `${formatSport(sport)} — ${formatDiscipline(discipline)}`;
 }
 
 export function formatFormat(format: string): string {

@@ -3,6 +3,8 @@ import { TournamentStatusBadge, InfoRow } from '@cue-bot/ui';
 import {
   VISIBILITY_LABELS,
   SCHEDULE_MODE_LABELS,
+  SPORT_LABELS,
+  DISCIPLINE_LABELS,
   formatParticipants,
   formatLabelWithMode,
 } from '../../lib/tournamentLabels.ts';
@@ -19,6 +21,12 @@ export default function TournamentInfoTab({
       <InfoRow
         label="Статус"
         value={<TournamentStatusBadge status={tournament.status} />}
+      />
+      <InfoRow
+        label="Дисциплина"
+        value={`${SPORT_LABELS[tournament.sport] ?? tournament.sport} — ${
+          DISCIPLINE_LABELS[tournament.discipline] ?? tournament.discipline
+        }`}
       />
       <InfoRow
         label="Формат"

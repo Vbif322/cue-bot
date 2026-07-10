@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useThemeSync } from './lib/theme.ts';
 import Layout from './components/Layout.tsx';
 import RequireAuth from './components/RequireAuth.tsx';
 import LoginPage from './pages/LoginPage.tsx';
@@ -12,6 +13,7 @@ import NotificationsPage from './pages/NotificationsPage.tsx';
 import InvitePage from './pages/InvitePage.tsx';
 
 export default function App() {
+  useThemeSync();
   return (
     <Routes>
       {/* Логин — вне общего каркаса. */}

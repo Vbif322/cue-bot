@@ -95,7 +95,8 @@ npm run dev:all
 
 Скрипт автоматически:
 
-1. Стартует Docker-контейнер `drizzle-postgres` в WSL и ждёт готовности Postgres (`pg_isready`).
+1. Поднимает Postgres через `docker compose up -d --wait` — контейнер `cue-bot-postgres`
+   создаётся при первом запуске и команда ждёт его healthcheck (`pg_isready`).
 2. Параллельно запускает в одном терминале с цветными префиксами:
    - `[api]` — бот + Hono API (порт **3000**)
    - `[web]` — Vite dev сервер для SPA (порт **5173**, проксирует `/api` на 3000)
@@ -130,9 +131,23 @@ npm run dev:login -- 123456789    # конкретный админ по telegra
 
 **Предпосылки для `dev:all`:**
 
-- Windows + WSL2 (Ubuntu) с Docker внутри WSL.
-- Контейнер с именем `drizzle-postgres` уже создан.
-- WSL-пользователь добавлен в группу `docker` (`sudo usermod -aG docker $USER` + перелогин), иначе скрипт упадёт на правах сокета.
+- Установлены Docker и Docker Compose (плагин `docker compose`). Контейнер `cue-bot-postgres`
+  создаётся автоматически из [`docker-compose.yml`](docker-compose.yml) — вручную ничего
+  создавать не нужно. Креды берутся из `POSTGRES_*` в `.env` (по умолчанию `user`/`password`/
+  `cuebot`) и должны совпадать с `DATABASE_URL`.
+- На Windows + WSL2 (Ubuntu) с Docker внутри WSL используйте `*:wsl`-варианты команд
+  (`db:up:wsl`/`db:down:wsl`), а WSL-пользователя добавьте в группу `docker`
+  (`sudo usermod -aG docker $USER` + перелогин), иначе команда упадёт на правах сокета.
+
+> **Первый запуск / миграция со старого контейнера `drizzle-postgres`.** Compose использует
+> отдельный named volume `cue-bot-pgdata`, поэтому при первом `npm run db:up` база пустая.
+> Контейнер на первом старте автоматически создаёт схему `prod`
+> ([`docker/initdb/01-create-schema.sql`](docker/initdb/01-create-schema.sql)) — миграции
+> сами её не создают. Затем примените схему: `npm run db:migrate`.
+>
+> Если раньше вы держали контейнер `drizzle-postgres` на порту 5432, сначала остановите его
+> (`docker stop drizzle-postgres`), иначе будет конфликт по порту. Старые данные в новый
+> volume не переносятся — dev-БД восстанавливается миграциями.
 
 **Отдельные команды (если нужно запустить что-то одно):**
 
@@ -140,10 +155,14 @@ npm run dev:login -- 123456789    # конкретный админ по telegra
 npm run dev          # только бот + API
 npm run dev:admin    # только Vite SPA
 npm run db:studio    # только Drizzle Studio
-npm run db:up        # поднять контейнер БД
-npm run db:down      # остановить контейнер БД
+npm run db:up        # поднять контейнер БД (docker compose up --wait)
+npm run db:down      # остановить контейнер БД (docker compose stop; данные сохраняются)
 npm run dev:login    # ссылка для входа в админку (см. ниже)
 ```
+
+Integration-тесты (`npm run test:integration`, часть `npm test`) поднимают свой Postgres
+через testcontainers и **требуют Docker**. Без Docker пройдут только unit-тесты
+(`npm run test:unit`).
 
 ### Туннель для Telegram Web App
 

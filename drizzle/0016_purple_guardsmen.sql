@@ -1,0 +1,13 @@
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_round_nonneg" CHECK ("prod"."matches"."round" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_position_nonneg" CHECK ("prod"."matches"."position" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_player1_score_nonneg" CHECK ("prod"."matches"."player1_score" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_player2_score_nonneg" CHECK ("prod"."matches"."player2_score" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_group_index_nonneg" CHECK ("prod"."matches"."group_index" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_losers_next_position_nonneg" CHECK ("prod"."matches"."losers_next_match_position" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_confirmed_participants_nonneg" CHECK ("prod"."tournaments"."confirmed_participants" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_max_participants_nonneg" CHECK ("prod"."tournaments"."max_participants" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_win_score_nonneg" CHECK ("prod"."tournaments"."win_score" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_merge_round_nonneg" CHECK ("prod"."tournaments"."merge_round" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_groups_count_nonneg" CHECK ("prod"."tournaments"."groups_count" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_participants_per_group_nonneg" CHECK ("prod"."tournaments"."participants_per_group" >= 0);--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_qualifiers_per_group_nonneg" CHECK ("prod"."tournaments"."qualifiers_per_group" >= 0);

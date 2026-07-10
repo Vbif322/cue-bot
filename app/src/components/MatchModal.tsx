@@ -47,7 +47,7 @@ function ScoreRow({ side }: { side: Side }) {
           flex: 1,
           fontSize: 16,
           fontWeight: side.you || side.lead ? 700 : 500,
-          color: side.you ? '#93c5fd' : side.lead ? '#f3f4f6' : '#9aa0aa',
+          color: side.you ? 'var(--accent-fg)' : side.lead ? 'var(--text-primary)' : 'var(--text-muted)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -59,7 +59,7 @@ function ScoreRow({ side }: { side: Side }) {
         style={{
           fontSize: 26,
           fontWeight: 700,
-          color: side.lead ? '#f3f4f6' : '#6b7280',
+          color: side.lead ? 'var(--text-primary)' : 'var(--text-faint)',
           fontVariantNumeric: 'tabular-nums',
         }}
       >
@@ -127,7 +127,7 @@ export default function MatchModal({
   if (isLoading || !match) {
     return (
       <AppModal onClose={onClose} title="Матч">
-        <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>Загрузка…</div>
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-faint)' }}>Загрузка…</div>
       </AppModal>
     );
   }
@@ -184,7 +184,7 @@ export default function MatchModal({
             display: 'flex',
             flexDirection: 'column',
             gap: 14,
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: '1px solid var(--border-subtle)',
           }}
         >
           <ScoreRow side={side1} />
@@ -197,7 +197,7 @@ export default function MatchModal({
 
           {canReport && (
             <>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#d1d5db' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Внести результат
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -210,7 +210,7 @@ export default function MatchModal({
                   onChange={(e) => setScores((s) => ({ ...s, p1: e.target.value }))}
                   style={{ textAlign: 'center' }}
                 />
-                <span style={{ color: '#4b5563', fontWeight: 700 }}>:</span>
+                <span style={{ color: 'var(--text-disabled)', fontWeight: 700 }}>:</span>
                 <Field
                   type="number"
                   min={0}
@@ -221,7 +221,7 @@ export default function MatchModal({
                   style={{ textAlign: 'center' }}
                 />
               </div>
-              <div style={{ fontSize: 12, color: '#6b7280' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
                 {side1.name} — счёт слева, {side2.name} — справа.
               </div>
               <Btn
@@ -240,16 +240,16 @@ export default function MatchModal({
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 6,
-                background: 'rgba(234,179,8,0.06)',
-                border: '1px solid rgba(234,179,8,0.22)',
+                background: 'var(--color-tone-warning-bg)',
+                border: '1px solid var(--color-tone-warning-fg)',
                 borderRadius: 14,
                 padding: 16,
               }}
             >
-              <span style={{ fontSize: 14, fontWeight: 700, color: '#fcd34d' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-tone-warning-fg)' }}>
                 Ожидает подтверждения соперником
               </span>
-              <span style={{ fontSize: 13, color: '#c3c8d0', lineHeight: 1.5 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                 Вы внесли результат {s1}:{s2}. Соперник подтвердит его или оспорит.
               </span>
             </div>
@@ -262,18 +262,18 @@ export default function MatchModal({
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 6,
-                  background: 'rgba(234,179,8,0.06)',
-                  border: '1px solid rgba(234,179,8,0.22)',
+                  background: 'var(--color-tone-warning-bg)',
+                  border: '1px solid var(--color-tone-warning-fg)',
                   borderRadius: 14,
                   padding: 16,
                 }}
               >
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#fcd34d' }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-tone-warning-fg)' }}>
                   Ожидает вашего подтверждения
                 </span>
-                <span style={{ fontSize: 13, color: '#c3c8d0', lineHeight: 1.5 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                   Соперник внёс результат{' '}
-                  <b style={{ color: '#e5e7eb' }}>
+                  <b style={{ color: 'var(--text-secondary)' }}>
                     {s1}:{s2}
                   </b>
                   . Подтвердите его или оспорьте, если не согласны.
@@ -297,17 +297,17 @@ export default function MatchModal({
                   display: 'flex',
                   alignItems: 'center',
                   gap: 10,
-                  background: 'rgba(16,185,129,0.07)',
-                  border: '1px solid rgba(16,185,129,0.26)',
+                  background: 'var(--color-tone-success-bg)',
+                  border: '1px solid var(--color-tone-success-fg)',
                   borderRadius: 14,
                   padding: '14px 16px',
                 }}
               >
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#6ee7b7' }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-tone-success-fg)' }}>
                   Результат подтверждён
                 </span>
                 {match.isTechnicalResult && (
-                  <span style={{ fontSize: 12, color: '#8a8f99', marginLeft: 'auto' }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
                     техническое
                   </span>
                 )}
@@ -321,11 +321,11 @@ export default function MatchModal({
           )}
 
           {isCancelled && (
-            <div style={{ fontSize: 13, color: '#6b7280' }}>Матч отменён.</div>
+            <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>Матч отменён.</div>
           )}
 
           {!isPlayer && !isCompleted && !isCancelled && (
-            <div style={{ fontSize: 13, color: '#6b7280' }}>
+            <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>
               {hasScore ? 'Матч идёт.' : 'Матч ещё не начался.'}
             </div>
           )}
@@ -337,7 +337,7 @@ export default function MatchModal({
           <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 17, fontWeight: 700 }}>Оспорить результат?</div>
-              <div style={{ fontSize: 13, color: '#9aa0aa', lineHeight: 1.55 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55 }}>
                 Соперник и организатор получат уведомление, а результат будет заморожен до
                 решения организатора.
               </div>

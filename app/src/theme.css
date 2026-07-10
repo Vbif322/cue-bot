@@ -1,0 +1,108 @@
+/**
+ * Тема приложения игрока (app/) — семантические токены для светлой и тёмной темы.
+ *
+ * Импортируется из index.css ПОСЛЕ '@cue-bot/ui/theme.css', чтобы переопределения
+ * статус-тонов побеждали значения общего @theme (там они светлые, для админки).
+ *
+ * Механика выбора темы — атрибут data-theme на <html> (его выставляет
+ * app/src/lib/theme.ts и pre-paint скрипт в index.html):
+ *   - в браузере — по prefers-color-scheme;
+ *   - в Telegram — по WebApp.colorScheme (с реакцией на themeChanged).
+ *
+ * Добавить новую тему = дописать ещё один блок :root[data-theme='…'] с теми же
+ * именами переменных и научить resolveTheme() её выбирать. Значения цветов больше
+ * нигде не хардкодятся — компоненты используют только var(--…).
+ */
+
+/* ── Токены, не зависящие от темы (полупрозрачные — читаются в обеих) ────────── */
+:root {
+  --scrim: rgb(3 4 8 / 0.6); /* подложка модалок затемняет фон в любой теме */
+  --accent-border: rgb(59 130 246 / 0.5); /* акцентная рамка (выделение) */
+  --accent-glow: rgb(59 130 246 / 0.18); /* акцентное свечение */
+  --accent-wash: rgb(59 130 246 / 0.06); /* лёгкая акцентная заливка строки */
+}
+
+/* ── Светлая тема (палитра админки: серое на белом) ─────────────────────────── */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --shadow-modal: 0 24px 70px rgb(17 24 39 / 0.18);
+
+  /* Поверхности */
+  --surface-base: #f4f5f7; /* фон страницы */
+  --surface-1: #ffffff; /* сайдбар / нав-бары */
+  --surface-2: #ffffff; /* карточки */
+  --surface-3: #eef0f3; /* ховер карточек */
+  --surface-inset: rgb(0 0 0 / 0.03); /* вложенные подложки */
+  --surface-overlay: rgb(255 255 255 / 0.92); /* полупрозрачные бары */
+
+  /* Текст */
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-faint: #9ca3af;
+  --text-disabled: #c0c4cc;
+
+  /* Границы */
+  --border-subtle: rgb(0 0 0 / 0.06);
+  --border-default: #e5e7eb;
+  --border-strong: #d1d5db;
+
+  /* Акцент (сам --color-primary/-hover общий, лежит в @cue-bot/ui) */
+  --accent-subtle-bg: rgb(59 130 246 / 0.1);
+  --accent-fg: #1d4ed8;
+
+  /* Статус-тоны на светлой теме наследуются из общего @theme — не переопределяем. */
+}
+
+/* ── Тёмная тема (значения перенесены 1:1 из прежнего хардкода) ──────────────── */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --shadow-modal: 0 24px 70px rgb(0 0 0 / 0.6);
+
+  /* Поверхности */
+  --surface-base: #0d0e12;
+  --surface-1: #101116;
+  --surface-2: #17181e;
+  --surface-3: #1b1d24;
+  --surface-inset: rgb(255 255 255 / 0.04);
+  --surface-overlay: rgb(16 17 22 / 0.92);
+
+  /* Текст */
+  --text-primary: #f3f4f6;
+  --text-secondary: #d1d5db;
+  --text-muted: #9aa0aa;
+  --text-faint: #6b7280;
+  --text-disabled: #565c66;
+
+  /* Границы */
+  --border-subtle: rgb(255 255 255 / 0.06);
+  --border-default: rgb(255 255 255 / 0.1);
+  --border-strong: rgb(255 255 255 / 0.16);
+
+  /* Акцент */
+  --accent-subtle-bg: rgb(59 130 246 / 0.12);
+  --accent-fg: #93c5fd;
+
+  /* Статус-тоны для тёмной темы (имена совпадают с @cue-bot/ui — их читают
+     Badge/StatusBadge и NotificationsPage через var(--color-tone-${tone}-…)). */
+  --color-tone-neutral-bg: rgb(255 255 255 / 0.08);
+  --color-tone-neutral-fg: #d1d5db;
+
+  --color-tone-muted-bg: rgb(255 255 255 / 0.05);
+  --color-tone-muted-fg: #9aa0aa;
+
+  --color-tone-success-bg: rgb(16 185 129 / 0.15);
+  --color-tone-success-fg: #6ee7b7;
+
+  --color-tone-warning-bg: rgb(245 158 11 / 0.15);
+  --color-tone-warning-fg: #fcd34d;
+
+  --color-tone-info-bg: rgb(59 130 246 / 0.15);
+  --color-tone-info-fg: #93c5fd;
+
+  --color-tone-accent-bg: rgb(139 92 246 / 0.15);
+  --color-tone-accent-fg: #c4b5fd;
+
+  --color-tone-danger-bg: rgb(220 38 38 / 0.15);
+  --color-tone-danger-fg: #fca5a5;
+}
