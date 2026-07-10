@@ -33,9 +33,13 @@ export function applyTheme(theme: Theme): void {
     document
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute('content', surface);
+    // setBackgroundColor/setHeaderColor требуют Bot API 6.1+; на 6.0 методы есть,
+    // но не поддержаны — вызов лишь пишет предупреждение в консоль. Гейтим по версии.
     const tg = getTelegramWebApp();
-    tg?.setBackgroundColor?.(surface);
-    tg?.setHeaderColor?.(surface);
+    if (tg?.isVersionAtLeast?.('6.1')) {
+      tg.setBackgroundColor?.(surface);
+      tg.setHeaderColor?.(surface);
+    }
   }
 }
 
