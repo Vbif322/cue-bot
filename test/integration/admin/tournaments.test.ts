@@ -5,6 +5,10 @@ import { db } from '@/db/db.js';
 import { tournamentParticipants } from '@/db/schema.js';
 import { createAdminServer } from '@/admin/server/index.js';
 import { bot } from '@/bot/instance.js';
+import type {
+  ITournamentSport,
+  ITournamentDiscipline,
+} from '@/shared/tournament/disciplines.js';
 
 import { apiRequest } from '../../helpers/auth.js';
 import {
@@ -22,6 +26,8 @@ interface TournamentRow {
   name: string;
   status: string;
   createdBy: UUID;
+  sport: ITournamentSport;
+  discipline: ITournamentDiscipline;
 }
 
 describe('admin tournaments router', () => {
