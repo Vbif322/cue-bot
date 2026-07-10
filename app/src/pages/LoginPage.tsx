@@ -5,17 +5,19 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { appAuth } from '../lib/api.ts';
 import { Btn, Field } from '../components/controls.tsx';
 import { ErrorBox } from '../components/ui.tsx';
-import {
-  TelegramLoginButton,
-  useTelegramLoginEnabled,
-} from '../components/TelegramLoginButton.tsx';
+// временно скрыто: вход через Telegram
+// import {
+//   TelegramLoginButton,
+//   useTelegramLoginEnabled,
+// } from '../components/TelegramLoginButton.tsx';
 
+// временно скрыто: вход через Telegram
 // Сообщения по коду ошибки из ?telegram= (редирект бэкенда после OIDC-возврата).
-const TELEGRAM_ERRORS: Record<string, string> = {
-  error: 'Не удалось войти через Telegram. Попробуйте ещё раз.',
-  cancelled: 'Вход через Telegram отменён.',
-  auth_required: 'Сначала войдите в аккаунт.',
-};
+// const TELEGRAM_ERRORS: Record<string, string> = {
+//   error: 'Не удалось войти через Telegram. Попробуйте ещё раз.',
+//   cancelled: 'Вход через Telegram отменён.',
+//   auth_required: 'Сначала войдите в аккаунт.',
+// };
 
 export default function LoginPage() {
   const nav = useNavigate();
@@ -23,9 +25,10 @@ export default function LoginPage() {
   const qc = useQueryClient();
   const from = (loc.state as { from?: string } | null)?.from ?? '/';
 
-  const telegramEnabled = useTelegramLoginEnabled();
-  const telegramError =
-    TELEGRAM_ERRORS[new URLSearchParams(loc.search).get('telegram') ?? ''];
+  // временно скрыто: вход через Telegram
+  // const telegramEnabled = useTelegramLoginEnabled();
+  // const telegramError =
+  //   TELEGRAM_ERRORS[new URLSearchParams(loc.search).get('telegram') ?? ''];
 
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
@@ -168,6 +171,7 @@ export default function LoginPage() {
           </form>
         )}
 
+        {/* временно скрыто: вход через Telegram
         {step === 'email' && telegramEnabled && (
           <>
             <div
@@ -189,6 +193,7 @@ export default function LoginPage() {
             {telegramError && <ErrorBox message={telegramError} />}
           </>
         )}
+        */}
       </div>
     </div>
   );
