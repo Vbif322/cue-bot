@@ -5,17 +5,19 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { appAuth } from '../lib/api.ts';
 import { Btn, Field } from '../components/controls.tsx';
 import { ErrorBox } from '../components/ui.tsx';
-import {
-  TelegramLoginButton,
-  useTelegramLoginEnabled,
-} from '../components/TelegramLoginButton.tsx';
+// временно скрыто: вход через Telegram
+// import {
+//   TelegramLoginButton,
+//   useTelegramLoginEnabled,
+// } from '../components/TelegramLoginButton.tsx';
 
+// временно скрыто: вход через Telegram
 // Сообщения по коду ошибки из ?telegram= (редирект бэкенда после OIDC-возврата).
-const TELEGRAM_ERRORS: Record<string, string> = {
-  error: 'Не удалось войти через Telegram. Попробуйте ещё раз.',
-  cancelled: 'Вход через Telegram отменён.',
-  auth_required: 'Сначала войдите в аккаунт.',
-};
+// const TELEGRAM_ERRORS: Record<string, string> = {
+//   error: 'Не удалось войти через Telegram. Попробуйте ещё раз.',
+//   cancelled: 'Вход через Telegram отменён.',
+//   auth_required: 'Сначала войдите в аккаунт.',
+// };
 
 export default function LoginPage() {
   const nav = useNavigate();
@@ -23,9 +25,10 @@ export default function LoginPage() {
   const qc = useQueryClient();
   const from = (loc.state as { from?: string } | null)?.from ?? '/';
 
-  const telegramEnabled = useTelegramLoginEnabled();
-  const telegramError =
-    TELEGRAM_ERRORS[new URLSearchParams(loc.search).get('telegram') ?? ''];
+  // временно скрыто: вход через Telegram
+  // const telegramEnabled = useTelegramLoginEnabled();
+  // const telegramError =
+  //   TELEGRAM_ERRORS[new URLSearchParams(loc.search).get('telegram') ?? ''];
 
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
@@ -53,7 +56,7 @@ export default function LoginPage() {
         justifyContent: 'center',
         padding: 20,
         boxSizing: 'border-box',
-        background: '#0d0e12',
+        background: 'var(--surface-base)',
       }}
     >
       <div
@@ -61,8 +64,8 @@ export default function LoginPage() {
           width: '100%',
           maxWidth: 380,
           boxSizing: 'border-box',
-          background: '#17181e',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border-default)',
           borderRadius: 20,
           padding: 28,
           display: 'flex',
@@ -100,7 +103,7 @@ export default function LoginPage() {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ fontSize: 19, fontWeight: 700 }}>Вход в аккаунт</div>
-              <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-faint)', lineHeight: 1.5 }}>
                 Введите почту — пришлём 6-значный код для входа.
               </div>
             </div>
@@ -127,8 +130,8 @@ export default function LoginPage() {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ fontSize: 19, fontWeight: 700 }}>Введите код</div>
-              <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.5 }}>
-                Мы отправили код на <b style={{ color: '#d1d5db' }}>{email.trim()}</b>. Он
+              <div style={{ fontSize: 13, color: 'var(--text-faint)', lineHeight: 1.5 }}>
+                Мы отправили код на <b style={{ color: 'var(--text-secondary)' }}>{email.trim()}</b>. Он
                 действует 10 минут.
               </div>
             </div>
@@ -157,7 +160,7 @@ export default function LoginPage() {
               style={{
                 border: 'none',
                 background: 'transparent',
-                color: '#9aa0aa',
+                color: 'var(--text-muted)',
                 fontSize: 13,
                 cursor: 'pointer',
                 fontFamily: 'inherit',
@@ -168,6 +171,7 @@ export default function LoginPage() {
           </form>
         )}
 
+        {/* временно скрыто: вход через Telegram
         {step === 'email' && telegramEnabled && (
           <>
             <div
@@ -175,13 +179,13 @@ export default function LoginPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                color: '#4b5563',
+                color: 'var(--text-disabled)',
                 fontSize: 12,
               }}
             >
-              <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+              <span style={{ flex: 1, height: 1, background: 'var(--border-default)' }} />
               или
-              <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+              <span style={{ flex: 1, height: 1, background: 'var(--border-default)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <TelegramLoginButton />
@@ -189,6 +193,7 @@ export default function LoginPage() {
             {telegramError && <ErrorBox message={telegramError} />}
           </>
         )}
+        */}
       </div>
     </div>
   );

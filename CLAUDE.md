@@ -17,8 +17,8 @@ npm run dev:all        # Postgres (docker) + bot/API + admin Vite + Drizzle Stud
 npm run dev            # bot + Hono API only (nodemon, :3000)
 npm run dev:admin      # admin Vite SPA only (:5173, proxies /api -> :3000)
 
-# DB (Drizzle + Postgres in a docker container named `drizzle-postgres`)
-npm run db:up          # start container; db:down to stop  (use *:wsl variants under WSL)
+# DB (Drizzle + Postgres via `docker-compose.yml`, container `cue-bot-postgres`)
+npm run db:up          # docker compose up --wait; db:down = docker compose stop  (use *:wsl variants under WSL)
 npm run db:generate    # generate migration from schema changes
 npm run db:migrate     # apply migrations
 npm run db:studio      # Drizzle Studio

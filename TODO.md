@@ -3,88 +3,56 @@
 Приоритеты по аудиту от 2026-06-12 (`audit/FINDINGS.md`, сводка —
 `audit/stage-8-synthesis.md`)
 
-## P2 — Техдолг / UX (Low)
+## M2 — Виды бильярда и дисциплины
 
-Порядок групп по польза/цена: **3 → 5 → 6 → 1 → 2 → 4**.
+Разбивка [ROADMAP.md](ROADMAP.md) на задачи.
 
-### Группа 1 — Валидация path-параметров в admin-API (S2-8, + часть S3-6)
+### Детальный счёт по фреймам и статистика
 
-Player-роуты уже валидируют `id` через `validateParam` (`src/app/server/routes/_shared.ts`);
-admin-роуты `users.ts`/`matches.ts`/`tournaments.ts` кастуют `c.req.param('id') as UUID` без
-проверки → битый id доходит до Postgres и даёт 500.
+- **M2-5:** таблица `match_frames` (`matchId` → `frameNumber`, очки игрока 1/2, победитель
+  фрейма выводится) + миграция; агрегаты `player1Score`/`player2Score`
+  (`src/db/schema/matches.ts:61-62`) пересчитываются из фреймов.
+- **M2-6:** захват максимального брейка (снукер) — отдельное поле поверх очков фреймов.
+- **M2-7:** ввод результата по фреймам в боте взамен выбора готового счёта — заменить текущий
+  колбэк-флоу `match:report`/`match:score` (`src/bot/handlers/matchCommands.ts:401-512`,
+  `reportResult` в `src/services/matchService.ts:438-486`) на ввод по фреймам; двухфазное
+  подтверждение (`confirmResult`, `matchService.ts:491-538`) сохраняется — оппонент подтверждает
+  разбивку по фреймам.
+- **M2-8:** тай-брейк «группа + плей-офф» — настоящая разница очков вместо выведенной
+  `frameDiff` (`src/services/standingsService.ts`, накопление `framesWon/framesLost` и финальный
+  `frameDiff` строки ~106-166) — считать из `match_frames`.
+- **M2-9:** админ-SPA — разбивка по фреймам и макс. брейк на вкладках матчей/standings.
+- **M2-10:** детальное хранение очков — опционально, управляется дисциплиной (для дисциплин без
+  «брейка» — только счёт фреймов).
+- **M2-11:** переменная длина матча по раундам/этапам — `winScore`
+  (`src/db/schema/tournaments.ts:107-110`) перестаёт быть единым на турнир, переопределение по
+  раунду/стадии в схеме, выбор в визарде и админ-SPA; валидация в `reportResult`
+  (`matchService.ts:459-468`) сверяет счёт с `winScore` нужного раунда, а не турнирным.
 
-- Добавить admin-`_shared.ts` (или переиспользовать паттерн) с
-  `zValidator('param', z.object({ id: z.uuid() }))`, прогнать по всем `:id`/`:tournamentId`/`:userId`.
-- Побочно снижает счётчик `as UUID` (~101 по `src/`). Образцы: `routes/tables.ts:42`, `venues.ts:46,68`.
+## M3 — Бот в групповом чате: анонсы и уведомления
 
-### Группа 2 — Дедупликация и N+1 в matchService (S3-5)
+Разбивка [ROADMAP.md](ROADMAP.md) на задачи. Контекст: `privateOnly()`
+(`src/bot/guards.ts:18-28`) существует, но не подключён нигде (0 использований) — сейчас
+ограничение на приватные чаты не в коде.
 
-Всё в `src/services/matchService.ts`, без изменения поведения:
-
-- Общий select+mapping `MatchWithPlayers` (дубль в `getMatch` :123-165 и `getTournamentMatches` :273-312).
-- Устранить N+1: `getPlayerActiveMatches` (:201-228), `getPlayerCurrentMatch` (:171-196),
-  `getPlayerMatchHistory` (:234-259) — зовут `getMatch` в цикле.
-- Батчевая вставка в `createMatches` (:53-108) вместо `insert().returning()` в цикле.
-
-### Группа 3 — Чистка roleCommands (S3-5 + остаток S3-6)
-
-Всё в `src/bot/handlers/roleCommands.ts`:
-
-- Вынести `findUserByHandle()` — 4 копии блока «@username → username, иначе telegram_id»
-  (:32-41, :84-95, :151-162, :230-241).
-- `parseInt(telegram_id)` → radix 10 (:61, :120, :190, :264) — единственные места без radix.
-
-### Группа 4 — Доменные CHECK-ограничения в БД (S5-4)
-
-Enum-CHECK'и и партиал-уник на username уже есть (`schemaHelpers.ts:23-34`, `users.ts:30-32`);
-осталось числовое:
-
-- CHECK на неотрицательность `matches.player1Score/player2Score/round/position`
-  (`schema/matches.ts:47-61`) и `tournaments.maxParticipants/winScore/…` (`tournaments.ts:102-118`).
-- `npm run db:generate` → `db:migrate`.
-
-### Группа 5 — Устойчивость сессии/UX во фронте (S6-2 + S6-3)
-
-Мелкие точечные правки в обеих SPA:
-
-- **S6-2:** глобальная обработка 401 в `admin/src/lib/api.ts` и `app/src/lib/api.ts` — при 401
-  инвалидировать `['auth','me']` / редирект на логин вместо общего Error.
-- **S6-3:** `admin/src/pages/VenuesPage.tsx:218-224` — `referrerPolicy="no-referrer"` на `<img>`
-  (глобальный `Referrer-Policy: no-referrer` от `secureHeaders()` уже стоит — добивка); CSP
-  осознанно отключена (`src/admin/server/index.ts:22`), не трогаем.
-
-### Группа 6 — Воспроизводимость dev-окружения (S7-5)
-
-- Добавить `docker-compose.yml` для dev-Postgres (заменяет опору на вручную созданный
-  контейнер `drizzle-postgres`), обновить `db:up/down` (`package.json:39-42`) и README.
-  Интеграция уже на testcontainers — не трогаем.
-
-### Мелочь (по желанию, дёшево)
-
-- **S3-7:** вынести границы DE-участников `8/128` в общий константный модуль (сейчас magic
-  numbers в `bracketGenerator.ts:252-254` и `tournamentService.ts:359-362`).
-- **S5-5:** `tournaments.confirmedParticipants` — снапшот на `registration_closed`
-  (`tournamentService.ts:889-896`), но читается для размера сетки (`matchService.ts:45`,
-  `matchUI.ts:125`). Вероятно осознанно — задокументировать инвариант в схеме, а не менять.
-
-## Архитектура / инфраструктура
-
-- Дизайн-система (частично): монорепо (npm workspaces: `admin`, `app`, `packages/*`) и пакет
-  `packages/ui` (`@cue-bot/ui`) с дизайн-токенами (Tailwind v4 `@theme`) и презентационными
-  примитивами (Badge/StatusBadge, InfoRow, Chevron, Button, Input/Select, Modal); админка и
-  SPA игрока переведены на них. Осталось: по мере надобности выносить оставшиеся
-  inline-паттерны и, если потребуется, не-UI общий код в `packages/shared`. Фиче-компоненты
-  (`tournament-detail/*`, модалки, завязанные на TanStack Query) намеренно живут в `admin`/`app`.
-
-## Веб для игроков (M1) — готово, см. ROADMAP.md
-
-Реализовано: монорепо (`admin`, `app`, `packages/*`); `user_identities` + бэкфилл
-telegram-аккаунтов (закрыло предусловие S2-2 из аудита); беспарольный вход — коды на почту
-(`email_login_codes` + mailService) и вход через Telegram по OIDC (Authorization Code + PKCE:
-`src/app/server/telegramOidc.ts`, `GET /api/app/auth/telegram/start` + `/callback`, привязка
-через тот же поток с `?link=1`); JWT в куке `app_token`
-
-- `requireUser`; регистрация/отмена/приглашения извлечены из бот-хендлеров в
-  `tournamentService`; API игрока `/api/app/*` (auth, me, tournaments, matches, notifications);
-  SPA `app/`; раздача по поддоменам (игрок — cuebot.ru, админка — admin.cuebot.ru,
-  Host-диспетчеризация в Node).
+- **M3-1:** колонка `tournaments.groupChatId` (bigint — id супергрупп выходят за диапазон
+  int32, вида `-100...`) + миграция; сейчас такой колонки нет.
+- **M3-2:** флоу привязки группового чата к турниру (например, детект `my_chat_member` в группе
+  или команда организатора внутри группы), пишущий `groupChatId`; авторизация — только
+  организатор турнира.
+- **M3-3:** новый seam отправки в группу — `postToGroupChat(api, chatId, text, keyboard?)`, по
+  аналогии с `sendNotification` (`src/services/notificationService.ts:125-169`), но без записи в
+  `notifications` (там `userId` `NOT NULL`, под группу не годится) — тот же
+  `api.sendMessage`/Markdown-паттерн.
+- **M3-4:** точки вызова — переиспользовать существующие чистые UI-билдеры:
+  `buildTournamentMessage` (`src/bot/ui/tournamentUI.ts:110-134`) на анонс/расписание,
+  `formatMatchCard` (`src/bot/ui/matchUI.ts:106+`) на результаты матчей, `buildBracketView`
+  (`src/bot/ui/bracketUI.ts:118+`) на финальную сетку; вызывать на событиях
+  создание/публикация турнира, завершение матча, завершение турнира. Read-only, без мутаций
+  состояния из группы.
+- **M3-5:** guard-ы/скоупы команд для групп — точечно подключить `privateOnly()`
+  (`guards.ts:18`) к мутирующим командам; per-tournament scope команд
+  (`{ type: 'chat', chat_id: groupChatId }`) вместо одинакового `all_group_chats`/
+  `all_private_chats` (`src/bot/commands.ts:35-42`), по аналогии с per-user scope в
+  `roleCommands.ts`.
+- **M3-6:** управление рассылкой по-прежнему в личке/вебе — группа только на приём.

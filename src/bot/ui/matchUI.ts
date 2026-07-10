@@ -120,6 +120,9 @@ export function formatMatchCard(
     telegramId: match.player2TelegramId,
   });
 
+  // confirmedParticipants is the frozen registration-close snapshot, the
+  // immutable bracket-size basis (see tournaments schema) — intentionally NOT
+  // the live confirmedCount.
   const k = calculateRounds(
     getNextPowerOfTwo(
       tournament.confirmedParticipants ?? tournament.maxParticipants,

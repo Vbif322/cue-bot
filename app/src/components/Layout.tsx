@@ -18,7 +18,7 @@ const NAV: NavEntry[] = [
   { to: '/', label: 'Турниры', end: true },
   { to: '/matches', label: 'Матчи' },
   { to: '/my/tournaments', label: 'Мои турниры' },
-  { to: '/notifications', label: 'Уведомления', badge: true },
+  // { to: '/notifications', label: 'Уведомления', badge: true },
   { to: '/profile', label: 'Профиль' },
 ];
 
@@ -26,7 +26,7 @@ const TITLES: Record<string, string> = {
   '/': 'Турниры',
   '/matches': 'Матчи',
   '/my/tournaments': 'Мои турниры',
-  '/notifications': 'Уведомления',
+  // '/notifications': 'Уведомления',
   '/profile': 'Профиль',
 };
 
@@ -52,8 +52,8 @@ function Badge({ count }: { count: number }) {
         padding: '0 5px',
         boxSizing: 'border-box',
         borderRadius: 999,
-        background: 'rgba(59,130,246,0.15)',
-        color: '#93c5fd',
+        background: 'var(--accent-subtle-bg)',
+        color: 'var(--accent-fg)',
         fontSize: 11,
         fontWeight: 700,
         display: 'inline-flex',
@@ -79,11 +79,18 @@ function DesktopSidebar({ unread }: { unread: number }) {
         flexDirection: 'column',
         gap: 6,
         padding: '20px 14px',
-        background: '#101116',
-        borderRight: '1px solid rgba(255,255,255,0.06)',
+        background: 'var(--surface-1)',
+        borderRight: '1px solid var(--border-subtle)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 10px 18px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          padding: '6px 10px 18px',
+        }}
+      >
         <span
           style={{
             width: 26,
@@ -100,7 +107,11 @@ function DesktopSidebar({ unread }: { unread: number }) {
         >
           C
         </span>
-        <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em' }}>cue·bot</span>
+        <span
+          style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em' }}
+        >
+          cue·bot
+        </span>
       </div>
 
       {NAV.map((item) => (
@@ -118,8 +129,8 @@ function DesktopSidebar({ unread }: { unread: number }) {
             textDecoration: 'none',
             fontSize: 14,
             fontWeight: isActive ? 600 : 500,
-            color: isActive ? '#f3f4f6' : '#6b7280',
-            background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent',
+            color: isActive ? 'var(--text-primary)' : 'var(--text-faint)',
+            background: isActive ? 'var(--accent-subtle-bg)' : 'transparent',
           })}
         >
           {({ isActive }) => (
@@ -149,7 +160,7 @@ function DesktopSidebar({ unread }: { unread: number }) {
             gap: 10,
             padding: 10,
             borderRadius: 10,
-            background: 'rgba(255,255,255,0.03)',
+            background: 'var(--surface-inset)',
           }}
         >
           <span
@@ -181,7 +192,9 @@ function DesktopSidebar({ unread }: { unread: number }) {
             >
               {displayName(user)}
             </div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>Игрок</div>
+            <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+              Игрок
+            </div>
           </div>
         </div>
       )}
@@ -198,9 +211,9 @@ function MobileBottomNav({ unread }: { unread: number }) {
         right: 0,
         bottom: 0,
         display: 'flex',
-        background: 'rgba(16,17,22,0.96)',
+        background: 'var(--surface-overlay)',
         backdropFilter: 'blur(8px)',
-        borderTop: '1px solid rgba(255,255,255,0.07)',
+        borderTop: '1px solid var(--border-subtle)',
         padding: '8px 6px calc(8px + env(safe-area-inset-bottom))',
         zIndex: 20,
       }}
@@ -218,7 +231,7 @@ function MobileBottomNav({ unread }: { unread: number }) {
             gap: 5,
             padding: '6px 0',
             textDecoration: 'none',
-            color: isActive ? '#f3f4f6' : '#6b7280',
+            color: isActive ? 'var(--text-primary)' : 'var(--text-faint)',
             fontWeight: isActive ? 600 : 500,
           })}
         >
@@ -230,8 +243,12 @@ function MobileBottomNav({ unread }: { unread: number }) {
                     width: 7,
                     height: 7,
                     borderRadius: '50%',
-                    background: isActive ? 'var(--color-primary)' : 'transparent',
-                    border: isActive ? 'none' : '1px solid #4b5563',
+                    background: isActive
+                      ? 'var(--color-primary)'
+                      : 'transparent',
+                    border: isActive
+                      ? 'none'
+                      : '1px solid var(--border-strong)',
                   }}
                 />
                 {item.badge && unread > 0 && (
@@ -243,7 +260,7 @@ function MobileBottomNav({ unread }: { unread: number }) {
                       width: 7,
                       height: 7,
                       borderRadius: '50%',
-                      background: '#ef4444',
+                      background: 'var(--color-red-500, #ef4444)',
                     }}
                   />
                 )}
@@ -265,9 +282,22 @@ export default function Layout() {
 
   if (isDesktop) {
     return (
-      <div style={{ display: 'flex', height: '100vh', background: '#0d0e12' }}>
+      <div
+        style={{
+          display: 'flex',
+          height: '100vh',
+          background: 'var(--surface-base)',
+        }}
+      >
         <DesktopSidebar unread={unread} />
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
           <main
             className="cb-scroll"
             style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}
@@ -280,7 +310,14 @@ export default function Layout() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#0d0e12' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        background: 'var(--surface-base)',
+      }}
+    >
       <header
         style={{
           flex: 'none',
@@ -292,9 +329,9 @@ export default function Layout() {
           alignItems: 'center',
           gap: 10,
           padding: '14px 16px',
-          background: 'rgba(16,17,22,0.92)',
+          background: 'var(--surface-overlay)',
           backdropFilter: 'blur(8px)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: '1px solid var(--border-subtle)',
         }}
       >
         <span

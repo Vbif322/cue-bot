@@ -1,9 +1,10 @@
 import { Composer } from 'grammy';
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import { users, tournaments, tournamentReferees } from '@/db/schema.js';
+import { findUserByHandle } from '@/services/userService.js';
 
 import { adminOnly } from '../guards.js';
 import { adminCommands, refereeCommands, userCommands } from '../commands.js';
@@ -27,18 +28,8 @@ roleCommands.command('set_admin', adminOnly(), async (ctx) => {
 
   const target = args[0];
   if (!target) return;
-  let targetUser;
 
-  if (target.startsWith('@')) {
-    const username = target.slice(1);
-    targetUser = await db.query.users.findFirst({
-      where: and(eq(users.username, username), isNotNull(users.telegram_id)),
-    });
-  } else {
-    targetUser = await db.query.users.findFirst({
-      where: eq(users.telegram_id, target),
-    });
-  }
+  const targetUser = await findUserByHandle(target);
 
   if (!targetUser) {
     await ctx.reply('Пользователь не найден. Он должен сначала написать боту.');
@@ -58,7 +49,7 @@ roleCommands.command('set_admin', adminOnly(), async (ctx) => {
   // Обновляем меню команд для нового админа
   if (targetUser.telegram_id) {
     await ctx.api.setMyCommands(adminCommands, {
-      scope: { type: 'chat', chat_id: parseInt(targetUser.telegram_id) },
+      scope: { type: 'chat', chat_id: parseInt(targetUser.telegram_id, 10) },
     });
   }
 
@@ -79,20 +70,8 @@ roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
 
   const target = args[0];
   if (!target) return;
-  let targetUser;
 
-  if (target.startsWith('@')) {
-    targetUser = await db.query.users.findFirst({
-      where: and(
-        eq(users.username, target.slice(1)),
-        isNotNull(users.telegram_id),
-      ),
-    });
-  } else {
-    targetUser = await db.query.users.findFirst({
-      where: eq(users.telegram_id, target),
-    });
-  }
+  const targetUser = await findUserByHandle(target);
 
   if (!targetUser) {
     await ctx.reply('Пользователь не найден.');
@@ -117,7 +96,7 @@ roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
   // Обновляем меню команд - убираем админские
   if (targetUser.telegram_id) {
     await ctx.api.setMyCommands(userCommands, {
-      scope: { type: 'chat', chat_id: parseInt(targetUser.telegram_id) },
+      scope: { type: 'chat', chat_id: parseInt(targetUser.telegram_id, 10) },
     });
   }
 
@@ -147,19 +126,7 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
     return;
   }
 
-  let targetUser;
-  if (targetArg.startsWith('@')) {
-    targetUser = await db.query.users.findFirst({
-      where: and(
-        eq(users.username, targetArg.slice(1)),
-        isNotNull(users.telegram_id),
-      ),
-    });
-  } else {
-    targetUser = await db.query.users.findFirst({
-      where: eq(users.telegram_id, targetArg),
-    });
-  }
+  const targetUser = await findUserByHandle(targetArg);
 
   if (!targetUser) {
     await ctx.reply('Пользователь не найден.');
@@ -187,7 +154,7 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
 
   // Promote target's menu to referee-level (admins already have everything)
   if (targetUser.telegram_id && targetUser.role !== 'admin') {
-    const targetChatId = parseInt(targetUser.telegram_id);
+    const targetChatId = parseInt(targetUser.telegram_id, 10);
     await ctx.api.setMyCommands(refereeCommands, {
       scope: { type: 'chat', chat_id: targetChatId },
     });
@@ -226,19 +193,7 @@ roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
     return;
   }
 
-  let targetUser;
-  if (targetArg.startsWith('@')) {
-    targetUser = await db.query.users.findFirst({
-      where: and(
-        eq(users.username, targetArg.slice(1)),
-        isNotNull(users.telegram_id),
-      ),
-    });
-  } else {
-    targetUser = await db.query.users.findFirst({
-      where: eq(users.telegram_id, targetArg),
-    });
-  }
+  const targetUser = await findUserByHandle(targetArg);
 
   if (!targetUser) {
     await ctx.reply('Пользователь не найден.');
@@ -261,7 +216,7 @@ roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
       await ctx.api.setMyCommands(userCommands, {
         scope: {
           type: 'chat',
-          chat_id: parseInt(targetUser.telegram_id),
+          chat_id: parseInt(targetUser.telegram_id, 10),
         },
       });
     }

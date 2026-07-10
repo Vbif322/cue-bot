@@ -26,8 +26,8 @@ function MetaCard({ label, value }: { label: string; value: string }) {
       style={{
         flex: '1 1 140px',
         boxSizing: 'border-box',
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.06)',
+        background: 'var(--surface-inset)',
+        border: '1px solid var(--border-subtle)',
         borderRadius: 12,
         padding: '12px 14px',
         display: 'flex',
@@ -41,12 +41,12 @@ function MetaCard({ label, value }: { label: string; value: string }) {
           fontWeight: 600,
           letterSpacing: '0.06em',
           textTransform: 'uppercase',
-          color: '#565c66',
+          color: 'var(--text-disabled)',
         }}
       >
         {label}
       </span>
-      <span style={{ fontSize: 14, fontWeight: 600, color: '#e5e7eb' }}>{value}</span>
+      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>{value}</span>
     </div>
   );
 }
@@ -59,8 +59,8 @@ function ParticipantChip({ person, you }: { person?: AppParticipant; you?: boole
         display: 'flex',
         alignItems: 'center',
         gap: 9,
-        background: you ? 'rgba(59,130,246,0.10)' : 'rgba(255,255,255,0.03)',
-        border: you ? '1px solid rgba(59,130,246,0.4)' : '1px solid rgba(255,255,255,0.06)',
+        background: you ? 'var(--accent-subtle-bg)' : 'var(--surface-inset)',
+        border: you ? '1px solid var(--accent-border)' : '1px solid var(--border-subtle)',
         borderRadius: 999,
         padding: '5px 14px 5px 5px',
       }}
@@ -73,7 +73,7 @@ function ParticipantChip({ person, you }: { person?: AppParticipant; you?: boole
         size={32}
       />
       <span
-        style={{ fontSize: 14, color: you ? '#f3f4f6' : '#d1d5db', whiteSpace: 'nowrap', fontWeight: you ? 600 : 400 }}
+        style={{ fontSize: 14, color: you ? 'var(--text-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap', fontWeight: you ? 600 : 400 }}
       >
         {name}
       </span>
@@ -192,8 +192,8 @@ function RegistrationCta({
         display: 'flex',
         flexDirection: 'column',
         gap: 16,
-        background: '#191b22',
-        border: '1px solid rgba(255,255,255,0.09)',
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border-default)',
         borderRadius: 18,
         padding: 20,
       }}
@@ -201,14 +201,14 @@ function RegistrationCta({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
           {t.confirmedCount}
-          <span style={{ fontSize: 18, color: '#6b7280', fontWeight: 600 }}> / {t.maxParticipants}</span>
+          <span style={{ fontSize: 18, color: 'var(--text-faint)', fontWeight: 600 }}> / {t.maxParticipants}</span>
         </div>
-        <div style={{ fontSize: 12, color: '#6b7280' }}>участников зарегистрировано</div>
+        <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>участников зарегистрировано</div>
       </div>
       <ProgressBar percent={fillPercent(t.confirmedCount, t.maxParticipants)} />
       {err && <ErrorBox message={err} />}
       {cta}
-      {helper && <div style={{ fontSize: 12, color: '#6b7280', textAlign: 'center' }}>{helper}</div>}
+      {helper && <div style={{ fontSize: 12, color: 'var(--text-faint)', textAlign: 'center' }}>{helper}</div>}
     </div>
   );
 }
@@ -236,7 +236,7 @@ export default function TournamentPage() {
       <div style={{ maxWidth: 720, margin: '0 auto', padding: 20 }}>
         <ErrorBox message={error?.message ?? 'Турнир не найден'} />
         <div style={{ marginTop: 16 }}>
-          <Link to="/" style={{ color: '#60a5fa', fontSize: 14 }}>
+          <Link to="/" style={{ color: 'var(--accent-fg)', fontSize: 14 }}>
             ← Все турниры
           </Link>
         </div>
@@ -263,7 +263,7 @@ export default function TournamentPage() {
         gap: 24,
       }}
     >
-      <Link to="/" style={{ fontSize: 13, color: '#6b7280', textDecoration: 'none', width: 'fit-content' }}>
+      <Link to="/" style={{ fontSize: 13, color: 'var(--text-faint)', textDecoration: 'none', width: 'fit-content' }}>
         ← Все турниры
       </Link>
 
@@ -275,7 +275,7 @@ export default function TournamentPage() {
               fontWeight: 600,
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              color: '#6b7280',
+              color: 'var(--text-faint)',
             }}
           >
             {disciplineLabel(t.discipline)}
@@ -305,18 +305,18 @@ export default function TournamentPage() {
               fontWeight: 600,
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              color: '#6b7280',
+              color: 'var(--text-faint)',
             }}
           >
             Описание
           </div>
           {t.description && (
-            <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: '#c3c8d0', whiteSpace: 'pre-wrap' }}>
+            <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
               {t.description}
             </p>
           )}
           {t.rules && (
-            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: '#9aa0aa', whiteSpace: 'pre-wrap' }}>
+            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
               {t.rules}
             </p>
           )}
@@ -331,12 +331,12 @@ export default function TournamentPage() {
               fontWeight: 600,
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              color: '#6b7280',
+              color: 'var(--text-faint)',
             }}
           >
             Участники
           </div>
-          <div style={{ fontSize: 12, color: '#565c66' }}>{t.confirmedCount}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>{t.confirmedCount}</div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           {detail.isParticipant && <ParticipantChip you />}
@@ -349,8 +349,8 @@ export default function TournamentPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 9,
-                background: 'rgba(255,255,255,0.03)',
-                border: '1px solid rgba(255,255,255,0.06)',
+                background: 'var(--surface-inset)',
+                border: '1px solid var(--border-subtle)',
                 borderRadius: 999,
                 padding: '5px 14px 5px 5px',
               }}
@@ -365,17 +365,17 @@ export default function TournamentPage() {
                   justifyContent: 'center',
                   fontSize: 12,
                   fontWeight: 700,
-                  color: '#9aa0aa',
-                  background: 'rgba(255,255,255,0.06)',
+                  color: 'var(--text-muted)',
+                  background: 'var(--surface-inset)',
                 }}
               >
                 +{overflow}
               </span>
-              <span style={{ fontSize: 14, color: '#6b7280' }}>ещё {overflow}</span>
+              <span style={{ fontSize: 14, color: 'var(--text-faint)' }}>ещё {overflow}</span>
             </div>
           )}
           {others.length === 0 && !detail.isParticipant && (
-            <div style={{ fontSize: 14, color: '#6b7280' }}>Пока никто не зарегистрировался.</div>
+            <div style={{ fontSize: 14, color: 'var(--text-faint)' }}>Пока никто не зарегистрировался.</div>
           )}
         </div>
       </section>
@@ -390,8 +390,8 @@ export default function TournamentPage() {
             justifyContent: 'space-between',
             gap: 12,
             boxSizing: 'border-box',
-            background: '#17181e',
-            border: '1px solid rgba(255,255,255,0.09)',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border-default)',
             borderRadius: 14,
             padding: '16px 18px',
             textDecoration: 'none',
@@ -399,8 +399,8 @@ export default function TournamentPage() {
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: '#f3f4f6' }}>{bracketLinkLabel}</span>
-            <span style={{ fontSize: 12, color: '#6b7280' }}>Сетка сформирована</span>
+            <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{bracketLinkLabel}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Сетка сформирована</span>
           </div>
           <span style={{ fontSize: 20, color: 'var(--color-primary)' }}>→</span>
         </Link>
@@ -408,8 +408,8 @@ export default function TournamentPage() {
         <div
           style={{
             boxSizing: 'border-box',
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px dashed rgba(255,255,255,0.10)',
+            background: 'var(--surface-inset)',
+            border: '1px dashed var(--border-default)',
             borderRadius: 14,
             padding: '16px 18px',
             display: 'flex',
@@ -417,10 +417,10 @@ export default function TournamentPage() {
             gap: 2,
           }}
         >
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#9aa0aa' }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-muted)' }}>
             Сетка ещё не сформирована
           </span>
-          <span style={{ fontSize: 12, color: '#565c66' }}>Появится после закрытия регистрации.</span>
+          <span style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Появится после закрытия регистрации.</span>
         </div>
       )}
     </div>

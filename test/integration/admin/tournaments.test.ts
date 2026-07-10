@@ -5,6 +5,10 @@ import { db } from '@/db/db.js';
 import { tournamentParticipants } from '@/db/schema.js';
 import { createAdminServer } from '@/admin/server/index.js';
 import { bot } from '@/bot/instance.js';
+import type {
+  ITournamentSport,
+  ITournamentDiscipline,
+} from '@/shared/tournament/disciplines.js';
 
 import { apiRequest } from '../../helpers/auth.js';
 import {
@@ -22,6 +26,8 @@ interface TournamentRow {
   name: string;
   status: string;
   createdBy: UUID;
+  sport: ITournamentSport;
+  discipline: ITournamentDiscipline;
 }
 
 describe('admin tournaments router', () => {
@@ -114,6 +120,8 @@ describe('admin tournaments router', () => {
         user: admin,
         body: {
           name: 'Кубок',
+          sport: 'snooker',
+          discipline: 'snooker_15_red',
           format: 'single_elimination',
           venueId: venue.id,
         },
@@ -122,13 +130,36 @@ describe('admin tournaments router', () => {
     expect(status).toBe(201);
     expect(body.data.name).toBe('Кубок');
     expect(body.data.createdBy).toBe(admin.id);
+    expect(body.data.sport).toBe('snooker');
+    expect(body.data.discipline).toBe('snooker_15_red');
+  });
+
+  it('POST / rejects a discipline of another sport (400)', async () => {
+    const venue = await createVenue();
+    const { status } = await apiRequest(app, 'POST', '/api/tournaments', {
+      user: admin,
+      body: {
+        name: 'X',
+        sport: 'snooker',
+        discipline: 'pool_9',
+        format: 'single_elimination',
+        venueId: venue.id,
+      },
+    });
+    expect(status).toBe(400);
   });
 
   it('POST / rejects an invalid format (400)', async () => {
     const venue = await createVenue();
     const { status } = await apiRequest(app, 'POST', '/api/tournaments', {
       user: admin,
-      body: { name: 'X', format: 'bogus', venueId: venue.id },
+      body: {
+        name: 'X',
+        sport: 'snooker',
+        discipline: 'snooker_15_red',
+        format: 'bogus',
+        venueId: venue.id,
+      },
     });
     expect(status).toBe(400);
   });
@@ -144,6 +175,8 @@ describe('admin tournaments router', () => {
         user: admin,
         body: {
           name: 'Новое имя',
+          sport: 'snooker',
+          discipline: 'snooker_15_red',
           format: 'single_elimination',
           venueId: venue.id,
         },

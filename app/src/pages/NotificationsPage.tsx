@@ -130,8 +130,8 @@ export default function NotificationsPage() {
               padding: '0 6px',
               boxSizing: 'border-box',
               borderRadius: 999,
-              background: 'rgba(59,130,246,0.15)',
-              color: '#93c5fd',
+              background: 'var(--accent-subtle-bg)',
+              color: 'var(--accent-fg)',
               fontSize: 11,
               fontWeight: 700,
               display: 'inline-flex',
@@ -151,7 +151,7 @@ export default function NotificationsPage() {
               marginLeft: 'auto',
               border: 'none',
               background: 'transparent',
-              color: '#60a5fa',
+              color: 'var(--accent-fg)',
               fontSize: 13,
               fontWeight: 600,
               cursor: 'pointer',
@@ -183,19 +183,19 @@ export default function NotificationsPage() {
               gap: 13,
               padding: '15px 16px',
               cursor: 'pointer',
-              borderBottom: '1px solid rgba(255,255,255,0.05)',
-              background: n.isRead ? 'transparent' : 'rgba(59,130,246,0.05)',
+              borderBottom: '1px solid var(--border-subtle)',
+              background: n.isRead ? 'transparent' : 'var(--accent-wash)',
             }}
           >
             <Tile tone={TONE_BY_TYPE[n.type] ?? 'info'} check={CHECK_TYPES.has(n.type)} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: '#f3f4f6' }}>{n.title}</span>
-                <span style={{ flex: 'none', fontSize: 11, color: '#565c66', paddingTop: 1 }}>
+                <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{n.title}</span>
+                <span style={{ flex: 'none', fontSize: 11, color: 'var(--text-disabled)', paddingTop: 1 }}>
                   {relativeTime(n.createdAt)}
                 </span>
               </div>
-              <div style={{ fontSize: 13, color: '#9aa0aa', lineHeight: 1.45 }}>{n.message}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>{n.message}</div>
             </div>
             {!n.isRead && (
               <span

@@ -45,7 +45,7 @@ export function Field({ className = '', ...rest }: InputHTMLAttributes<HTMLInput
 export function Labeled({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 500, color: '#8a8f99' }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)' }}>{label}</span>
       {children}
     </label>
   );

@@ -14,6 +14,16 @@ export type {
 } from '../../bot/@types/tournament.js';
 export { formats, type ITournamentFormat } from '../../shared/tournament/formats.js';
 export {
+  sports,
+  disciplines,
+  SPORT_DISCIPLINES,
+  sportOfDiscipline,
+  validateSportDiscipline,
+  DEFAULT_WIN_SCORE_BY_DISCIPLINE,
+  type ITournamentSport,
+  type ITournamentDiscipline,
+} from '../../shared/tournament/disciplines.js';
+export {
   maxParticipants,
   winScores,
   mergeRounds,

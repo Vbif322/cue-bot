@@ -1,7 +1,8 @@
 import type { UUID } from 'crypto';
 
 import {
-  disciplines,
+  sports,
+  SPORT_DISCIPLINES,
   maxParticipants,
   formats,
   scheduleModes,
@@ -18,6 +19,7 @@ import { getTablesByVenue } from '@/services/tableService.js';
 import { createTournamentDraft } from '@/services/tournamentService.js';
 import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
 import type {
+  ITournamentSport,
   ITournamentDiscipline,
   ITournamentMaxParticipants,
   ITournamentFormat,
@@ -61,6 +63,8 @@ export interface ITournamentCreationFlow {
   ): Promise<boolean>;
 
   handleVenueSelection(ctx: BotContext, venueId: UUID): Promise<boolean>;
+
+  handleSportSelection(ctx: BotContext, sport: string): Promise<boolean>;
 
   handleDisciplineSelection(
     ctx: BotContext,
@@ -415,7 +419,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     }
 
     const state = await this.stateStore.update(userId, {
-      step: 'discipline',
+      step: 'sport',
       data: {
         venue: {
           id: venue.id,
@@ -424,7 +428,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       },
     });
 
-    if (state.step !== 'discipline' || state.data.venue?.id !== venue.id) {
+    if (state.step !== 'sport' || state.data.venue?.id !== venue.id) {
       await this.renderer.showSavedStateError(ctx);
 
       return false;
@@ -432,7 +436,54 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     await ctx.answerCallbackQuery();
 
-    await this.renderer.showDisciplineStep(ctx, venue.name);
+    await this.renderer.showSportStep(ctx, venue.name);
+
+    return true;
+  }
+
+  /**
+   * Обрабатывает выбор вида бильярда пользователем
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {string} sport Выбранный пользователем вид бильярда
+   *
+   * @returns {Promise<boolean>}
+   * Возвращает:
+   * - `true`, если ввод был обработан (включая ошибку пользовательского ввода)
+   * - `false`, произошла внутренняя ошибка приложения
+   */
+  async handleSportSelection(ctx: BotContext, sport: string): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'sport',
+    );
+
+    if (!hasStep) return false;
+
+    if (!this.isSport(sport)) {
+      await this.renderer.showInvalidSport(ctx);
+
+      return true;
+    }
+
+    const state = await this.stateStore.update(userId, {
+      step: 'discipline',
+      data: {
+        tournament: {
+          sport,
+        },
+      },
+    });
+
+    if (state.step !== 'discipline' || state.data.tournament?.sport !== sport) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showDisciplineStep(ctx, sport);
 
     return true;
   }
@@ -459,7 +510,15 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!hasStep) return false;
 
-    if (!this.isDiscipline(discipline)) {
+    const current = await this.stateStore.getOrThrow(userId);
+    const sport = current.data.tournament?.sport;
+
+    // The keyboard only offers the selected sport's disciplines; a mismatch
+    // means a stale/forged callback.
+    if (
+      sport === undefined ||
+      !this.isDisciplineOfSport(discipline, sport)
+    ) {
       await this.renderer.showInvalidDiscipline(ctx);
 
       return true;
@@ -1063,7 +1122,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     }
 
     state = await this.stateStore.update(userId, {
-      step: 'venue',
+      step: 'tables',
       data: {
         tables: venueTables.filter((table) => selectedTableIds.has(table.id)),
       },
@@ -1150,6 +1209,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
         venueId: state.data.venue.id,
 
         name: state.data.tournament.name,
+        sport: state.data.tournament.sport,
         discipline: state.data.tournament.discipline,
         format: state.data.tournament.format,
         randomAdvancement: state.data.tournament.randomAdvancement,
@@ -1210,8 +1270,15 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     return { status: true, userId };
   }
 
-  private isDiscipline(value: string): value is ITournamentDiscipline {
-    return Object.values<string>(disciplines).includes(value);
+  private isSport(value: string): value is ITournamentSport {
+    return Object.values<string>(sports).includes(value);
+  }
+
+  private isDisciplineOfSport(
+    value: string,
+    sport: ITournamentSport,
+  ): value is ITournamentDiscipline {
+    return Object.values<string>(SPORT_DISCIPLINES[sport]).includes(value);
   }
 
   private isTournamentFormat(value: string): value is ITournamentFormat {
@@ -1253,6 +1320,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       data.tournament?.name !== undefined &&
       data.tournament.visibility !== undefined &&
       data.tournament.scheduleMode !== undefined &&
+      data.tournament.sport !== undefined &&
       data.tournament.discipline !== undefined &&
       data.tournament.format !== undefined &&
       data.tournament.randomAdvancement !== undefined &&

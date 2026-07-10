@@ -2,6 +2,7 @@ import type { UUID } from 'crypto';
 
 import type { Tournament } from '@/bot/@types/tournament.js';
 import type { TournamentParticipant } from '@/bot/@types/tournament.js';
+import { validateDoubleEliminationSize } from '@/shared/tournament/tournamentOptions.js';
 import { groupLetter } from '@/utils/constants.js';
 
 export interface BracketMatch {
@@ -249,11 +250,8 @@ export function generateDoubleEliminationBracket(
   participants: TournamentParticipant[],
   options?: { randomAdvancement?: boolean; mergeRound?: number },
 ): BracketMatch[] {
-  if (participants.length < 8 || participants.length > 128) {
-    throw new Error(
-      `Double elimination поддерживает 8–128 участников. Текущее количество: ${String(participants.length)}`,
-    );
-  }
+  const sizeError = validateDoubleEliminationSize(participants.length);
+  if (sizeError) throw new Error(sizeError);
 
   const bracketSize = getNextPowerOfTwo(participants.length);
   const k = calculateRounds(bracketSize); // upper rounds to a single winner

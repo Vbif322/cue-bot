@@ -42,7 +42,7 @@ export function ProgressBar({ percent }: { percent: number }) {
       style={{
         height: 6,
         borderRadius: 999,
-        background: 'rgba(255,255,255,0.08)',
+        background: 'var(--border-default)',
         overflow: 'hidden',
       }}
     >
@@ -76,8 +76,8 @@ export function StatTile({
         display: 'flex',
         flexDirection: 'column',
         gap: 4,
-        background: '#17181e',
-        border: '1px solid rgba(255,255,255,0.07)',
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border-subtle)',
         borderRadius: 14,
         padding: 16,
       }}
@@ -88,12 +88,12 @@ export function StatTile({
           fontWeight: 700,
           lineHeight: 1,
           fontVariantNumeric: 'tabular-nums',
-          color: color ?? '#f3f4f6',
+          color: color ?? 'var(--text-primary)',
         }}
       >
         {value}
       </span>
-      <span style={{ fontSize: 12, color: '#6b7280' }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{label}</span>
     </div>
   );
 }
@@ -124,18 +124,18 @@ export function EmptyState({
           width: 60,
           height: 60,
           borderRadius: 18,
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.07)',
+          background: 'var(--surface-inset)',
+          border: '1px solid var(--border-subtle)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <span style={{ width: 22, height: 22, borderRadius: '50%', border: '2px solid #3a3f49' }} />
+        <span style={{ width: 22, height: 22, borderRadius: '50%', border: '2px solid var(--border-strong)' }} />
       </div>
       <div style={{ fontSize: 18, fontWeight: 700 }}>{title}</div>
       {hint && (
-        <div style={{ fontSize: 14, color: '#6b7280', maxWidth: 320 }}>{hint}</div>
+        <div style={{ fontSize: 14, color: 'var(--text-faint)', maxWidth: 320 }}>{hint}</div>
       )}
       {action}
     </div>
@@ -151,7 +151,7 @@ export function Loader({ label = 'Загрузка…' }: { label?: string }) {
         alignItems: 'center',
         justifyContent: 'center',
         padding: '64px 24px',
-        color: '#6b7280',
+        color: 'var(--text-faint)',
         fontSize: 14,
       }}
     >
@@ -167,9 +167,9 @@ export function ErrorBox({ message }: { message: string }) {
       style={{
         padding: '10px 12px',
         borderRadius: 10,
-        background: 'rgba(220,38,38,0.08)',
-        border: '1px solid rgba(248,113,113,0.35)',
-        color: '#fca5a5',
+        background: 'var(--color-tone-danger-bg)',
+        border: '1px solid var(--color-tone-danger-fg)',
+        color: 'var(--color-tone-danger-fg)',
         fontSize: 13,
         lineHeight: 1.4,
       }}

@@ -11,6 +11,7 @@ import type { UUID } from 'crypto';
 import {
   createdAt,
   enumCheck,
+  nonNegativeCheck,
   prodSchema,
   updatedAt,
 } from '../schemaHelpers.js';
@@ -20,6 +21,21 @@ import { venues } from './venues.js';
 export { formats, type ITournamentFormat } from '../../shared/tournament/formats.js';
 import { formats } from '../../shared/tournament/formats.js';
 import type { ITournamentFormat } from '../../shared/tournament/formats.js';
+export {
+  sports,
+  disciplines,
+  SPORT_DISCIPLINES,
+  sportOfDiscipline,
+  validateSportDiscipline,
+  DEFAULT_WIN_SCORE_BY_DISCIPLINE,
+  type ITournamentSport,
+  type ITournamentDiscipline,
+} from '../../shared/tournament/disciplines.js';
+import { sports, disciplines } from '../../shared/tournament/disciplines.js';
+import type {
+  ITournamentSport,
+  ITournamentDiscipline,
+} from '../../shared/tournament/disciplines.js';
 export {
   maxParticipants,
   winScores,
@@ -53,15 +69,6 @@ export const statuses = [
 
 export type ITournamentStatus = (typeof statuses)[number];
 
-export const disciplines = [
-  // "pool",
-  'snooker',
-  // "russian_billiards",
-  // "carom",
-] as const;
-
-export type ITournamentDiscipline = (typeof disciplines)[number];
-
 export const visibilities = ['public', 'private'] as const;
 
 export type ITournamentVisibility = (typeof visibilities)[number];
@@ -81,6 +88,9 @@ export const tournaments = prodSchema.table(
 
     name: varchar({ length: 255 }).notNull(),
     description: text(),
+    sport: varchar({ enum: sports }).$type<ITournamentSport>().notNull(),
+    // Which disciplines are valid for a sport lives in SPORT_DISCIPLINES; the
+    // DB check only knows the flat value set, the pairing is app-enforced.
     discipline: varchar({ enum: disciplines })
       .$type<ITournamentDiscipline>()
       .notNull(),
@@ -99,6 +109,17 @@ export const tournaments = prodSchema.table(
       .notNull()
       .default('single_day'),
     startDate: timestamp('start_date'),
+    // Snapshot of the confirmed-participant count, frozen once by
+    // closeRegistrationWithCount on the registration_closed transition (null
+    // before that). Serves as the IMMUTABLE basis for bracket size — read via
+    // getNextPowerOfTwo in matchService.deBracketDims and matchUI.formatMatchCard
+    // to derive round counts / names and the DE random-advancement pool. Do NOT
+    // confuse with the live confirmedCount (confirmedParticipantsLive subquery in
+    // tournamentService): the bracket size is fixed at start, so those read sites
+    // must use this frozen value — switching them to the live count would break
+    // round names / the DE pool if the participant set changes after start. The
+    // invariant that makes them equal: the confirmed set does not change between
+    // registration_closed and start.
     confirmedParticipants: integer('confirmed_participants'),
     // SE/DE/RR use the discrete enum values; groups_playoff stores the derived
     // total (groupsCount × participantsPerGroup), so the column is a plain integer.
@@ -126,11 +147,28 @@ export const tournaments = prodSchema.table(
     updatedAt,
   },
   (t) => [
+    enumCheck('tournaments_sport_check', t.sport, sports),
     enumCheck('tournaments_discipline_check', t.discipline, disciplines),
     enumCheck('tournaments_format_check', t.format, formats),
     enumCheck('tournaments_status_check', t.status, statuses),
     enumCheck('tournaments_visibility_check', t.visibility, visibilities),
     enumCheck('tournaments_schedule_mode_check', t.scheduleMode, scheduleModes),
     enumCheck('tournaments_group_draw_check', t.groupDraw, groupDraws),
+    nonNegativeCheck(
+      'tournaments_confirmed_participants_nonneg',
+      t.confirmedParticipants,
+    ),
+    nonNegativeCheck('tournaments_max_participants_nonneg', t.maxParticipants),
+    nonNegativeCheck('tournaments_win_score_nonneg', t.winScore),
+    nonNegativeCheck('tournaments_merge_round_nonneg', t.mergeRound),
+    nonNegativeCheck('tournaments_groups_count_nonneg', t.groupsCount),
+    nonNegativeCheck(
+      'tournaments_participants_per_group_nonneg',
+      t.participantsPerGroup,
+    ),
+    nonNegativeCheck(
+      'tournaments_qualifiers_per_group_nonneg',
+      t.qualifiersPerGroup,
+    ),
   ],
 );

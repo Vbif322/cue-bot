@@ -5,14 +5,29 @@ import {
   formatFormat,
   formatFormatWithMode,
   formatScheduleMode,
+  formatSport,
+  formatSportDiscipline,
   formatStatus,
   formatVisibility,
 } from '@/utils/constants.js';
 
 describe('constants formatters', () => {
+  it('formatSport maps known sports and falls back to input', () => {
+    expect(formatSport('snooker')).toBe('Снукер');
+    expect(formatSport('russian_billiards')).toBe('Русский бильярд');
+    expect(formatSport('unknown')).toBe('unknown');
+  });
+
   it('formatDiscipline maps known disciplines and falls back to input', () => {
-    expect(formatDiscipline('snooker')).toBe('Снукер');
+    expect(formatDiscipline('snooker_15_red')).toBe('15 красных');
+    expect(formatDiscipline('pool_9')).toBe('Девятка');
     expect(formatDiscipline('unknown')).toBe('unknown');
+  });
+
+  it('formatSportDiscipline joins sport and discipline labels', () => {
+    expect(formatSportDiscipline('snooker', 'snooker_15_red')).toBe(
+      'Снукер — 15 красных',
+    );
   });
 
   it('formatFormat maps known formats and falls back to input', () => {

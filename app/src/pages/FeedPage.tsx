@@ -27,7 +27,7 @@ const GRID: CSSProperties = {
 function SkeletonCard() {
   const shimmer: CSSProperties = {
     background:
-      'linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.10) 37%, rgba(255,255,255,0.04) 63%)',
+      'linear-gradient(90deg, rgb(255 255 255 / 0.04) 25%, rgb(255 255 255 / 0.1) 37%, rgb(255 255 255 / 0.04) 63%)',
     backgroundSize: '400% 100%',
     animation: 'cb-shimmer 1.4s ease infinite',
   };
@@ -37,8 +37,8 @@ function SkeletonCard() {
         display: 'flex',
         flexDirection: 'column',
         gap: 14,
-        background: '#17181e',
-        border: '1px solid rgba(255,255,255,0.06)',
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border-subtle)',
         borderRadius: 16,
         padding: 18,
       }}
@@ -78,9 +78,9 @@ export default function FeedPage() {
           top: 0,
           zIndex: 5,
           boxSizing: 'border-box',
-          background: 'rgba(13,14,18,0.82)',
+          background: 'var(--surface-overlay)',
           backdropFilter: 'blur(12px)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          borderBottom: '1px solid var(--border-subtle)',
           padding: '18px 20px 14px',
           display: 'flex',
           flexDirection: 'column',
@@ -89,7 +89,7 @@ export default function FeedPage() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.01em' }}>Турниры</div>
-          <div style={{ fontSize: 13, color: '#6b7280' }}>{countLabel}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>{countLabel}</div>
         </div>
         <div
           className="cb-chips"

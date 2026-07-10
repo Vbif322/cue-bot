@@ -41,6 +41,9 @@ function deBracketDims(tournament: {
 }): { mergeRound: number; bracketSize: number } {
   return {
     mergeRound: tournament.mergeRound,
+    // confirmedParticipants is the frozen registration-close snapshot, the
+    // immutable bracket-size basis (see tournaments schema) — intentionally NOT
+    // the live confirmedCount.
     bracketSize: getNextPowerOfTwo(
       tournament.confirmedParticipants ?? tournament.maxParticipants,
     ),
@@ -55,246 +58,105 @@ export async function createMatches(
   bracket: BracketMatch[],
   executor: Executor = db,
 ): Promise<void> {
-  const createdMatches: { position: number; id: UUID }[] = [];
+  if (bracket.length === 0) return;
 
-  for (const match of bracket) {
+  const now = new Date();
+  const values = bracket.map((match) => {
     const isWalkover = match.isCompletedWalkover === true;
-    const [created] = await executor
-      .insert(matches)
-      .values({
-        tournamentId,
-        round: match.round,
-        position: match.position,
-        player1Id: match.player1Id,
-        player2Id: match.player2Id,
-        player1IsWalkover: match.player1IsWalkover ?? false,
-        player2IsWalkover: match.player2IsWalkover ?? false,
-        bracketType: match.bracketType,
-        phase: match.phase ?? 'playoff',
-        groupIndex: match.groupIndex ?? null,
-        nextMatchPosition: match.nextMatchPosition ?? null,
-        losersNextMatchPosition: match.losersNextMatchPosition ?? null,
-        losersNextMatchSlot: match.losersNextMatchSlot ?? null,
-        status: isWalkover ? 'completed' : 'scheduled',
-        winnerId: isWalkover ? (match.walkoverWinnerId ?? null) : null,
-        isTechnicalResult: isWalkover,
-        technicalReason: isWalkover ? 'walkover' : null,
-        completedAt: isWalkover ? new Date() : null,
-      })
-      .returning({ id: matches.id, position: matches.position });
+    return {
+      tournamentId,
+      round: match.round,
+      position: match.position,
+      player1Id: match.player1Id,
+      player2Id: match.player2Id,
+      player1IsWalkover: match.player1IsWalkover ?? false,
+      player2IsWalkover: match.player2IsWalkover ?? false,
+      bracketType: match.bracketType,
+      phase: match.phase ?? 'playoff',
+      groupIndex: match.groupIndex ?? null,
+      nextMatchPosition: match.nextMatchPosition ?? null,
+      losersNextMatchPosition: match.losersNextMatchPosition ?? null,
+      losersNextMatchSlot: match.losersNextMatchSlot ?? null,
+      status: isWalkover ? ('completed' as const) : ('scheduled' as const),
+      winnerId: isWalkover ? (match.walkoverWinnerId ?? null) : null,
+      isTechnicalResult: isWalkover,
+      technicalReason: isWalkover ? 'walkover' : null,
+      completedAt: isWalkover ? now : null,
+    };
+  });
 
-    if (created) {
-      createdMatches.push({ position: match.position, id: created.id });
-    }
-  }
+  const inserted = await executor
+    .insert(matches)
+    .values(values)
+    .returning({ id: matches.id, position: matches.position });
+
+  // `position` is globally unique within a bracket (bracketGenerator allocates
+  // it from a single monotonic counter, and `nextMatchId` references it), so a
+  // position → id map resolves the routing wiring below unambiguously.
+  const idByPosition = new Map(inserted.map((m) => [m.position, m.id]));
 
   for (const match of bracket) {
-    if (match.nextMatchId !== undefined) {
-      const currentMatch = createdMatches.find(
-        (m) => m.position === match.position,
-      );
-      const nextMatch = createdMatches.find(
-        (m) => m.position === match.nextMatchId,
-      );
-
-      if (currentMatch && nextMatch) {
-        await executor
-          .update(matches)
-          .set({ nextMatchId: nextMatch.id })
-          .where(eq(matches.id, currentMatch.id));
-      }
+    if (match.nextMatchId === undefined) continue;
+    const currentId = idByPosition.get(match.position);
+    const nextId = idByPosition.get(match.nextMatchId);
+    if (currentId && nextId) {
+      await executor
+        .update(matches)
+        .set({ nextMatchId: nextId })
+        .where(eq(matches.id, currentId));
     }
   }
 }
 
 
+// ── Shared MatchWithPlayers read model ───────────────────────────────────────
+// Reusable aliases + column map + row mapper so every "match with joined player
+// and table info" query (getMatch, getTournamentMatches, the player-scoped
+// lookups) shares one definition. Aliases are immutable table references, safe
+// to reuse across queries.
+const p1Alias = alias(users, 'p1');
+const p2Alias = alias(users, 'p2');
+const winnerAlias = alias(users, 'winner');
+const matchTableAlias = alias(tables, 'match_table');
+
+const matchWithPlayersColumns = {
+  match: matches,
+  player1Username: p1Alias.username,
+  player1Name: p1Alias.name,
+  player1Surname: p1Alias.surname,
+  player1TelegramId: p1Alias.telegram_id,
+  player2Username: p2Alias.username,
+  player2Name: p2Alias.name,
+  player2Surname: p2Alias.surname,
+  player2TelegramId: p2Alias.telegram_id,
+  winnerUsername: winnerAlias.username,
+  winnerName: winnerAlias.name,
+  winnerSurname: winnerAlias.surname,
+  winnerTelegramId: winnerAlias.telegram_id,
+  tableName: matchTableAlias.name,
+} as const;
+
 /**
- * Get match by ID with player information and table name
+ * Base select for a match joined with player and table info. Callers add
+ * `.where` / `.orderBy` / `.limit` (and may chain further joins — the explicit
+ * column list keeps the row shape stable regardless of extra joins).
  */
-export async function getMatch(
-  matchId: UUID,
-): Promise<MatchWithPlayers | null> {
-  const p1 = alias(users, 'p1');
-  const p2 = alias(users, 'p2');
-  const winner = alias(users, 'winner');
-  const matchTable = alias(tables, 'match_table');
-
-  const rows = await db
-    .select({
-      match: matches,
-      player1Username: p1.username,
-      player1Name: p1.name,
-      player1Surname: p1.surname,
-      player1TelegramId: p1.telegram_id,
-      player2Username: p2.username,
-      player2Name: p2.name,
-      player2Surname: p2.surname,
-      player2TelegramId: p2.telegram_id,
-      winnerUsername: winner.username,
-      winnerName: winner.name,
-      winnerSurname: winner.surname,
-      winnerTelegramId: winner.telegram_id,
-      tableName: matchTable.name,
-    })
+function selectMatchesWithPlayers() {
+  return db
+    .select(matchWithPlayersColumns)
     .from(matches)
-    .leftJoin(p1, eq(matches.player1Id, p1.id))
-    .leftJoin(p2, eq(matches.player2Id, p2.id))
-    .leftJoin(winner, eq(matches.winnerId, winner.id))
-    .leftJoin(matchTable, eq(matches.tableId, matchTable.id))
-    .where(eq(matches.id, matchId))
-    .limit(1);
+    .leftJoin(p1Alias, eq(matches.player1Id, p1Alias.id))
+    .leftJoin(p2Alias, eq(matches.player2Id, p2Alias.id))
+    .leftJoin(winnerAlias, eq(matches.winnerId, winnerAlias.id))
+    .leftJoin(matchTableAlias, eq(matches.tableId, matchTableAlias.id));
+}
 
-  const row = rows[0];
-  if (!row) return null;
+type MatchWithPlayersRow = Awaited<
+  ReturnType<typeof selectMatchesWithPlayers>
+>[number];
 
+function mapMatchRow(r: MatchWithPlayersRow): MatchWithPlayers {
   return {
-    ...row.match,
-    player1Username: row.player1Username,
-    player1Name: row.player1Name,
-    player1Surname: row.player1Surname,
-    player1TelegramId: row.player1TelegramId,
-    player2Username: row.player2Username,
-    player2Name: row.player2Name,
-    player2Surname: row.player2Surname,
-    player2TelegramId: row.player2TelegramId,
-    winnerUsername: row.winnerUsername,
-    winnerName: row.winnerName,
-    winnerSurname: row.winnerSurname,
-    winnerTelegramId: row.winnerTelegramId,
-    tableName: row.tableName,
-  };
-}
-
-/**
- * Get current active match for a player in a tournament
- */
-export async function getPlayerCurrentMatch(
-  tournamentId: UUID,
-  userId: UUID,
-): Promise<MatchWithPlayers | null> {
-  const result = await db
-    .select()
-    .from(matches)
-    .where(
-      and(
-        eq(matches.tournamentId, tournamentId),
-        or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
-        inArray(matches.status, [
-          'scheduled',
-          'in_progress',
-          'pending_confirmation',
-        ]),
-      ),
-    )
-    .orderBy(asc(matches.round))
-    .limit(1);
-
-  const firstMatch = result[0];
-  if (!firstMatch) return null;
-
-  return getMatch(firstMatch.id);
-}
-
-/**
- * Get all active matches for a player across all tournaments
- */
-export async function getPlayerActiveMatches(
-  userId: UUID,
-): Promise<MatchWithPlayers[]> {
-  const result = await db
-    .select()
-    .from(matches)
-    .innerJoin(tournaments, eq(matches.tournamentId, tournaments.id))
-    .where(
-      and(
-        eq(tournaments.status, 'in_progress'),
-        or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
-        inArray(matches.status, [
-          'scheduled',
-          'in_progress',
-          'pending_confirmation',
-        ]),
-      ),
-    )
-    .orderBy(asc(matches.round));
-
-  const matchesWithPlayers: MatchWithPlayers[] = [];
-  for (const r of result) {
-    const match = await getMatch(r.matches.id);
-    if (match) matchesWithPlayers.push(match);
-  }
-
-  return matchesWithPlayers;
-}
-
-/**
- * Get a player's completed matches across all tournaments, newest first.
- * История матчей игрока для профиля (`/api/app/me/matches`).
- */
-export async function getPlayerMatchHistory(
-  userId: UUID,
-  options: { limit?: number } = {},
-): Promise<MatchWithPlayers[]> {
-  const { limit = 20 } = options;
-
-  const result = await db
-    .select({ id: matches.id })
-    .from(matches)
-    .where(
-      and(
-        eq(matches.status, 'completed'),
-        or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
-      ),
-    )
-    .orderBy(desc(matches.completedAt))
-    .limit(limit);
-
-  const matchesWithPlayers: MatchWithPlayers[] = [];
-  for (const r of result) {
-    const match = await getMatch(r.id);
-    if (match) matchesWithPlayers.push(match);
-  }
-
-  return matchesWithPlayers;
-}
-
-/**
- * Get all matches for a tournament with table names
- */
-export async function getTournamentMatches(
-  tournamentId: UUID,
-): Promise<MatchWithPlayers[]> {
-  const p1 = alias(users, 'p1');
-  const p2 = alias(users, 'p2');
-  const winner = alias(users, 'winner');
-  const matchTable = alias(tables, 'match_table');
-
-  const rows = await db
-    .select({
-      match: matches,
-      player1Username: p1.username,
-      player1Name: p1.name,
-      player1Surname: p1.surname,
-      player1TelegramId: p1.telegram_id,
-      player2Username: p2.username,
-      player2Name: p2.name,
-      player2Surname: p2.surname,
-      player2TelegramId: p2.telegram_id,
-      winnerUsername: winner.username,
-      winnerName: winner.name,
-      winnerSurname: winner.surname,
-      winnerTelegramId: winner.telegram_id,
-      tableName: matchTable.name,
-    })
-    .from(matches)
-    .leftJoin(p1, eq(matches.player1Id, p1.id))
-    .leftJoin(p2, eq(matches.player2Id, p2.id))
-    .leftJoin(winner, eq(matches.winnerId, winner.id))
-    .leftJoin(matchTable, eq(matches.tableId, matchTable.id))
-    .where(eq(matches.tournamentId, tournamentId))
-    .orderBy(asc(matches.round), asc(matches.position));
-
-  return rows.map((r) => ({
     ...r.match,
     player1Username: r.player1Username,
     player1Name: r.player1Name,
@@ -309,7 +171,105 @@ export async function getTournamentMatches(
     winnerSurname: r.winnerSurname,
     winnerTelegramId: r.winnerTelegramId,
     tableName: r.tableName,
-  }));
+  };
+}
+
+/**
+ * Get match by ID with player information and table name
+ */
+export async function getMatch(
+  matchId: UUID,
+): Promise<MatchWithPlayers | null> {
+  const rows = await selectMatchesWithPlayers()
+    .where(eq(matches.id, matchId))
+    .limit(1);
+
+  return rows[0] ? mapMatchRow(rows[0]) : null;
+}
+
+/**
+ * Get current active match for a player in a tournament
+ */
+export async function getPlayerCurrentMatch(
+  tournamentId: UUID,
+  userId: UUID,
+): Promise<MatchWithPlayers | null> {
+  const rows = await selectMatchesWithPlayers()
+    .where(
+      and(
+        eq(matches.tournamentId, tournamentId),
+        or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
+        inArray(matches.status, [
+          'scheduled',
+          'in_progress',
+          'pending_confirmation',
+        ]),
+      ),
+    )
+    .orderBy(asc(matches.round))
+    .limit(1);
+
+  return rows[0] ? mapMatchRow(rows[0]) : null;
+}
+
+/**
+ * Get all active matches for a player across all tournaments
+ */
+export async function getPlayerActiveMatches(
+  userId: UUID,
+): Promise<MatchWithPlayers[]> {
+  const rows = await selectMatchesWithPlayers()
+    .innerJoin(tournaments, eq(matches.tournamentId, tournaments.id))
+    .where(
+      and(
+        eq(tournaments.status, 'in_progress'),
+        or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
+        inArray(matches.status, [
+          'scheduled',
+          'in_progress',
+          'pending_confirmation',
+        ]),
+      ),
+    )
+    .orderBy(asc(matches.round));
+
+  return rows.map(mapMatchRow);
+}
+
+/**
+ * Get a player's completed matches across all tournaments, newest first.
+ * История матчей игрока для профиля (`/api/app/me/matches`).
+ */
+export async function getPlayerMatchHistory(
+  userId: UUID,
+  options: { limit?: number } = {},
+): Promise<MatchWithPlayers[]> {
+  const { limit = 20 } = options;
+
+  const rows = await selectMatchesWithPlayers()
+    .where(
+      and(
+        eq(matches.status, 'completed'),
+        or(eq(matches.player1Id, userId), eq(matches.player2Id, userId)),
+      ),
+    )
+    .orderBy(desc(matches.completedAt))
+    .limit(limit);
+
+  return rows.map(mapMatchRow);
+}
+
+/**
+ * Get all matches for a tournament with table names
+ */
+export async function getTournamentMatches(
+  tournamentId: UUID,
+): Promise<MatchWithPlayers[]> {
+  const rows = await selectMatchesWithPlayers()
+    .where(eq(matches.tournamentId, tournamentId))
+    .orderBy(asc(matches.round), asc(matches.position));
+
+  return rows.map(mapMatchRow);
 }
 
 /**

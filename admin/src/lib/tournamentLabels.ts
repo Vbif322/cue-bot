@@ -2,10 +2,30 @@
 // keyed off the central schema-derived types from @server/apiTypes.
 import type {
   ITournamentFormat,
+  ITournamentSport,
+  ITournamentDiscipline,
   TournamentStatus,
   TournamentVisibility,
   TournamentScheduleMode,
 } from '@server/apiTypes';
+
+export const SPORT_LABELS: Record<ITournamentSport, string> = {
+  snooker: 'Снукер',
+  pool: 'Пул',
+  russian_billiards: 'Русский бильярд',
+};
+
+export const DISCIPLINE_LABELS: Record<ITournamentDiscipline, string> = {
+  snooker_15_red: '15 красных',
+  snooker_10_red: '10 красных',
+  snooker_6_red: '6 красных',
+  pool_8: 'Восьмёрка',
+  pool_9: 'Девятка',
+  pool_10: 'Десятка',
+  russian_free: 'Свободная пирамида',
+  russian_combined: 'Комбинированная пирамида',
+  russian_dynamic: 'Динамичная пирамида',
+};
 
 export const FORMAT_LABELS: Record<ITournamentFormat, string> = {
   single_elimination: 'Single Elimination',
