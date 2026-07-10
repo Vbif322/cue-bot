@@ -15,6 +15,8 @@ import type {
   TournamentVisibility,
   TournamentScheduleMode,
   ITournamentFormat,
+  ITournamentSport,
+  ITournamentDiscipline,
   IGroupDraw,
 } from '@server/apiTypes';
 
@@ -34,6 +36,8 @@ export type {
   TournamentVisibility,
   TournamentScheduleMode,
   ITournamentFormat,
+  ITournamentSport,
+  ITournamentDiscipline,
   IGroupDraw,
 };
 
@@ -119,6 +123,8 @@ export const tournamentsApi = {
     name: string;
     description?: string;
     rules?: string;
+    sport: ITournamentSport;
+    discipline: ITournamentDiscipline;
     format: ITournamentFormat;
     randomAdvancement?: boolean;
     visibility?: TournamentVisibility;
@@ -141,6 +147,9 @@ export const tournamentsApi = {
       name: string;
       description?: string;
       rules?: string;
+      // Present for zod parity; the server ignores the pair on PATCH.
+      sport: ITournamentSport;
+      discipline: ITournamentDiscipline;
       format: ITournamentFormat;
       randomAdvancement?: boolean;
       visibility?: TournamentVisibility;

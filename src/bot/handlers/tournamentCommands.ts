@@ -608,6 +608,12 @@ tournamentCommands.callbackQuery(/^tc:schedule:(.+)$/, async (ctx) => {
   await tournamentCreationFlow.handleScheduleModeSelection(ctx, val);
 });
 
+tournamentCommands.callbackQuery(/^tc:sport:(.+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleSportSelection(ctx, val);
+});
+
 tournamentCommands.callbackQuery(/^tc:discipline:(.+)$/, async (ctx) => {
   const val = ctx.match[1];
   if (!val) return;

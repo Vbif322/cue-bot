@@ -4,6 +4,7 @@ export const CREATION_STEPS = [
   'visibility',
   'scheduleMode',
   'venue',
+  'sport',
   'discipline',
   'format',
   'randomMode',

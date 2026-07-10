@@ -242,7 +242,8 @@ export async function createTournament(
     .insert(tournaments)
     .values({
       name: `Tournament ${uniq()}`,
-      discipline: 'snooker',
+      sport: 'snooker',
+      discipline: 'snooker_15_red',
       format: 'single_elimination',
       ...overrides,
       venueId,

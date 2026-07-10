@@ -22,6 +22,21 @@ export { formats, type ITournamentFormat } from '../../shared/tournament/formats
 import { formats } from '../../shared/tournament/formats.js';
 import type { ITournamentFormat } from '../../shared/tournament/formats.js';
 export {
+  sports,
+  disciplines,
+  SPORT_DISCIPLINES,
+  sportOfDiscipline,
+  validateSportDiscipline,
+  DEFAULT_WIN_SCORE_BY_DISCIPLINE,
+  type ITournamentSport,
+  type ITournamentDiscipline,
+} from '../../shared/tournament/disciplines.js';
+import { sports, disciplines } from '../../shared/tournament/disciplines.js';
+import type {
+  ITournamentSport,
+  ITournamentDiscipline,
+} from '../../shared/tournament/disciplines.js';
+export {
   maxParticipants,
   winScores,
   mergeRounds,
@@ -54,15 +69,6 @@ export const statuses = [
 
 export type ITournamentStatus = (typeof statuses)[number];
 
-export const disciplines = [
-  // "pool",
-  'snooker',
-  // "russian_billiards",
-  // "carom",
-] as const;
-
-export type ITournamentDiscipline = (typeof disciplines)[number];
-
 export const visibilities = ['public', 'private'] as const;
 
 export type ITournamentVisibility = (typeof visibilities)[number];
@@ -82,6 +88,9 @@ export const tournaments = prodSchema.table(
 
     name: varchar({ length: 255 }).notNull(),
     description: text(),
+    sport: varchar({ enum: sports }).$type<ITournamentSport>().notNull(),
+    // Which disciplines are valid for a sport lives in SPORT_DISCIPLINES; the
+    // DB check only knows the flat value set, the pairing is app-enforced.
     discipline: varchar({ enum: disciplines })
       .$type<ITournamentDiscipline>()
       .notNull(),
@@ -138,6 +147,7 @@ export const tournaments = prodSchema.table(
     updatedAt,
   },
   (t) => [
+    enumCheck('tournaments_sport_check', t.sport, sports),
     enumCheck('tournaments_discipline_check', t.discipline, disciplines),
     enumCheck('tournaments_format_check', t.format, formats),
     enumCheck('tournaments_status_check', t.status, statuses),
