@@ -219,6 +219,14 @@ export interface AppNotification {
 export interface MeProfile extends AppUser {
   emailVerified: boolean;
   telegramLinked: boolean;
+  /**
+   * Присутствует, когда привязываемый Telegram уже занят другим аккаунтом и
+   * доступно слияние текущего (email) аккаунта в него. Счётчики — история survivor'а.
+   */
+  pendingMerge?: {
+    survivorTournaments: number;
+    survivorMatches: number;
+  };
 }
 
 export interface UserMatchStats {
