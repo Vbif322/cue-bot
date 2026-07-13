@@ -10,8 +10,10 @@ import {
   tournamentParticipants,
   matches,
 } from '@/db/schema.js';
-import type { INotification } from '@/db/schema.js';
+import type { INotification, matchFrames } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
+
+type MatchFrame = typeof matchFrames.$inferSelect;
 import {
   formatPlayerName,
   getResultConfirmKeyboard,
@@ -275,6 +277,7 @@ export async function notifyResultPending(
   api: Api,
   match: MatchWithPlayers,
   reportedByUserId: UUID,
+  frames: MatchFrame[] = [],
 ): Promise<void> {
   // Find opponent
   const opponentId =
@@ -285,6 +288,13 @@ export async function notifyResultPending(
   const { player1Name, player2Name } = playerNamesOf(match);
   const reporterName =
     match.player1Id === reportedByUserId ? player1Name : player2Name;
+  // Show the per-frame breakdown so the opponent confirms the exact frames.
+  const breakdown =
+    frames.length > 0
+      ? `По кадрам: ${frames
+          .map((f) => `${String(f.player1Points)}:${String(f.player2Points)}`)
+          .join(', ')}\n`
+      : '';
   await createAndSendNotification(
     api,
     {
@@ -292,8 +302,9 @@ export async function notifyResultPending(
       type: 'result_confirmation_request',
       title: 'Подтвердите результат матча',
       message:
-        `${reporterName} внёс результат: ${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')}\n\n` +
-        `Подтвердите или оспорьте результат.`,
+        `${reporterName} внёс результат: ${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')}\n` +
+        breakdown +
+        `\nПодтвердите или оспорьте результат.`,
       tournamentId: match.tournamentId,
       matchId: match.id,
     },

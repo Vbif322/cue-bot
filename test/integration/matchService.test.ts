@@ -6,11 +6,14 @@ import type { Match } from '@/bot/@types/match.js';
 import { getMatch } from '@/services/matchService.js';
 import {
   reportResult,
+  reportResultFromFrames,
+  getMatchFrames,
   confirmResult,
   disputeResult,
   setTechnicalResult,
   startMatch,
 } from '@/services/matchService.js';
+import type { FrameInput } from '@/services/matchService.js';
 
 import {
   createAdminUser,
@@ -226,6 +229,105 @@ describe('matchService lifecycle', () => {
         success: false,
         error: 'Победитель должен быть участником матча',
       });
+    });
+  });
+
+  describe('reportResultFromFrames (snooker)', () => {
+    // Default winScore is 3 → a valid report needs a 3-frame decision.
+    const sweep: FrameInput[] = [
+      { player1Points: 80, player2Points: 1 },
+      { player1Points: 70, player2Points: 2 },
+      { player1Points: 60, player2Points: 3 },
+    ];
+
+    async function startedMatch() {
+      const m = await freshMatch();
+      await startMatch(m.match.id);
+      return m;
+    }
+
+    it('writes frame rows + recomputed aggregate + pending_confirmation', async () => {
+      const { match, p1 } = await startedMatch();
+      const res = await reportResultFromFrames(match.id, p1, [
+        { player1Points: 74, player2Points: 12 },
+        { player1Points: 8, player2Points: 66 },
+        { player1Points: 90, player2Points: 5 },
+        { player1Points: 55, player2Points: 40 },
+      ]);
+      expect(res.success).toBe(true);
+
+      const after = await getMatch(match.id);
+      expect(after?.status).toBe('pending_confirmation');
+      expect(after?.winnerId).toBe(p1);
+      expect(after?.player1Score).toBe(3);
+      expect(after?.player2Score).toBe(1);
+
+      const frames = await getMatchFrames(match.id);
+      expect(
+        frames.map((f) => [f.frameNumber, f.player1Points, f.player2Points]),
+      ).toEqual([
+        [1, 74, 12],
+        [2, 8, 66],
+        [3, 90, 5],
+        [4, 55, 40],
+      ]);
+    });
+
+    it('rejects a report over a match that is not in_progress (guard)', async () => {
+      const { match, p1 } = await freshMatch(); // still scheduled
+      const res = await reportResultFromFrames(match.id, p1, sweep);
+      expect(res.success).toBe(false);
+    });
+
+    it('rejects an invalid frame breakdown before touching the DB', async () => {
+      const { match, p1 } = await startedMatch();
+      const res = await reportResultFromFrames(match.id, p1, [
+        { player1Points: 74, player2Points: 12 },
+        { player1Points: 8, player2Points: 66 },
+      ]);
+      expect(res).toEqual({
+        success: false,
+        error: 'Один из игроков должен выиграть 3 кадров',
+      });
+      expect(await getMatchFrames(match.id)).toHaveLength(0);
+    });
+
+    it('confirmResult completes the match and keeps the frames', async () => {
+      const { match, p1, p2 } = await startedMatch();
+      await reportResultFromFrames(match.id, p1, sweep);
+      const res = await confirmResult(match.id, p2);
+      expect(res.success).toBe(true);
+
+      const after = await getMatch(match.id);
+      expect(after?.status).toBe('completed');
+      expect(await getMatchFrames(match.id)).toHaveLength(3);
+    });
+
+    it('disputeResult clears the aggregate AND the frame rows', async () => {
+      const { match, p1, p2 } = await startedMatch();
+      await reportResultFromFrames(match.id, p1, sweep);
+      const res = await disputeResult(match.id, p2);
+      expect(res.success).toBe(true);
+
+      const after = await getMatch(match.id);
+      expect(after?.status).toBe('in_progress');
+      expect(after?.player1Score).toBeNull();
+      expect(after?.player2Score).toBeNull();
+      expect(await getMatchFrames(match.id)).toHaveLength(0);
+    });
+
+    it('persists per-frame breaks (snooker), null where unset', async () => {
+      const { match, p1 } = await startedMatch();
+      await reportResultFromFrames(match.id, p1, [
+        { player1Points: 80, player2Points: 1, player1Break: 80 },
+        { player1Points: 70, player2Points: 2, player1Break: 54 },
+        { player1Points: 60, player2Points: 3 },
+      ]);
+      const frames = await getMatchFrames(match.id);
+      expect(frames[0]?.player1Break).toBe(80);
+      expect(frames[1]?.player1Break).toBe(54);
+      expect(frames[0]?.player2Break).toBeNull();
+      expect(frames[2]?.player1Break).toBeNull();
     });
   });
 
