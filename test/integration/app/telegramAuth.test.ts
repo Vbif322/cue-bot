@@ -264,7 +264,7 @@ describe('app telegram link — привязка из профиля через 
     expect(identities.some((i) => i.provider === 'telegram')).toBe(true);
   });
 
-  it('этот Telegram уже за другим юзером → /profile?telegram=exists', async () => {
+  it('этот Telegram уже за другим АКТИВНЫМ юзером → предложение слияния (merge_available + кука tg_merge)', async () => {
     await seedBackfilledBotUser('333444');
     const user = await createUser({ email: 'other@example.com' });
 
@@ -273,7 +273,73 @@ describe('app telegram link — привязка из профиля через 
       link: true,
       startCookie: appCookie(user.id),
     });
+    expect(location(cb.res)).toBe('/profile?telegram=merge_available');
+    expect(cb.res.headers.get('set-cookie') ?? '').toContain('tg_merge=');
+  });
+
+  it('POST /telegram/merge сливает email-аккаунт в Telegram и перевыпускает сессию', async () => {
+    const survivor = await seedBackfilledBotUser('444777');
+    const user = await createUser({ email: 'merge@example.com' });
+    await db.insert(userIdentities).values({
+      userId: user.id,
+      provider: 'email',
+      providerId: 'merge@example.com',
+      emailVerifiedAt: new Date(),
+    });
+
+    const { cb } = await oidcFlow({
+      claims: { sub: '444777', name: 'X' },
+      link: true,
+      startCookie: appCookie(user.id),
+    });
+    expect(location(cb.res)).toBe('/profile?telegram=merge_available');
+    const tgMerge = /tg_merge=([^;,]+)/.exec(
+      cb.res.headers.get('set-cookie') ?? '',
+    )?.[1];
+    expect(tgMerge).toBeTruthy();
+    const cookie = `${appCookie(user.id)}; tg_merge=${tgMerge ?? ''}`;
+
+    // /me отдаёт pendingMerge со счётчиками survivor'а.
+    const me = await apiRequest<{
+      data: { pendingMerge?: { survivorTournaments: number } };
+    }>(app, 'GET', '/api/app/me', { cookie });
+    expect(me.body.data.pendingMerge).toBeDefined();
+
+    // Подтверждаем слияние: 200, тело — survivor, сессия перевыпущена.
+    const merge = await apiRequest<{ data: { user: { id: string } } }>(
+      app,
+      'POST',
+      '/api/app/auth/telegram/merge',
+      { cookie },
+    );
+    expect(merge.status).toBe(200);
+    expect(merge.body.data.user.id).toBe(survivor.id);
+    expect(hasAppTokenCookie(merge.res)).toBe(true);
+
+    // survivor получил email-identity, losing тумбстонится.
+    const survIdents = await identitiesOf(survivor.id);
+    expect(survIdents.some((i) => i.provider === 'email')).toBe(true);
+    const loser = await db.query.users.findFirst({
+      where: eq(users.id, user.id),
+    });
+    expect(loser?.deletedAt).not.toBeNull();
+  });
+
+  it('этот Telegram за УДАЛЁННЫМ аккаунтом → слияние не предлагаем (exists)', async () => {
+    const other = await seedBackfilledBotUser('333555');
+    await db
+      .update(users)
+      .set({ deletedAt: new Date() })
+      .where(eq(users.id, other.id));
+    const user = await createUser({ email: 'other2@example.com' });
+
+    const { cb } = await oidcFlow({
+      claims: { sub: '333555', name: 'X' },
+      link: true,
+      startCookie: appCookie(user.id),
+    });
     expect(location(cb.res)).toBe('/profile?telegram=exists');
+    expect(cb.res.headers.get('set-cookie') ?? '').not.toContain('tg_merge=');
   });
 
   it('у текущего аккаунта уже привязан другой Telegram → /profile?telegram=has_other', async () => {
