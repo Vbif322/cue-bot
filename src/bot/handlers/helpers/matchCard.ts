@@ -4,7 +4,7 @@ import type { UUID } from 'crypto';
 import { db } from '@/db/db.js';
 import { tournaments } from '@/db/schema.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
-import { getMatch } from '@/services/matchService.js';
+import { getMatch, getMatchFrames } from '@/services/matchService.js';
 import { formatMatchCard, getMatchKeyboard } from '@/bot/ui/matchUI.js';
 import { canManageTournament } from '@/bot/permissions.js';
 import type { BotContext } from '@/bot/types.js';
@@ -33,7 +33,9 @@ export async function refreshMatchCard(
   if (!tournament) return;
 
   const canManage = await canManageTournament(ctx, match.tournamentId);
-  const text = formatMatchCard(match, tournament) + (options.extraText ?? '');
+  const frames = await getMatchFrames(matchId);
+  const text =
+    formatMatchCard(match, tournament, frames) + (options.extraText ?? '');
   const keyboard = getMatchKeyboard(
     match,
     ctx.dbUser.id,

@@ -1,6 +1,85 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatPlayerName } from '@/bot/ui/matchUI.js';
+import { formatMatchCard, formatPlayerName } from '@/bot/ui/matchUI.js';
+import type { MatchFrame } from '@/services/matchService.js';
+import type { MatchWithPlayers } from '@/bot/@types/match.js';
+import type { Tournament } from '@/bot/@types/tournament.js';
+
+const tournament = {
+  id: 't1',
+  name: 'Snooker Cup',
+  discipline: 'snooker_15_red',
+  format: 'single_elimination',
+  confirmedParticipants: 2,
+  maxParticipants: 2,
+  mergeRound: 2,
+  winScore: 3,
+  groupsCount: null,
+  qualifiersPerGroup: null,
+} as unknown as Tournament;
+
+const pendingMatch = {
+  position: 1,
+  round: 1,
+  bracketType: 'winners',
+  phase: 'playoff',
+  groupIndex: null,
+  status: 'pending_confirmation',
+  player1Score: 3,
+  player2Score: 1,
+  winnerId: null,
+  player1Username: null,
+  player1Name: 'Иван',
+  player1Surname: null,
+  player1TelegramId: null,
+  player2Username: null,
+  player2Name: 'Пётр',
+  player2Surname: null,
+  player2TelegramId: null,
+  scheduledAt: null,
+  isTechnicalResult: false,
+} as unknown as MatchWithPlayers;
+
+const frame = (
+  a: number,
+  b: number,
+  aBreak: number | null = null,
+): MatchFrame =>
+  ({
+    player1Points: a,
+    player2Points: b,
+    player1Break: aBreak,
+    player2Break: null,
+  }) as unknown as MatchFrame;
+
+describe('formatMatchCard frame breakdown', () => {
+  it('shows only the aggregate score when no frames are passed', () => {
+    const text = formatMatchCard(pendingMatch, tournament);
+    expect(text).toContain('Счёт: 3 : 1');
+    expect(text).not.toContain('По кадрам');
+    expect(text).not.toContain('Макс. брейк');
+  });
+
+  it('renders the per-frame breakdown when frames are present', () => {
+    const text = formatMatchCard(pendingMatch, tournament, [
+      frame(74, 12),
+      frame(8, 66),
+      frame(90, 5),
+      frame(55, 40),
+    ]);
+    expect(text).toContain('По кадрам: 74:12, 8:66, 90:5, 55:40');
+  });
+
+  it('renders the max break line when a break is recorded', () => {
+    const text = formatMatchCard(pendingMatch, tournament, [
+      frame(80, 1, 80),
+      frame(70, 20, 54),
+      frame(60, 30),
+    ]);
+    expect(text).toContain('Макс. брейк');
+    expect(text).toContain('80');
+  });
+});
 
 describe('formatPlayerName', () => {
   it('renders a clickable profile link with full name when telegramId is known', () => {

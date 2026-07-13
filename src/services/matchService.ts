@@ -7,6 +7,7 @@ import { db } from '@/db/db.js';
 import type { Executor } from '@/db/db.js';
 import {
   matches,
+  matchFrames,
   matchCorrections,
   tournaments,
   users,
@@ -15,6 +16,17 @@ import {
   type ITournamentFormat,
 } from '@/db/schema.js';
 import type { Match, MatchWithPlayers } from '@/bot/@types/match.js';
+
+/** One frame of a match: raw points per player, plus optional snooker breaks. */
+export interface FrameInput {
+  player1Points: number;
+  player2Points: number;
+  player1Break?: number | null;
+  player2Break?: number | null;
+}
+
+/** A persisted frame row (as read back for display). */
+export type MatchFrame = typeof matchFrames.$inferSelect;
 
 /** Visitor invoked for each downstream match that holds a player advanced from a corrected match. */
 type DownstreamVisitor = (
@@ -489,6 +501,142 @@ export async function reportResult(
 }
 
 /**
+ * Pure, DB-free derivation of a match result from its frame list. Validates the
+ * frames and computes the aggregate frames-won counts + winner. Used by the
+ * snooker frame-entry path; kept side-effect-free so it can be unit-tested.
+ *
+ * Rules: at least one frame; no tie within a frame (snooker frames are decisive);
+ * the leader must win exactly `winScore` frames and the loser strictly fewer.
+ */
+export function deriveFrameResult(
+  frames: FrameInput[],
+  winScore: number,
+  player1Id: UUID,
+  player2Id: UUID,
+):
+  | { winnerId: UUID; player1Score: number; player2Score: number }
+  | { error: string } {
+  if (frames.length === 0) {
+    return { error: 'Нужно ввести хотя бы один кадр' };
+  }
+
+  let player1Score = 0;
+  let player2Score = 0;
+  for (const [i, frame] of frames.entries()) {
+    if (frame.player1Points < 0 || frame.player2Points < 0) {
+      return { error: `Кадр ${String(i + 1)}: очки не могут быть отрицательными` };
+    }
+    if (frame.player1Points === frame.player2Points) {
+      return { error: `Кадр ${String(i + 1)}: ничья недопустима` };
+    }
+    if (frame.player1Points > frame.player2Points) player1Score++;
+    else player2Score++;
+  }
+
+  const leader = Math.max(player1Score, player2Score);
+  const loser = Math.min(player1Score, player2Score);
+  if (leader !== winScore || loser >= winScore) {
+    return {
+      error: `Один из игроков должен выиграть ${String(winScore)} кадров`,
+    };
+  }
+
+  const winnerId = player1Score > player2Score ? player1Id : player2Id;
+  return { winnerId, player1Score, player2Score };
+}
+
+/**
+ * Report a match result from a per-frame breakdown (snooker). Recomputes the
+ * aggregate frames-won cache on `matches` from the frames and stores the frame
+ * rows, keeping the same two-phase confirmation flow as `reportResult`.
+ */
+export async function reportResultFromFrames(
+  matchId: UUID,
+  reporterId: UUID,
+  frames: FrameInput[],
+): Promise<{ success: boolean; error?: string }> {
+  const match = await getMatch(matchId);
+
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status === 'completed')
+    return { success: false, error: 'Матч уже завершён' };
+  if (match.status === 'cancelled')
+    return { success: false, error: 'Матч отменён' };
+
+  if (match.player1Id !== reporterId && match.player2Id !== reporterId) {
+    return { success: false, error: 'Вы не являетесь участником этого матча' };
+  }
+  if (!match.player1Id || !match.player2Id) {
+    return { success: false, error: 'У матча нет обоих игроков' };
+  }
+
+  const tournament = await getTournament(match.tournamentId);
+  if (!tournament) return { success: false, error: 'Турнир не найден' };
+
+  const derived = deriveFrameResult(
+    frames,
+    tournament.winScore,
+    match.player1Id,
+    match.player2Id,
+  );
+  if ('error' in derived) return { success: false, error: derived.error };
+
+  // Sentinel used to convert the in-txn status-guard failure into a result object.
+  const STALE = 'Статус матча изменился. Попробуйте обновить страницу.';
+  try {
+    await db.transaction(async (tx) => {
+      // Guard on in_progress so a report can't overwrite an already
+      // pending/completed row (optimistic-concurrency; a report is only
+      // reachable from in_progress).
+      const updated = await tx
+        .update(matches)
+        .set({
+          player1Score: derived.player1Score,
+          player2Score: derived.player2Score,
+          winnerId: derived.winnerId,
+          reportedBy: reporterId,
+          status: 'pending_confirmation',
+          updatedAt: new Date(),
+        })
+        .where(and(eq(matches.id, matchId), eq(matches.status, 'in_progress')))
+        .returning({ id: matches.id });
+
+      if (!updated.length) throw new Error(STALE);
+
+      // Defensive: clear any stale frames from a prior attempt before insert.
+      await tx.delete(matchFrames).where(eq(matchFrames.matchId, matchId));
+      await tx.insert(matchFrames).values(
+        frames.map((frame, i) => ({
+          matchId,
+          frameNumber: i + 1,
+          player1Points: frame.player1Points,
+          player2Points: frame.player2Points,
+          player1Break: frame.player1Break ?? null,
+          player2Break: frame.player2Break ?? null,
+        })),
+      );
+    });
+  } catch (error) {
+    return { success: false, error: errorMessage(error) };
+  }
+
+  return { success: true };
+}
+
+/** Frames of a match, ordered by frame number. Empty for non-frame matches. */
+export async function getMatchFrames(matchId: UUID): Promise<MatchFrame[]> {
+  return db.query.matchFrames.findMany({
+    where: eq(matchFrames.matchId, matchId),
+    orderBy: asc(matchFrames.frameNumber),
+  });
+}
+
+/** Delete all frame rows of a match. Shared by dispute / reset / correct. */
+async function deleteMatchFrames(exec: Executor, matchId: UUID): Promise<void> {
+  await exec.delete(matchFrames).where(eq(matchFrames.matchId, matchId));
+}
+
+/**
  * Confirm match result
  */
 export async function confirmResult(
@@ -557,20 +705,28 @@ export async function disputeResult(
     return { success: false, error: 'Вы не являетесь участником этого матча' };
   }
 
-  const updated = await db
-    .update(matches)
-    .set({
-      status: 'in_progress',
-      player1Score: null,
-      player2Score: null,
-      winnerId: null,
-      reportedBy: null,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(eq(matches.id, matchId), eq(matches.status, 'pending_confirmation')),
-    )
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(matches)
+      .set({
+        status: 'in_progress',
+        player1Score: null,
+        player2Score: null,
+        winnerId: null,
+        reportedBy: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(matches.id, matchId),
+          eq(matches.status, 'pending_confirmation'),
+        ),
+      )
+      .returning();
+    // Drop any per-frame breakdown so the match returns to a clean in_progress.
+    if (rows.length) await deleteMatchFrames(tx, matchId);
+    return rows;
+  });
 
   if (!updated.length) {
     return {
@@ -1307,6 +1463,8 @@ async function resetDownstream(
       updatedAt: new Date(),
     })
     .where(eq(matches.id, match.id));
+  // Wipe the stale per-frame breakdown along with the nulled aggregate.
+  await deleteMatchFrames(exec, match.id);
   affected.push(match.id);
 }
 
@@ -1506,6 +1664,10 @@ export async function correctMatchResult(
         updatedAt: new Date(),
       })
       .where(eq(matches.id, matchId));
+
+    // Corrections supply aggregate counts, not per-frame points; drop the stale
+    // frame breakdown so it never contradicts the corrected aggregate.
+    await deleteMatchFrames(tx, matchId);
 
     await tx.insert(matchCorrections).values({
       matchId,

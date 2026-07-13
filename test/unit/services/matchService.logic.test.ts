@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { loserTarget, validateCorrectionScores } from '@/services/matchService.js';
+import type { UUID } from 'crypto';
+
+import {
+  deriveFrameResult,
+  loserTarget,
+  validateCorrectionScores,
+  type FrameInput,
+} from '@/services/matchService.js';
+
+const P1 = '11111111-1111-1111-1111-111111111111' as UUID;
+const P2 = '22222222-2222-2222-2222-222222222222' as UUID;
+const frame = (a: number, b: number): FrameInput => ({
+  player1Points: a,
+  player2Points: b,
+});
 
 const asMatch = (
   fields: Partial<{
@@ -82,5 +96,74 @@ describe('validateCorrectionScores', () => {
     expect(validateCorrectionScores(3, 3, 3)).toBe(
       'Оба игрока не могут выиграть',
     );
+  });
+});
+
+describe('deriveFrameResult (snooker frame → winner/aggregate)', () => {
+  it('tallies frames and picks the leader as winner', () => {
+    const frames = [frame(74, 12), frame(8, 66), frame(90, 1), frame(55, 40)];
+    expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
+      winnerId: P1,
+      player1Score: 3,
+      player2Score: 1,
+    });
+  });
+
+  it('honours player orientation (player2 wins)', () => {
+    const frames = [frame(10, 60), frame(70, 4), frame(2, 80), frame(9, 55)];
+    expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
+      winnerId: P2,
+      player1Score: 1,
+      player2Score: 3,
+    });
+  });
+
+  it('accepts the exact-winScore boundary (3:0 sweep)', () => {
+    const frames = [frame(80, 1), frame(70, 20), frame(65, 30)];
+    expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
+      winnerId: P1,
+      player1Score: 3,
+      player2Score: 0,
+    });
+  });
+
+  it('rejects an empty frame list', () => {
+    expect(deriveFrameResult([], 3, P1, P2)).toEqual({
+      error: 'Нужно ввести хотя бы один кадр',
+    });
+  });
+
+  it('rejects a tied frame', () => {
+    const frames = [frame(50, 50), frame(80, 1)];
+    expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
+      error: 'Кадр 1: ничья недопустима',
+    });
+  });
+
+  it('rejects when nobody reaches winScore (too few frames)', () => {
+    const frames = [frame(74, 12), frame(8, 66)];
+    expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
+      error: 'Один из игроков должен выиграть 3 кадров',
+    });
+  });
+
+  it('rejects when the leader exceeds winScore (too many frames)', () => {
+    const frames = [frame(80, 1), frame(70, 2), frame(60, 3), frame(50, 4)];
+    expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
+      error: 'Один из игроков должен выиграть 3 кадров',
+    });
+  });
+
+  it('passes breaks through untouched by winner derivation', () => {
+    const frames: FrameInput[] = [
+      { player1Points: 80, player2Points: 1, player1Break: 80 },
+      { player1Points: 70, player2Points: 20, player1Break: 54 },
+    ];
+    // race-to-2: 2:0, breaks do not affect the aggregate/winner
+    expect(deriveFrameResult(frames, 2, P1, P2)).toEqual({
+      winnerId: P1,
+      player1Score: 2,
+      player2Score: 0,
+    });
   });
 });
