@@ -6,6 +6,7 @@ import type { UUID } from 'crypto';
 
 import {
   getMatch,
+  getMatchFrames,
   getTournamentMatches,
   getMatchStats,
   startMatch,
@@ -62,6 +63,20 @@ export function createMatchesRouter(botApi: Api) {
     const match = await getMatch(id);
     if (!match) return c.json({ error: 'Матч не найден' }, 404);
     return c.json({ data: match });
+  });
+
+  // Per-frame breakdown (snooker) — empty for non-snooker matches.
+  router.get('/:id/frames', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const frames = await getMatchFrames(id);
+    const data = frames.map((f) => ({
+      frameNumber: f.frameNumber,
+      player1Points: f.player1Points,
+      player2Points: f.player2Points,
+      player1Break: f.player1Break,
+      player2Break: f.player2Break,
+    }));
+    return c.json({ data });
   });
 
   // Start a match

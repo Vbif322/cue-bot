@@ -43,7 +43,10 @@ describe('loserTarget (stored-pointer loser routing)', () => {
     ).toEqual({ position: 9, slot: 'player1Id' });
     expect(
       loserTarget(
-        asMatch({ losersNextMatchPosition: 17, losersNextMatchSlot: 'player2' }),
+        asMatch({
+          losersNextMatchPosition: 17,
+          losersNextMatchSlot: 'player2',
+        }),
       ),
     ).toEqual({ position: 17, slot: 'player2Id' });
   });
@@ -67,10 +70,14 @@ describe('loserTarget (stored-pointer loser routing)', () => {
   it('falls back to the legacy 16-slot formula when slot is absent', () => {
     // Legacy rows: position stored, slot null. R1 odd -> player1, even -> player2.
     expect(
-      loserTarget(asMatch({ round: 1, position: 1, losersNextMatchPosition: 9 })),
+      loserTarget(
+        asMatch({ round: 1, position: 1, losersNextMatchPosition: 9 }),
+      ),
     ).toEqual({ position: 9, slot: 'player1Id' });
     expect(
-      loserTarget(asMatch({ round: 1, position: 2, losersNextMatchPosition: 9 })),
+      loserTarget(
+        asMatch({ round: 1, position: 2, losersNextMatchPosition: 9 }),
+      ),
     ).toEqual({ position: 9, slot: 'player2Id' });
     expect(
       loserTarget(
@@ -129,28 +136,28 @@ describe('deriveFrameResult (snooker frame → winner/aggregate)', () => {
 
   it('rejects an empty frame list', () => {
     expect(deriveFrameResult([], 3, P1, P2)).toEqual({
-      error: 'Нужно ввести хотя бы один кадр',
+      error: 'Нужно ввести хотя бы один фрейм',
     });
   });
 
   it('rejects a tied frame', () => {
     const frames = [frame(50, 50), frame(80, 1)];
     expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
-      error: 'Кадр 1: ничья недопустима',
+      error: 'Фрейм 1: ничья недопустима',
     });
   });
 
   it('rejects when nobody reaches winScore (too few frames)', () => {
     const frames = [frame(74, 12), frame(8, 66)];
     expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
-      error: 'Один из игроков должен выиграть 3 кадров',
+      error: 'Один из игроков должен выиграть 3 фреймов',
     });
   });
 
   it('rejects when the leader exceeds winScore (too many frames)', () => {
     const frames = [frame(80, 1), frame(70, 2), frame(60, 3), frame(50, 4)];
     expect(deriveFrameResult(frames, 3, P1, P2)).toEqual({
-      error: 'Один из игроков должен выиграть 3 кадров',
+      error: 'Один из игроков должен выиграть 3 фреймов',
     });
   });
 

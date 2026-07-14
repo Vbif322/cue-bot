@@ -120,7 +120,6 @@ export async function createMatches(
   }
 }
 
-
 // ── Shared MatchWithPlayers read model ───────────────────────────────────────
 // Reusable aliases + column map + row mapper so every "match with joined player
 // and table info" query (getMatch, getTournamentMatches, the player-scoped
@@ -517,17 +516,19 @@ export function deriveFrameResult(
   | { winnerId: UUID; player1Score: number; player2Score: number }
   | { error: string } {
   if (frames.length === 0) {
-    return { error: 'Нужно ввести хотя бы один кадр' };
+    return { error: 'Нужно ввести хотя бы один фрейм' };
   }
 
   let player1Score = 0;
   let player2Score = 0;
   for (const [i, frame] of frames.entries()) {
     if (frame.player1Points < 0 || frame.player2Points < 0) {
-      return { error: `Кадр ${String(i + 1)}: очки не могут быть отрицательными` };
+      return {
+        error: `Фрейм ${String(i + 1)}: очки не могут быть отрицательными`,
+      };
     }
     if (frame.player1Points === frame.player2Points) {
-      return { error: `Кадр ${String(i + 1)}: ничья недопустима` };
+      return { error: `Фрейм ${String(i + 1)}: ничья недопустима` };
     }
     if (frame.player1Points > frame.player2Points) player1Score++;
     else player2Score++;
@@ -537,7 +538,7 @@ export function deriveFrameResult(
   const loser = Math.min(player1Score, player2Score);
   if (leader !== winScore || loser >= winScore) {
     return {
-      error: `Один из игроков должен выиграть ${String(winScore)} кадров`,
+      error: `Один из игроков должен выиграть ${String(winScore)} фреймов`,
     };
   }
 
@@ -818,9 +819,8 @@ export async function advanceWinner(
       await onTableFreed(match.tournamentId, match.tableId, botApi);
     }
     if (await allGroupMatchesComplete(match.tournamentId)) {
-      const { maybeStartPlayoffPhase } = await import(
-        './tournamentStartService.js'
-      );
+      const { maybeStartPlayoffPhase } =
+        await import('./tournamentStartService.js');
       await maybeStartPlayoffPhase(match.tournamentId, botApi);
     }
     return;
@@ -939,7 +939,12 @@ async function advanceWinnerRandom(
   );
 
   if (match.bracketType === 'winners' && loserId) {
-    const loserPool = getRandomTargetPool(match, false, mergeRound, bracketSize);
+    const loserPool = getRandomTargetPool(
+      match,
+      false,
+      mergeRound,
+      bracketSize,
+    );
     if (loserPool) {
       const placedLoser = await placeIntoRandomFreeSlot(
         match.tournamentId,
@@ -1160,7 +1165,10 @@ export async function checkTournamentCompletion(
     const winnersMatches = allMatches.filter(
       (m) => m.bracketType === 'winners',
     );
-    const maxRound = winnersMatches.reduce((max, m) => Math.max(max, m.round), 0);
+    const maxRound = winnersMatches.reduce(
+      (max, m) => Math.max(max, m.round),
+      0,
+    );
     const finalMatch = winnersMatches.find((m) => m.round === maxRound);
     return finalMatch?.status === 'completed';
   }
@@ -1172,7 +1180,10 @@ export async function checkTournamentCompletion(
     const winnersMatches = allMatches.filter(
       (m) => m.bracketType === 'winners',
     );
-    const maxRound = winnersMatches.reduce((max, m) => Math.max(max, m.round), 0);
+    const maxRound = winnersMatches.reduce(
+      (max, m) => Math.max(max, m.round),
+      0,
+    );
     const finalMatch = winnersMatches.find((m) => m.round === maxRound);
     return finalMatch?.status === 'completed';
   }
@@ -1228,7 +1239,10 @@ export async function startMatch(
       .returning();
 
     if (!updatedMatch[0]) {
-      return { success: false, error: 'Статус матча изменился, обновите страницу' };
+      return {
+        success: false,
+        error: 'Статус матча изменился, обновите страницу',
+      };
     }
 
     return { success: true, match: updatedMatch[0] };
@@ -1364,7 +1378,12 @@ async function walkDownstream(
       match.bracketType === 'winners' &&
       loserId
     ) {
-      const loserPool = getRandomTargetPool(match, false, mergeRound, bracketSize);
+      const loserPool = getRandomTargetPool(
+        match,
+        false,
+        mergeRound,
+        bracketSize,
+      );
       if (loserPool) {
         const found = await findPlayerSlotInPool(
           exec,
@@ -1393,8 +1412,7 @@ async function walkDownstream(
       const next = await exec.query.matches.findFirst({
         where: eq(matches.id, match.nextMatchId),
       });
-      const nextSlotId =
-        slot === 'player1' ? next?.player1Id : next?.player2Id;
+      const nextSlotId = slot === 'player1' ? next?.player1Id : next?.player2Id;
       if (next && nextSlotId === match.winnerId) {
         placements.push({ match: next, slot, player: match.winnerId });
       }
@@ -1605,7 +1623,10 @@ export async function correctMatchResult(
   const match = await getMatch(matchId);
   if (!match) return { success: false, error: 'Матч не найден' };
   if (match.status !== 'completed') {
-    return { success: false, error: 'Корректировать можно только завершённый матч' };
+    return {
+      success: false,
+      error: 'Корректировать можно только завершённый матч',
+    };
   }
   if (!match.player1Id || !match.player2Id) {
     return { success: false, error: 'У матча нет обоих игроков' };

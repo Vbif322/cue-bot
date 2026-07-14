@@ -287,7 +287,7 @@ describe('matchService lifecycle', () => {
       ]);
       expect(res).toEqual({
         success: false,
-        error: 'Один из игроков должен выиграть 3 кадров',
+        error: 'Один из игроков должен выиграть 3 фреймов',
       });
       expect(await getMatchFrames(match.id)).toHaveLength(0);
     });
