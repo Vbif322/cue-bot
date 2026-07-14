@@ -50,7 +50,7 @@ import {
 } from '@/services/notificationService.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
 import { getMatchStats } from '@/services/matchService.js';
-import { getGroupStandings } from '@/services/groupPhaseService.js';
+import { getGroupStandings, getGroupMaxBreaks } from '@/services/groupPhaseService.js';
 import { clinchedUserIds } from '@/services/standingsService.js';
 import { getTournamentTables } from '@/services/tableService.js';
 import { requireAdmin } from '../middleware.js';
@@ -168,9 +168,10 @@ export function createTournamentsRouter(botApi: Api) {
   // Rows are enriched with player display names for the SPA.
   router.get('/:id/standings', validateParam(idParam), async (c) => {
     const { id } = c.req.valid('param');
-    const [standings, tournament] = await Promise.all([
+    const [standings, tournament, maxBreakById] = await Promise.all([
       getGroupStandings(id),
       getTournament(id),
+      getGroupMaxBreaks(id),
     ]);
 
     const ids = standings.flatMap((g) => g.rows.map((r) => r.userId));
@@ -197,6 +198,7 @@ export function createTournamentsRouter(botApi: Api) {
           username: nameById.get(r.userId)?.username ?? null,
           name: nameById.get(r.userId)?.name ?? null,
           clinched: clinched.has(r.userId),
+          maxBreak: maxBreakById.get(r.userId) ?? null,
         })),
       };
     });

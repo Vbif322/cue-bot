@@ -291,7 +291,7 @@ export async function notifyResultPending(
   // Show the per-frame breakdown so the opponent confirms the exact frames.
   const breakdown =
     frames.length > 0
-      ? `По кадрам: ${frames
+      ? `По фреймам: ${frames
           .map((f) => `${String(f.player1Points)}:${String(f.player2Points)}`)
           .join(', ')}\n`
       : '';
@@ -533,10 +533,7 @@ export async function markAllAsRead(userId: UUID): Promise<void> {
     .update(notifications)
     .set({ isRead: true })
     .where(
-      and(
-        eq(notifications.userId, userId),
-        eq(notifications.isRead, false),
-      ),
+      and(eq(notifications.userId, userId), eq(notifications.isRead, false)),
     );
 }
 
@@ -552,10 +549,7 @@ export async function getNotifications(
 
   return db.query.notifications.findMany({
     where: unreadOnly
-      ? and(
-          eq(notifications.userId, userId),
-          eq(notifications.isRead, false),
-        )
+      ? and(eq(notifications.userId, userId), eq(notifications.isRead, false))
       : eq(notifications.userId, userId),
     orderBy: (n, { desc }) => [desc(n.createdAt)],
     limit,

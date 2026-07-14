@@ -56,7 +56,7 @@ describe('formatMatchCard frame breakdown', () => {
   it('shows only the aggregate score when no frames are passed', () => {
     const text = formatMatchCard(pendingMatch, tournament);
     expect(text).toContain('Счёт: 3 : 1');
-    expect(text).not.toContain('По кадрам');
+    expect(text).not.toContain('По фреймам');
     expect(text).not.toContain('Макс. брейк');
   });
 
@@ -67,7 +67,7 @@ describe('formatMatchCard frame breakdown', () => {
       frame(90, 5),
       frame(55, 40),
     ]);
-    expect(text).toContain('По кадрам: 74:12, 8:66, 90:5, 55:40');
+    expect(text).toContain('По фреймам: 74:12, 8:66, 90:5, 55:40');
   });
 
   it('renders the max break line when a break is recorded', () => {
@@ -94,9 +94,9 @@ describe('formatPlayerName', () => {
   });
 
   it('uses the link text from username when no name is set', () => {
-    expect(
-      formatPlayerName({ username: 'ivan', telegramId: '12345' }),
-    ).toBe('[ivan](tg://user?id=12345)');
+    expect(formatPlayerName({ username: 'ivan', telegramId: '12345' })).toBe(
+      '[ivan](tg://user?id=12345)',
+    );
   });
 
   it('prefers a preview-free deep link for a real public username', () => {

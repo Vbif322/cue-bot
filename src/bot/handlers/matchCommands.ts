@@ -70,7 +70,9 @@ const matchScheduleState = new PgSessionStore<{ matchId: UUID }>(
 interface FrameReportState {
   matchId: UUID;
   frames: FrameInput[];
-  awaitingBreak?: { frameIndex: number; slot: 'player1' | 'player2' } | undefined;
+  awaitingBreak?:
+    | { frameIndex: number; slot: 'player1' | 'player2' }
+    | undefined;
   promptChatId: number;
   promptMessageId: number;
 }
@@ -117,32 +119,34 @@ function buildFrameEntryView(
   });
   const { p1, p2 } = tallyFrames(state.frames);
 
-  let text = `📝 *Внесение результата (по кадрам)*\n\n`;
+  let text = `📝 *Внесение результата (по фреймам)*\n\n`;
   text += `${player1} vs ${player2}\n`;
   text += `Игра до: ${String(tournament.winScore)} побед\n\n`;
 
   if (state.frames.length > 0) {
-    text += `*Кадры:*\n`;
+    text += `*Фреймы:*\n`;
     state.frames.forEach((f, i) => {
       let line = `${String(i + 1)}) ${String(f.player1Points)} : ${String(f.player2Points)}`;
       const breaks: string[] = [];
-      if (f.player1Break != null) breaks.push(`P1 брейк ${String(f.player1Break)}`);
-      if (f.player2Break != null) breaks.push(`P2 брейк ${String(f.player2Break)}`);
+      if (f.player1Break != null)
+        breaks.push(`P1 брейк ${String(f.player1Break)}`);
+      if (f.player2Break != null)
+        breaks.push(`P2 брейк ${String(f.player2Break)}`);
       if (breaks.length) line += `  🎯 ${breaks.join(', ')}`;
       text += `${line}\n`;
     });
-    text += `Счёт по кадрам: ${String(p1)} : ${String(p2)}\n\n`;
+    text += `Счёт по фреймам: ${String(p1)} : ${String(p2)}\n\n`;
   }
 
   const keyboard = new InlineKeyboard();
   if (state.awaitingBreak) {
     const who = state.awaitingBreak.slot === 'player1' ? player1 : player2;
-    text += `Введите макс. брейк для *${who}* (кадр ${String(state.awaitingBreak.frameIndex + 1)}) числом:`;
+    text += `Введите макс. брейк для *${who}* (фрейм ${String(state.awaitingBreak.frameIndex + 1)}) числом:`;
   } else {
-    text += `Отправьте счёт следующего кадра сообщением, например \`74-15\``;
+    text += `Отправьте счёт следующего фрейма сообщением, например \`74-15\``;
     if (state.frames.length > 0) {
       keyboard
-        .text('↩️ Отменить кадр', `match:frame:undo:${state.matchId}`)
+        .text('↩️ Отменить фрейм', `match:frame:undo:${state.matchId}`)
         .row();
       if (isSnooker(tournament)) {
         keyboard
@@ -705,7 +709,7 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
   }
 });
 
-// Снукер: ввод счёта очередного кадра / значения макс. брейка текстом.
+// Снукер: ввод счёта очередного фрейма / значения макс. брейка текстом.
 matchCommands.on('message:text', async (ctx, next) => {
   const userId = ctx.from.id;
   const state = await matchFrameState.get(userId);
@@ -748,14 +752,14 @@ matchCommands.on('message:text', async (ctx, next) => {
   const parsed = /^(\d+)\s*[-:]\s*(\d+)$/.exec(text);
   if (!parsed?.[1] || !parsed[2]) {
     await ctx.reply(
-      'Не удалось распознать счёт кадра. Пример: 74-15. Попробуйте ещё раз или /cancel.',
+      'Не удалось распознать счёт фрейма. Пример: 74-15. Попробуйте ещё раз или /cancel.',
     );
     return; // keep state
   }
   const p1 = parseInt(parsed[1], 10);
   const p2 = parseInt(parsed[2], 10);
   if (p1 === p2) {
-    await ctx.reply('Ничья в кадре недопустима — счёт должен отличаться.');
+    await ctx.reply('Ничья в фрейме недопустима — счёт должен отличаться.');
     return;
   }
   state.frames.push({ player1Points: p1, player2Points: p2 });
@@ -814,7 +818,7 @@ matchCommands.on('message:text', async (ctx, next) => {
   await renderFramePrompt(ctx.api, state, match, tournament);
 });
 
-// Снукер: отменить последний введённый кадр.
+// Снукер: отменить последний введённый фрейм.
 matchCommands.callbackQuery(/^match:frame:undo:(.+)$/, async (ctx) => {
   const userId = ctx.from.id;
   const state = await matchFrameState.get(userId);
@@ -825,14 +829,14 @@ matchCommands.callbackQuery(/^match:frame:undo:(.+)$/, async (ctx) => {
   state.frames.pop();
   state.awaitingBreak = undefined;
   await matchFrameState.set(userId, state);
-  await ctx.answerCallbackQuery('Последний кадр удалён');
+  await ctx.answerCallbackQuery('Последний фрейм удалён');
   const loaded = await loadFrameContext(state.matchId);
   if (loaded) {
     await renderFramePrompt(ctx.api, state, loaded.match, loaded.tournament);
   }
 });
 
-// Снукер: запросить ввод макс. брейка для последнего кадра.
+// Снукер: запросить ввод макс. брейка для последнего фрейма.
 matchCommands.callbackQuery(
   /^match:frame:break:(.+):(player1|player2)$/,
   async (ctx) => {
@@ -853,7 +857,7 @@ matchCommands.callbackQuery(
   },
 );
 
-// Снукер: отменить ввод результата по кадрам.
+// Снукер: отменить ввод результата по фреймам.
 matchCommands.callbackQuery(/^match:frame:cancel:(.+)$/, async (ctx) => {
   const matchId = ctx.match[1];
   if (!matchId) return;

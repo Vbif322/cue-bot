@@ -14,7 +14,10 @@ import type { MatchWithPlayers } from '../@types/match.js';
 type MatchFrame = typeof matchFrames.$inferSelect;
 
 /** Highest break for a player across a match's frames, or null if none recorded. */
-function maxBreak(frames: MatchFrame[], slot: 'player1' | 'player2'): number | null {
+function maxBreak(
+  frames: MatchFrame[],
+  slot: 'player1' | 'player2',
+): number | null {
   const breaks = frames
     .map((f) => (slot === 'player1' ? f.player1Break : f.player2Break))
     .filter((b): b is number => b != null);
@@ -178,7 +181,7 @@ export function formatMatchCard(
       const breakdown = frames
         .map((f) => `${String(f.player1Points)}:${String(f.player2Points)}`)
         .join(', ');
-      text += `По кадрам: ${breakdown}\n`;
+      text += `По фреймам: ${breakdown}\n`;
       const p1Break = maxBreak(frames, 'player1');
       const p2Break = maxBreak(frames, 'player2');
       if (p1Break !== null || p2Break !== null) {
