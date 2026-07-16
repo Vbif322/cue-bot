@@ -6,7 +6,10 @@ import type { UUID } from 'crypto';
 import { db } from '@/db/db.js';
 import { PgSessionStore } from '@/services/dialogSessionStore.js';
 import { tournaments } from '@/db/schema.js';
-import { safeEditMessageText } from '@/utils/messageHelpers.js';
+import {
+  safeEditMessageText,
+  safeDeleteMessage,
+} from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import {
   getMatch,
@@ -15,6 +18,7 @@ import {
   getTournamentMatches,
   reportResult,
   reportResultFromFrames,
+  parseFrameScoreLine,
   confirmResult,
   disputeResult,
   setTechnicalResult,
@@ -104,6 +108,7 @@ function buildFrameEntryView(
   state: FrameReportState,
   match: MatchWithPlayers,
   tournament: Tournament,
+  errorLine?: string,
 ): { text: string; keyboard: InlineKeyboard } {
   const player1 = formatPlayerName({
     username: match.player1Username ?? null,
@@ -122,6 +127,7 @@ function buildFrameEntryView(
   let text = `📝 *Внесение результата (по фреймам)*\n\n`;
   text += `${player1} vs ${player2}\n`;
   text += `Игра до: ${String(tournament.winScore)} побед\n\n`;
+  if (errorLine) text += `⚠️ ${errorLine}\n\n`;
 
   if (state.frames.length > 0) {
     text += `*Фреймы:*\n`;
@@ -143,7 +149,7 @@ function buildFrameEntryView(
     const who = state.awaitingBreak.slot === 'player1' ? player1 : player2;
     text += `Введите макс. брейк для *${who}* (фрейм ${String(state.awaitingBreak.frameIndex + 1)}) числом:`;
   } else {
-    text += `Отправьте счёт следующего фрейма сообщением, например \`74-15\``;
+    text += `Отправьте счёт следующего фрейма сообщением, например \`74-15\` или \`74 15\``;
     if (state.frames.length > 0) {
       keyboard
         .text('↩️ Отменить фрейм', `match:frame:undo:${state.matchId}`)
@@ -167,8 +173,9 @@ async function renderFramePrompt(
   state: FrameReportState,
   match: MatchWithPlayers,
   tournament: Tournament,
+  errorLine?: string,
 ): Promise<void> {
-  const view = buildFrameEntryView(state, match, tournament);
+  const view = buildFrameEntryView(state, match, tournament, errorLine);
   try {
     await api.editMessageText(
       state.promptChatId,
@@ -730,10 +737,21 @@ matchCommands.on('message:text', async (ctx, next) => {
   }
   const { match, tournament } = loaded;
 
+  // This text belongs to the frame flow — remove the user's message so the
+  // editable prompt stays the last message in the chat. Errors below are shown
+  // inline in the prompt (not as separate replies) to keep that single message.
+  await safeDeleteMessage(ctx);
+
   // Awaiting a max-break value for a specific frame/slot.
   if (state.awaitingBreak) {
     if (!/^\d+$/.test(text)) {
-      await ctx.reply('Введите брейк целым числом, например 88, или /cancel.');
+      await renderFramePrompt(
+        ctx.api,
+        state,
+        match,
+        tournament,
+        'Введите брейк целым числом, например 88.',
+      );
       return; // keep state so the user can retry
     }
     const frame = state.frames[state.awaitingBreak.frameIndex];
@@ -748,18 +766,28 @@ matchCommands.on('message:text', async (ctx, next) => {
     return;
   }
 
-  // Parse a frame line like "74-15" / "74:15".
-  const parsed = /^(\d+)\s*[-:]\s*(\d+)$/.exec(text);
-  if (!parsed?.[1] || !parsed[2]) {
-    await ctx.reply(
-      'Не удалось распознать счёт фрейма. Пример: 74-15. Попробуйте ещё раз или /cancel.',
+  // Parse a frame line like "74-15" / "74:15" / "74 15".
+  const parsed = parseFrameScoreLine(text);
+  if (!parsed) {
+    await renderFramePrompt(
+      ctx.api,
+      state,
+      match,
+      tournament,
+      'Не удалось распознать счёт фрейма. Пример: 74-15 или 74 15.',
     );
     return; // keep state
   }
-  const p1 = parseInt(parsed[1], 10);
-  const p2 = parseInt(parsed[2], 10);
+  const p1 = parsed.player1Points;
+  const p2 = parsed.player2Points;
   if (p1 === p2) {
-    await ctx.reply('Ничья в фрейме недопустима — счёт должен отличаться.');
+    await renderFramePrompt(
+      ctx.api,
+      state,
+      match,
+      tournament,
+      'Ничья в фрейме недопустима — счёт должен отличаться.',
+    );
     return;
   }
   state.frames.push({ player1Points: p1, player2Points: p2 });
@@ -775,8 +803,13 @@ matchCommands.on('message:text', async (ctx, next) => {
     if (!result.success) {
       state.frames.pop(); // roll back so the user can fix the last frame
       await matchFrameState.set(userId, state);
-      await ctx.reply(result.error ?? 'Не удалось сохранить результат.');
-      await renderFramePrompt(ctx.api, state, match, tournament);
+      await renderFramePrompt(
+        ctx.api,
+        state,
+        match,
+        tournament,
+        result.error ?? 'Не удалось сохранить результат.',
+      );
       return;
     }
 
