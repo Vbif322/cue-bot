@@ -500,6 +500,24 @@ export async function reportResult(
 }
 
 /**
+ * Parse a typed frame-score line into raw points. Accepts a dash, colon, or
+ * space (one or more) as separator, so `74-15`, `74:15`, `74 15` and `74 - 15`
+ * all work; `7415` (no separator) does not. Returns `null` for anything
+ * unparseable (the caller rejects a tie separately, with its own message).
+ * Pure — unit-tested.
+ */
+export function parseFrameScoreLine(
+  text: string,
+): { player1Points: number; player2Points: number } | null {
+  const parsed = /^(\d+)[\s:-]+(\d+)$/.exec(text.trim());
+  if (!parsed?.[1] || !parsed[2]) return null;
+  return {
+    player1Points: parseInt(parsed[1], 10),
+    player2Points: parseInt(parsed[2], 10),
+  };
+}
+
+/**
  * Pure, DB-free derivation of a match result from its frame list. Validates the
  * frames and computes the aggregate frames-won counts + winner. Used by the
  * snooker frame-entry path; kept side-effect-free so it can be unit-tested.

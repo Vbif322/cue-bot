@@ -5,6 +5,7 @@ import type { UUID } from 'crypto';
 import {
   deriveFrameResult,
   loserTarget,
+  parseFrameScoreLine,
   validateCorrectionScores,
   type FrameInput,
 } from '@/services/matchService.js';
@@ -33,6 +34,46 @@ const asMatch = (
     losersNextMatchSlot: null,
     ...fields,
   }) as unknown as Parameters<typeof loserTarget>[0];
+
+describe('parseFrameScoreLine', () => {
+  it('accepts dash, colon and space separators (with optional spacing)', () => {
+    expect(parseFrameScoreLine('74-15')).toEqual({
+      player1Points: 74,
+      player2Points: 15,
+    });
+    expect(parseFrameScoreLine('74:15')).toEqual({
+      player1Points: 74,
+      player2Points: 15,
+    });
+    expect(parseFrameScoreLine('74 15')).toEqual({
+      player1Points: 74,
+      player2Points: 15,
+    });
+    expect(parseFrameScoreLine('74 - 15')).toEqual({
+      player1Points: 74,
+      player2Points: 15,
+    });
+    expect(parseFrameScoreLine('  74   15  ')).toEqual({
+      player1Points: 74,
+      player2Points: 15,
+    });
+  });
+
+  it('returns the tie unchanged (caller rejects ties separately)', () => {
+    expect(parseFrameScoreLine('50 50')).toEqual({
+      player1Points: 50,
+      player2Points: 50,
+    });
+  });
+
+  it('returns null for malformed input', () => {
+    expect(parseFrameScoreLine('7415')).toBeNull(); // no separator
+    expect(parseFrameScoreLine('abc')).toBeNull();
+    expect(parseFrameScoreLine('74-')).toBeNull();
+    expect(parseFrameScoreLine('74 15 20')).toBeNull();
+    expect(parseFrameScoreLine('')).toBeNull();
+  });
+});
 
 describe('loserTarget (stored-pointer loser routing)', () => {
   it('reads the stored loser drop position + slot', () => {
