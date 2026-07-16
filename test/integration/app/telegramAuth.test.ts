@@ -41,10 +41,16 @@ function base64url(obj: unknown): string {
  */
 function makeIdToken(claims: Record<string, unknown>): string {
   const header = base64url({ alg: 'none', typ: 'JWT' });
+  // identity ключуется по числовому claim `id` (реальный Telegram user id), НЕ по `sub`.
+  // Если кейс задал только `sub` (историческое имя для «telegram user id»), выводим `id`
+  // из него — реальный id_token oauth.telegram.org несёт оба claim'а.
+  const id =
+    claims.id ?? (typeof claims.sub === 'string' ? Number(claims.sub) : undefined);
   const payload = base64url({
     iss: 'https://oauth.telegram.org',
     aud: 'test-client',
     exp: Math.floor(Date.now() / 1000) + 600,
+    id,
     ...claims,
   });
   return `${header}.${payload}.sig`;
@@ -170,6 +176,32 @@ describe('app telegram auth router — вход через OIDC', () => {
     const identities = await identitiesOf(existing.id);
     expect(identities).toHaveLength(1);
     expect(identities[0]?.provider).toBe('telegram');
+  });
+
+  it('OIDC ключует identity по `id`, а не по непрозрачному `sub` (без дубля бот-аккаунта)', async () => {
+    // Бот-аккаунт с реальным Telegram id. Токен несёт этот id + чужой непрозрачный sub.
+    const existing = await seedBackfilledBotUser('786394171');
+
+    const { cb } = await oidcFlow({
+      claims: { id: 786394171, sub: '11066128966037658761', name: 'Иван' },
+    });
+
+    expect(cb.status).toBe(302);
+    expect(hasAppTokenCookie(cb.res)).toBe(true);
+    // Сошлись в тот же аккаунт — по `id`, не по `sub`; нового аккаунта нет.
+    const byRealId = await db.query.users.findMany({
+      where: eq(users.telegram_id, '786394171'),
+    });
+    expect(byRealId).toHaveLength(1);
+    expect(byRealId[0]?.id).toBe(existing.id);
+    // Аккаунта, ключёванного по sub, не появилось.
+    const bySub = await db.query.users.findMany({
+      where: eq(users.telegram_id, '11066128966037658761'),
+    });
+    expect(bySub).toHaveLength(0);
+    const identities = await identitiesOf(existing.id);
+    expect(identities).toHaveLength(1);
+    expect(identities[0]?.providerId).toBe('786394171');
   });
 
   it('вход нового telegram-юзера создаёт users + telegram-identity', async () => {

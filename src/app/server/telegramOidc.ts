@@ -150,6 +150,17 @@ function decodeJwtPayload(idToken: string): Record<string, unknown> | null {
 }
 
 /**
+ * Числовой claim `id` из id_token → строковый Telegram user id. Telegram шлёт его
+ * числом; защитно принимаем и строку из цифр. Нужен положительный integer, иначе
+ * `undefined` (провалит верификацию — лучше отказать, чем ключевать identity мусором).
+ */
+function numericId(v: unknown): string | undefined {
+  if (typeof v === 'number' && Number.isInteger(v) && v > 0) return String(v);
+  if (typeof v === 'string' && /^[1-9]\d*$/.test(v)) return v;
+  return undefined;
+}
+
+/**
  * Проверяет id_token: iss/aud/exp (подпись — нет, токен из доверенного back-channel).
  * Возвращает нормализованные claim'ы либо reason ошибки.
  */
@@ -178,8 +189,15 @@ export function verifyIdToken(
   const nowSec = Math.floor((nowMs ?? Date.now()) / 1000);
   if (nowSec >= exp) return { ok: false, reason: 'id_token истёк' };
 
-  const id = asString(payload.sub);
-  if (!id) return { ok: false, reason: 'Отсутствует sub' };
+  // Ключуем telegram-identity по числовому `id` (реальный Telegram user id), а НЕ по
+  // `sub`. `sub` — непрозрачный per-app идентификатор oauth.telegram.org (напр.
+  // "11066128966037658761"), он НЕ совпадает с id, который приходит из бота
+  // (`ctx.from.id`) и Mini App (`initData.user.id`). Пока входы шли по `sub`, один и тот
+  // же пользователь получал ОТДЕЛЬНЫЙ аккаунт при браузерном OIDC-входе. В id_token от
+  // oauth.telegram.org рядом с `sub` лежит числовой claim `id` (= реальный user id),
+  // который сводит OIDC-вход в ту же identity, что бот и Mini App.
+  const id = numericId(payload.id);
+  if (!id) return { ok: false, reason: 'Отсутствует id' };
 
   const firstName = asString(payload.name) ?? asString(payload.preferred_username) ?? id;
 
