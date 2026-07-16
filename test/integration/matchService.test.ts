@@ -273,8 +273,18 @@ describe('matchService lifecycle', () => {
       ]);
     });
 
-    it('rejects a report over a match that is not in_progress (guard)', async () => {
+    it('accepts a report over a scheduled (not yet started) match', async () => {
+      // The player client reports from scheduled too — parity with reportResult.
       const { match, p1 } = await freshMatch(); // still scheduled
+      const res = await reportResultFromFrames(match.id, p1, sweep);
+      expect(res.success).toBe(true);
+      expect((await getMatch(match.id))?.status).toBe('pending_confirmation');
+    });
+
+    it('rejects a report over an already-completed match (guard)', async () => {
+      const { match, p1, p2 } = await startedMatch();
+      await reportResultFromFrames(match.id, p1, sweep);
+      await confirmResult(match.id, p2); // → completed
       const res = await reportResultFromFrames(match.id, p1, sweep);
       expect(res.success).toBe(false);
     });

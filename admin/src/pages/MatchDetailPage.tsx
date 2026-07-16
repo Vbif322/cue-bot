@@ -6,6 +6,7 @@ import type { ApiTable, ApiMatch, ApiMatchFrame } from '../lib/api.ts';
 import { MatchStatusBadge } from '@cue-bot/ui';
 import { sportOfDiscipline } from '@server/apiTypes';
 import { formatUtc, isoToUtcInput, utcInputToIso } from '../lib/datetime.ts';
+import ReportFramesCard from '../components/match-detail/ReportFramesCard.tsx';
 
 /** Highest break for a player across a match's frames, or null if none recorded. */
 function maxBreak(
@@ -389,10 +390,24 @@ export default function MatchDetailPage() {
           </ActionCard>
         )}
 
-        {/* Report result */}
+        {/* Report result — per-frame form for snooker */}
         {match.status === 'in_progress' &&
           match.player1Id &&
-          match.player2Id && (
+          match.player2Id &&
+          isSnooker &&
+          tournament && (
+            <ReportFramesCard
+              match={match}
+              winScore={tournament.winScore}
+              onSuccess={invalidate}
+            />
+          )}
+
+        {/* Report result — aggregate score (non-snooker) */}
+        {match.status === 'in_progress' &&
+          match.player1Id &&
+          match.player2Id &&
+          !isSnooker && (
             <ActionCard title="Внести результат">
               <div className="space-y-3">
                 <div>
