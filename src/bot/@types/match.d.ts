@@ -24,6 +24,15 @@ export type ApiMatch = Omit<
   tableName?: string | null;
 };
 
+/** One persisted snooker frame, trimmed for the admin read-model. */
+export interface ApiMatchFrame {
+  frameNumber: number;
+  player1Points: number;
+  player2Points: number;
+  player1Break: number | null;
+  player2Break: number | null;
+}
+
 export interface ApiMatchStats {
   total: number;
   completed: number;

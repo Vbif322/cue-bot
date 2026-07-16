@@ -2,9 +2,22 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { matchesApi, tournamentsApi } from '../lib/api.ts';
-import type { ApiTable, ApiMatch } from '../lib/api.ts';
+import type { ApiTable, ApiMatch, ApiMatchFrame } from '../lib/api.ts';
 import { MatchStatusBadge } from '@cue-bot/ui';
+import { sportOfDiscipline } from '@server/apiTypes';
 import { formatUtc, isoToUtcInput, utcInputToIso } from '../lib/datetime.ts';
+import ReportFramesCard from '../components/match-detail/ReportFramesCard.tsx';
+
+/** Highest break for a player across a match's frames, or null if none recorded. */
+function maxBreak(
+  frames: ApiMatchFrame[],
+  slot: 'player1' | 'player2',
+): number | null {
+  const breaks = frames
+    .map((f) => (slot === 'player1' ? f.player1Break : f.player2Break))
+    .filter((b): b is number => b != null);
+  return breaks.length ? Math.max(...breaks) : null;
+}
 
 export default function MatchDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -52,6 +65,18 @@ export default function MatchDetailPage() {
     queryKey: ['tournament', match?.tournamentId],
     queryFn: () => tournamentsApi.get(match!.tournamentId),
     enabled: !!match?.tournamentId,
+  });
+
+  const isSnooker =
+    !!tournament && sportOfDiscipline(tournament.discipline) === 'snooker';
+  const hasResult =
+    match?.status === 'completed' || match?.status === 'pending_confirmation';
+
+  const { data: frames } = useQuery({
+    queryKey: ['match-frames', id],
+    queryFn: () => matchesApi.frames(id!),
+    enabled: !!id && isSnooker && hasResult,
+    refetchInterval: 15_000,
   });
 
   useEffect(() => {
@@ -295,6 +320,61 @@ export default function MatchDetailPage() {
         )}
       </div>
 
+      {/* Per-frame breakdown (snooker) */}
+      {frames && frames.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+          <h3 className="font-semibold text-gray-900 mb-3">По фреймам</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-gray-500 text-xs">
+                <th className="px-2 py-1 text-center font-medium">#</th>
+                <th className="px-2 py-1 text-center font-medium">Счёт</th>
+                <th
+                  className="px-2 py-1 text-center font-medium"
+                  title="Брейк игрока 1"
+                >
+                  Брейк 1
+                </th>
+                <th
+                  className="px-2 py-1 text-center font-medium"
+                  title="Брейк игрока 2"
+                >
+                  Брейк 2
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {frames.map((f) => (
+                <tr key={f.frameNumber} className="border-t border-gray-100">
+                  <td className="px-2 py-1.5 text-center text-gray-500">
+                    {f.frameNumber}
+                  </td>
+                  <td className="px-2 py-1.5 text-center text-gray-900 font-medium">
+                    {f.player1Points} : {f.player2Points}
+                  </td>
+                  <td className="px-2 py-1.5 text-center text-gray-600">
+                    {f.player1Break ?? '—'}
+                  </td>
+                  <td className="px-2 py-1.5 text-center text-gray-600">
+                    {f.player2Break ?? '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(maxBreak(frames, 'player1') !== null ||
+            maxBreak(frames, 'player2') !== null) && (
+            <p className="text-sm text-gray-600 mt-3">
+              Макс. брейк:{' '}
+              {match.player1Name ?? match.player1Username ?? 'Игрок 1'} —{' '}
+              {maxBreak(frames, 'player1') ?? 0},{' '}
+              {match.player2Name ?? match.player2Username ?? 'Игрок 2'} —{' '}
+              {maxBreak(frames, 'player2') ?? 0}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Actions */}
       <div className="space-y-4">
         {/* Start match */}
@@ -310,10 +390,24 @@ export default function MatchDetailPage() {
           </ActionCard>
         )}
 
-        {/* Report result */}
+        {/* Report result — per-frame form for snooker */}
         {match.status === 'in_progress' &&
           match.player1Id &&
-          match.player2Id && (
+          match.player2Id &&
+          isSnooker &&
+          tournament && (
+            <ReportFramesCard
+              match={match}
+              winScore={tournament.winScore}
+              onSuccess={invalidate}
+            />
+          )}
+
+        {/* Report result — aggregate score (non-snooker) */}
+        {match.status === 'in_progress' &&
+          match.player1Id &&
+          match.player2Id &&
+          !isSnooker && (
             <ActionCard title="Внести результат">
               <div className="space-y-3">
                 <div>

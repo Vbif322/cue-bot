@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, eq, isNotNull, sql } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
-import { userIdentities } from '@/db/schema.js';
+import { userIdentities, tournamentParticipants } from '@/db/schema.js';
 import {
   toAppUser,
   updateUserProfile,
@@ -23,6 +23,7 @@ import {
 import { requireUser } from '@/admin/server/middleware.js';
 
 import { validateJson } from './_shared.js';
+import { readMergeIntent } from './auth.js';
 
 const profileBody = z.object({
   name: z.string().max(MAX_NAME_LENGTH).nullable().optional(),
@@ -57,11 +58,34 @@ export function createAppMeRouter() {
       }),
     ]);
 
+    // Если для этой сессии висит подтверждённое через OIDC «намерение слияния»
+    // (кука tg_merge относится к текущему аккаунту как к losing), отдаём счётчики
+    // истории survivor'а — чтобы карточка на /profile показала, с чем сливаемся.
+    const mergeIntent = await readMergeIntent(c);
+    let pendingMerge:
+      | { survivorTournaments: number; survivorMatches: number }
+      | undefined;
+    if (mergeIntent?.losingUserId === user.id) {
+      const survivorId = mergeIntent.survivorUserId;
+      const [[participation], stats] = await Promise.all([
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(tournamentParticipants)
+          .where(eq(tournamentParticipants.userId, survivorId)),
+        getUserMatchStats(survivorId),
+      ]);
+      pendingMerge = {
+        survivorTournaments: participation?.count ?? 0,
+        survivorMatches: stats.played,
+      };
+    }
+
     return c.json({
       data: {
         ...toAppUser(user),
         emailVerified: emailIdentity != null,
         telegramLinked: telegramIdentity != null,
+        ...(pendingMerge ? { pendingMerge } : {}),
       },
     });
   });

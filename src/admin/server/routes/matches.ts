@@ -6,10 +6,12 @@ import type { UUID } from 'crypto';
 
 import {
   getMatch,
+  getMatchFrames,
   getTournamentMatches,
   getMatchStats,
   startMatch,
   reportResult,
+  reportResultFromFrames,
   confirmResult,
   disputeResult,
   setTechnicalResult,
@@ -62,6 +64,20 @@ export function createMatchesRouter(botApi: Api) {
     const match = await getMatch(id);
     if (!match) return c.json({ error: 'Матч не найден' }, 404);
     return c.json({ data: match });
+  });
+
+  // Per-frame breakdown (snooker) — empty for non-snooker matches.
+  router.get('/:id/frames', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const frames = await getMatchFrames(id);
+    const data = frames.map((f) => ({
+      frameNumber: f.frameNumber,
+      player1Points: f.player1Points,
+      player2Points: f.player2Points,
+      player1Break: f.player1Break,
+      player2Break: f.player2Break,
+    }));
+    return c.json({ data });
   });
 
   // Start a match
@@ -121,6 +137,60 @@ export function createMatchesRouter(botApi: Api) {
     },
   );
 
+  // Report a per-frame result (snooker). Admin acts as one of the players.
+  router.post(
+    '/:id/report-frames',
+    validateParam(idParam),
+    zValidator(
+      'json',
+      z.object({
+        reporterId: z.uuid(),
+        frames: z
+          .array(
+            z.object({
+              player1Points: z.number().int().min(0),
+              player2Points: z.number().int().min(0),
+              player1Break: z.number().int().min(0).nullable().optional(),
+              player2Break: z.number().int().min(0).nullable().optional(),
+            }),
+          )
+          .min(1),
+      }),
+    ),
+    async (c) => {
+      const { reporterId, frames } = c.req.valid('json');
+      const { id: matchId } = c.req.valid('param');
+      const result = await reportResultFromFrames(
+        matchId,
+        reporterId as UUID,
+        frames.map((f) => ({
+          player1Points: f.player1Points,
+          player2Points: f.player2Points,
+          player1Break: f.player1Break ?? null,
+          player2Break: f.player2Break ?? null,
+        })),
+      );
+      if (!result.success) return c.json({ error: result.error }, 400);
+
+      try {
+        const updated = await getMatch(matchId);
+        if (updated) {
+          const savedFrames = await getMatchFrames(matchId);
+          await notifyResultPending(
+            botApi,
+            updated,
+            reporterId as UUID,
+            savedFrames,
+          );
+        }
+      } catch (error) {
+        console.error('Failed to send result pending notification:', error);
+      }
+
+      return c.json({ ok: true });
+    },
+  );
+
   // Confirm result
   router.post(
     '/:id/confirm',
@@ -129,7 +199,8 @@ export function createMatchesRouter(botApi: Api) {
     async (c) => {
       const { confirmerId } = c.req.valid('json');
       const { id } = c.req.valid('param');
-      const result = await confirmResult(id, confirmerId as UUID, botApi);
+      // Route is behind requireAdmin, so an admin may confirm even their own report.
+      const result = await confirmResult(id, confirmerId as UUID, botApi, true);
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },

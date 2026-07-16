@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, type BadgeTone } from '@cue-bot/ui';
-import { meApi } from '../lib/api.ts';
+import { meApi, appAuth } from '../lib/api.ts';
 import { getTelegramInitData } from '../lib/telegram.ts';
 import { useMe, useLogout } from '../lib/useAuth.ts';
 import { displayName, initials, gradientFor, formatDate } from '../lib/format.ts';
@@ -54,6 +54,38 @@ export default function ProfilePage() {
     mutationFn: () =>
       meApi.update({ name: name.trim() || null, surname: surname.trim() || null }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me', 'profile'] });
+      qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
+  });
+
+  // Подтверждение слияния: сервер перевыпускает сессию на survivor, поэтому
+  // инвалидируем и сессию (useMe), и профиль/статистику — данные подтянутся уже
+  // для объединённого (Telegram) аккаунта.
+  const [mergeDismissed, setMergeDismissed] = useState(false);
+  const mergeMut = useMutation({
+    mutationFn: () => appAuth.confirmMerge(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+      qc.invalidateQueries({ queryKey: ['me', 'profile'] });
+      qc.invalidateQueries({ queryKey: ['me', 'stats'] });
+    },
+  });
+
+  // Привязка email к текущему аккаунту (для Telegram-only): отправка кода →
+  // подтверждение. Успех обновляет email-identity, поэтому обновляем профиль/сессию.
+  const [linkEmail, setLinkEmail] = useState('');
+  const [linkCode, setLinkCode] = useState('');
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
+  const requestEmailMut = useMutation({
+    mutationFn: () => appAuth.requestEmailLinkCode(linkEmail.trim()),
+    onSuccess: () => setEmailCodeSent(true),
+  });
+  const verifyEmailMut = useMutation({
+    mutationFn: () => appAuth.confirmEmailLink(linkEmail.trim(), linkCode.trim()),
+    onSuccess: () => {
+      setEmailCodeSent(false);
+      setLinkCode('');
       qc.invalidateQueries({ queryKey: ['me', 'profile'] });
       qc.invalidateQueries({ queryKey: ['auth', 'me'] });
     },
@@ -239,13 +271,79 @@ export default function ProfilePage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <span style={{ fontSize: 15, fontWeight: 700 }}>Электронная почта</span>
               <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-                Используется для входа.{' '}
-                {profile.emailVerified ? 'Подтверждена.' : 'Не подтверждена.'}
+                {profile.emailVerified
+                  ? 'Используется для входа. Подтверждена.'
+                  : 'Привяжите почту, чтобы входить и по ней.'}
               </span>
             </div>
-            <Labeled label="Email">
-              <Field type="email" value={profile.email ?? ''} disabled readOnly />
-            </Labeled>
+            {profile.emailVerified ? (
+              <Labeled label="Email">
+                <Field type="email" value={profile.email ?? ''} disabled readOnly />
+              </Labeled>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Labeled label="Email">
+                  <Field
+                    type="email"
+                    value={linkEmail}
+                    disabled={emailCodeSent}
+                    placeholder="you@example.com"
+                    onChange={(e) => setLinkEmail(e.target.value)}
+                  />
+                </Labeled>
+                {emailCodeSent && (
+                  <Labeled label="Код из письма">
+                    <Field
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={linkCode}
+                      placeholder="000000"
+                      onChange={(e) => setLinkCode(e.target.value.replace(/\D/g, ''))}
+                    />
+                  </Labeled>
+                )}
+                {requestEmailMut.error && (
+                  <ErrorBox message={requestEmailMut.error.message} />
+                )}
+                {verifyEmailMut.error && (
+                  <ErrorBox message={verifyEmailMut.error.message} />
+                )}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {emailCodeSent ? (
+                    <>
+                      <Btn
+                        size="sm"
+                        disabled={verifyEmailMut.isPending || linkCode.length !== 6}
+                        onClick={() => verifyEmailMut.mutate()}
+                      >
+                        {verifyEmailMut.isPending ? 'Привязка…' : 'Подтвердить'}
+                      </Btn>
+                      <Btn
+                        variant="ghost"
+                        size="sm"
+                        disabled={verifyEmailMut.isPending}
+                        onClick={() => {
+                          setEmailCodeSent(false);
+                          setLinkCode('');
+                        }}
+                      >
+                        Изменить адрес
+                      </Btn>
+                    </>
+                  ) : (
+                    <Btn
+                      size="sm"
+                      disabled={
+                        requestEmailMut.isPending || linkEmail.trim().length === 0
+                      }
+                      onClick={() => requestEmailMut.mutate()}
+                    >
+                      {requestEmailMut.isPending ? 'Отправка…' : 'Отправить код'}
+                    </Btn>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Имя/фамилия */}
@@ -311,6 +409,35 @@ export default function ProfilePage() {
               </div>
               {profile.telegramLinked ? (
                 <div style={{ fontSize: 14, color: 'var(--color-tone-success-fg)' }}>Привязан.</div>
+              ) : profile.pendingMerge && !mergeDismissed ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>
+                    Этот Telegram уже связан с другим аккаунтом
+                    {' ('}
+                    {profile.pendingMerge.survivorTournaments} турниров,{' '}
+                    {profile.pendingMerge.survivorMatches} матчей). Объединить ваш
+                    текущий аккаунт с ним? Вы продолжите как тот аккаунт, а история
+                    сохранится. Действие необратимо.
+                  </div>
+                  {mergeMut.error && <ErrorBox message={mergeMut.error.message} />}
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <Btn
+                      size="sm"
+                      disabled={mergeMut.isPending}
+                      onClick={() => mergeMut.mutate()}
+                    >
+                      {mergeMut.isPending ? 'Объединение…' : 'Объединить'}
+                    </Btn>
+                    <Btn
+                      variant="ghost"
+                      size="sm"
+                      disabled={mergeMut.isPending}
+                      onClick={() => setMergeDismissed(true)}
+                    >
+                      Отмена
+                    </Btn>
+                  </div>
+                </div>
               ) : (
                 <>
                   <TelegramLoginButton link size="medium" />

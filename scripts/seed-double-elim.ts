@@ -1,6 +1,16 @@
 /**
  * Seed script: creates a test double elimination tournament with 16 mock participants.
- * Run with: tsx --env-file=.env scripts/seed-double-elim.ts
+ *
+ * Two modes:
+ *   tsx --env-file=.env scripts/seed-double-elim.ts
+ *     Full demo: seeds → bracket → matches → in_progress (a ready-to-play bracket).
+ *
+ *   tsx --env-file=.env scripts/seed-double-elim.ts --registration
+ *     Stops at the registration stage: a `registration_open` tournament with 16
+ *     confirmed mock participants and no bracket/matches. Use it to swap mock
+ *     participants for your own accounts in the admin panel, then close
+ *     registration and start the tournament yourself. Re-running first wipes the
+ *     previous registration tournament with the same name, so it is safe to repeat.
  */
 
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -32,15 +42,26 @@ const MOCK_PLAYERS = [
   { username: 'mock_player_9', name: 'Игорь', surname: 'Лебедев' },
   { username: 'mock_player_10', name: 'Кирилл', surname: 'Семёнов' },
   { username: 'mock_player_11', name: 'Лев', surname: 'Егоров' },
-  { username: 'mock_player_12', name: 'Михаил', surname: 'Павлов' },
+  { username: 'mock_player_12', name: 'Максим', surname: 'Павлов' },
   { username: 'mock_player_13', name: 'Никита', surname: 'Козлов' },
   { username: 'mock_player_14', name: 'Олег', surname: 'Степанов' },
   { username: 'mock_player_15', name: 'Павел', surname: 'Николаев' },
   { username: 'mock_player_16', name: 'Роман', surname: 'Орлов' },
 ];
 
+const REGISTRATION_TOURNAMENT_NAME = 'Test Registration (16 mock)';
+const ADMIN_BASE_URL = (
+  process.env.DEV_LOGIN_URL ?? 'http://localhost:5173'
+).replace(/\/$/, '');
+
 async function main() {
-  console.log('=== Seed: Double Elimination Test Tournament ===\n');
+  const registrationOnly = process.argv.includes('--registration');
+
+  console.log(
+    registrationOnly
+      ? '=== Seed: Registration-stage Test Tournament (16 mock) ===\n'
+      : '=== Seed: Double Elimination Test Tournament ===\n',
+  );
 
   // 1. Upsert 16 mock users
   console.log('1. Creating mock users...');
@@ -91,19 +112,32 @@ async function main() {
 
   // 3. Create tournament
   console.log('\n3. Creating tournament...');
+  if (registrationOnly) {
+    // Wipe any previous registration tournament with the same name so repeated
+    // runs don't pile up duplicates (cascades participants).
+    await db
+      .delete(schema.tournaments)
+      .where(eq(schema.tournaments.name, REGISTRATION_TOURNAMENT_NAME));
+  }
   const [tournament] = await db
     .insert(schema.tournaments)
     .values({
-      name: 'Test Double Elimination',
+      name: registrationOnly
+        ? REGISTRATION_TOURNAMENT_NAME
+        : 'Test Double Elimination',
       description: 'Тестовый турнир с моковыми участниками',
       format: 'double_elimination',
-      discipline: 'snooker',
+      sport: 'snooker',
+      discipline: 'snooker_15_red',
       maxParticipants: 16,
       winScore: 3,
       createdBy: adminUserId,
       venueId: venue.id,
-      status: 'registration_closed',
-      confirmedParticipants: 16,
+      visibility: 'public',
+      status: registrationOnly ? 'registration_open' : 'registration_closed',
+      // Registration-open leaves confirmedParticipants null (frozen only when
+      // registration is closed); the full demo jumps straight to the closed count.
+      confirmedParticipants: registrationOnly ? null : 16,
     })
     .returning();
 
@@ -123,6 +157,22 @@ async function main() {
       .onConflictDoNothing();
   }
   console.log(`   Added ${createdUsers.length} participants`);
+
+  // Registration mode stops here: no seeds, no bracket, no matches. The
+  // tournament stays open for registration so you can swap mock participants
+  // for your own accounts in the admin panel, then close & start it yourself.
+  if (registrationOnly) {
+    console.log(`\n=== Done! (registration stage) ===`);
+    console.log(`Tournament ID: ${tournament.id}`);
+    console.log(`Status:        registration_open`);
+    console.log(`Participants:  16 confirmed (mock)`);
+    console.log(`\nOpen in admin panel: ${ADMIN_BASE_URL}/tournaments/${tournament.id}`);
+    console.log(
+      '\nNext: delete a mock participant and add your own account on the ' +
+        'tournament page, then close registration and start the tournament.',
+    );
+    process.exit(0);
+  }
 
   // 5. Assign random seeds
   console.log('\n5. Assigning seeds...');

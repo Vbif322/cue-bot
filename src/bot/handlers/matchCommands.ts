@@ -1,23 +1,34 @@
-import { Composer, InlineKeyboard } from 'grammy';
+import { Composer, GrammyError, InlineKeyboard } from 'grammy';
+import type { Api } from 'grammy';
 import { eq, inArray, and } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import { PgSessionStore } from '@/services/dialogSessionStore.js';
 import { tournaments } from '@/db/schema.js';
-import { safeEditMessageText } from '@/utils/messageHelpers.js';
+import {
+  safeEditMessageText,
+  safeDeleteMessage,
+} from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import {
   getMatch,
+  getMatchFrames,
   getPlayerActiveMatches,
   getTournamentMatches,
   reportResult,
+  reportResultFromFrames,
+  parseFrameScoreLine,
   confirmResult,
   disputeResult,
   setTechnicalResult,
   setMatchSchedule,
   startMatch,
+  type FrameInput,
 } from '@/services/matchService.js';
+import { sportOfDiscipline } from '@/shared/tournament/disciplines.js';
+import type { Tournament } from '@/bot/@types/tournament.js';
+import type { MatchWithPlayers } from '@/bot/@types/match.js';
 import { getBracketReadModel } from '@/services/bracketReadService.js';
 import {
   notifyMatchStart,
@@ -38,6 +49,7 @@ import {
   canManageTournament,
   canViewTournament,
   getUserRefereeTournaments,
+  isAdmin,
 } from '../permissions.js';
 import { refreshMatchCard } from './helpers/matchCard.js';
 import type { BotContext } from '../types.js';
@@ -52,6 +64,227 @@ export const matchCommands = new Composer<BotContext>();
 const matchScheduleState = new PgSessionStore<{ matchId: UUID }>(
   'match-schedule',
 );
+
+/**
+ * Persistent: telegram user id → in-progress snooker frame-by-frame entry.
+ * `frames` accumulates as the reporter types each frame; `awaitingBreak` marks
+ * that the next numeric message is a max-break value for a given frame/slot.
+ * `promptChatId`/`promptMessageId` locate the editable prompt message so text
+ * input can re-render it in place. Переживает рестарт (хранится в Postgres).
+ */
+interface FrameReportState {
+  matchId: UUID;
+  frames: FrameInput[];
+  awaitingBreak?:
+    | { frameIndex: number; slot: 'player1' | 'player2' }
+    | undefined;
+  promptChatId: number;
+  promptMessageId: number;
+}
+const matchFrameState = new PgSessionStore<FrameReportState>(
+  'match-report-frames',
+);
+
+/** Whether a tournament's discipline captures per-frame breaks (snooker only). */
+function isSnooker(tournament: Tournament): boolean {
+  return sportOfDiscipline(tournament.discipline) === 'snooker';
+}
+
+/** Frames-won counts derived from an in-progress frame list. */
+function tallyFrames(frames: FrameInput[]): { p1: number; p2: number } {
+  let p1 = 0;
+  let p2 = 0;
+  for (const f of frames) {
+    if (f.player1Points > f.player2Points) p1++;
+    else if (f.player2Points > f.player1Points) p2++;
+  }
+  return { p1, p2 };
+}
+
+/**
+ * Build the frame-entry prompt (message text + control keyboard) from the
+ * current accumulator. Pure — the caller edits the prompt message with it.
+ */
+function buildFrameEntryView(
+  state: FrameReportState,
+  match: MatchWithPlayers,
+  tournament: Tournament,
+  errorLine?: string,
+): { text: string; keyboard: InlineKeyboard } {
+  const player1Parts = {
+    username: match.player1Username ?? null,
+    name: match.player1Name,
+    surname: match.player1Surname,
+    telegramId: match.player1TelegramId,
+  };
+  const player2Parts = {
+    username: match.player2Username ?? null,
+    name: match.player2Name,
+    surname: match.player2Surname,
+    telegramId: match.player2TelegramId,
+  };
+  const player1 = formatPlayerName(player1Parts);
+  const player2 = formatPlayerName(player2Parts);
+  const { p1, p2 } = tallyFrames(state.frames);
+
+  let text = `📝 *Внесение результата (по фреймам)*\n\n`;
+  text += `${player1} vs ${player2}\n`;
+  text += `Игра до: ${String(tournament.winScore)} побед\n\n`;
+  if (errorLine) text += `⚠️ ${errorLine}\n\n`;
+
+  if (state.frames.length > 0) {
+    text += `*Фреймы:*\n`;
+    state.frames.forEach((f, i) => {
+      let line = `${String(i + 1)}) ${String(f.player1Points)} : ${String(f.player2Points)}`;
+      const breaks: string[] = [];
+      if (f.player1Break != null)
+        breaks.push(`P1 брейк ${String(f.player1Break)}`);
+      if (f.player2Break != null)
+        breaks.push(`P2 брейк ${String(f.player2Break)}`);
+      if (breaks.length) line += `  🎯 ${breaks.join(', ')}`;
+      text += `${line}\n`;
+    });
+    text += `Счёт по фреймам: ${String(p1)} : ${String(p2)}\n\n`;
+  }
+
+  const keyboard = new InlineKeyboard();
+  if (state.awaitingBreak) {
+    // Non-linked name here: a tg:// link wrapped in bold renders as an odd
+    // clickable label inside a plain instruction.
+    const whoParts =
+      state.awaitingBreak.slot === 'player1' ? player1Parts : player2Parts;
+    const who = formatPlayerName(whoParts, { link: false });
+    text += `Введите макс. брейк для *${who}* (фрейм ${String(state.awaitingBreak.frameIndex + 1)}) числом:`;
+  } else {
+    const decided = Math.max(p1, p2) >= tournament.winScore;
+    if (decided) {
+      text += `Счёт достигнут (${String(p1)} : ${String(p2)}). Добавьте макс. брейки при необходимости и нажмите «Завершить».`;
+      keyboard
+        .text('✅ Завершить', `match:frame:finish:${state.matchId}`)
+        .row();
+    } else {
+      text += `Отправьте счёт следующего фрейма сообщением, например \`74-15\` или \`74 15\``;
+    }
+    if (state.frames.length > 0) {
+      keyboard
+        .text('↩️ Отменить фрейм', `match:frame:undo:${state.matchId}`)
+        .row();
+      if (isSnooker(tournament)) {
+        keyboard
+          .text('🎯 Брейк P1', `match:frame:break:${state.matchId}:player1`)
+          .text('🎯 Брейк P2', `match:frame:break:${state.matchId}:player2`)
+          .row();
+      }
+    }
+  }
+  keyboard.text('❌ Отмена', `match:frame:cancel:${state.matchId}`);
+
+  return { text, keyboard };
+}
+
+/** Re-render the frame-entry prompt in place (edit the stored prompt message). */
+async function renderFramePrompt(
+  api: Api,
+  state: FrameReportState,
+  match: MatchWithPlayers,
+  tournament: Tournament,
+  errorLine?: string,
+): Promise<void> {
+  const view = buildFrameEntryView(state, match, tournament, errorLine);
+  try {
+    await api.editMessageText(
+      state.promptChatId,
+      state.promptMessageId,
+      view.text,
+      { parse_mode: 'Markdown', reply_markup: view.keyboard },
+    );
+  } catch (error) {
+    // Ignore the "message is not modified" no-op; propagate anything else.
+    if (
+      !(
+        error instanceof GrammyError &&
+        error.description.includes('message is not modified')
+      )
+    ) {
+      throw error;
+    }
+  }
+}
+
+/** Load a frame-entry match + its tournament, or null if either is missing. */
+async function loadFrameContext(
+  matchId: UUID,
+): Promise<{ match: MatchWithPlayers; tournament: Tournament } | null> {
+  const match = await getMatch(matchId);
+  if (!match) return null;
+  const tournament = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, match.tournamentId),
+  });
+  if (!tournament) return null;
+  return { match, tournament };
+}
+
+/**
+ * Submit an accumulated snooker frame report. On success clears the session,
+ * notifies the opponent, and rewrites the prompt message into the final match
+ * card. On failure re-renders the prompt with the error and keeps the session
+ * so the reporter can retry (or cancel). Invoked from the «✅ Завершить» button.
+ */
+async function finalizeFrameReport(
+  ctx: BotContext,
+  userId: number,
+  state: FrameReportState,
+  match: MatchWithPlayers,
+  tournament: Tournament,
+): Promise<void> {
+  const result = await reportResultFromFrames(
+    state.matchId,
+    ctx.dbUser.id,
+    state.frames,
+  );
+  if (!result.success) {
+    await renderFramePrompt(
+      ctx.api,
+      state,
+      match,
+      tournament,
+      result.error ?? 'Не удалось сохранить результат.',
+    );
+    return;
+  }
+
+  await matchFrameState.delete(userId);
+  const updatedMatch = await getMatch(state.matchId);
+  const frames = await getMatchFrames(state.matchId);
+  if (updatedMatch) {
+    try {
+      await notifyResultPending(ctx.api, updatedMatch, ctx.dbUser.id, frames);
+    } catch (error) {
+      console.error('Failed to send result pending notification:', error);
+    }
+    // Turn the prompt message into the final match card.
+    const canManage = await canManageTournament(ctx, tournament.id);
+    try {
+      await ctx.api.editMessageText(
+        state.promptChatId,
+        state.promptMessageId,
+        formatMatchCard(updatedMatch, tournament, frames),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: getMatchKeyboard(
+            updatedMatch,
+            ctx.dbUser.id,
+            tournament,
+            canManage,
+          ),
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof GrammyError)) throw error;
+    }
+  }
+  await ctx.reply('Результат внесён! Ожидаем подтверждения от соперника.');
+}
 
 // === КОМАНДЫ ===
 
@@ -440,6 +673,27 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery();
 
+  // Snooker: enter the result frame-by-frame via text; other disciplines keep
+  // the one-tap preset-scoreline picker below.
+  if (isSnooker(tournament)) {
+    const msg = ctx.callbackQuery.message;
+    if (!msg) return;
+    const state: FrameReportState = {
+      matchId: matchIdUUID,
+      frames: [],
+      promptChatId: msg.chat.id,
+      promptMessageId: msg.message_id,
+    };
+    await matchFrameState.set(ctx.from.id, state);
+    const view = buildFrameEntryView(state, match, tournament);
+    await safeEditMessageText(ctx, {
+      text: view.text,
+      parse_mode: 'Markdown',
+      reply_markup: view.keyboard,
+    });
+    return;
+  }
+
   const winScore = tournament.winScore;
   const player1 = formatPlayerName({
     username: match.player1Username ?? null,
@@ -539,6 +793,195 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
   }
 });
 
+// Снукер: ввод счёта очередного фрейма / значения макс. брейка текстом.
+matchCommands.on('message:text', async (ctx, next) => {
+  const userId = ctx.from.id;
+  const state = await matchFrameState.get(userId);
+  if (!state) return next();
+
+  const text = ctx.message.text.trim();
+  // Let commands (e.g. /cancel) run and stop the frame entry.
+  if (text.startsWith('/')) {
+    await matchFrameState.delete(userId);
+    return next();
+  }
+
+  const loaded = await loadFrameContext(state.matchId);
+  if (!loaded) {
+    await matchFrameState.delete(userId);
+    await ctx.reply('Матч не найден, ввод результата отменён.');
+    return;
+  }
+  const { match, tournament } = loaded;
+
+  // This text belongs to the frame flow — remove the user's message so the
+  // editable prompt stays the last message in the chat. Errors below are shown
+  // inline in the prompt (not as separate replies) to keep that single message.
+  await safeDeleteMessage(ctx);
+
+  // Awaiting a max-break value for a specific frame/slot.
+  if (state.awaitingBreak) {
+    if (!/^\d+$/.test(text)) {
+      await renderFramePrompt(
+        ctx.api,
+        state,
+        match,
+        tournament,
+        'Введите брейк целым числом, например 88.',
+      );
+      return; // keep state so the user can retry
+    }
+    const frame = state.frames[state.awaitingBreak.frameIndex];
+    if (frame) {
+      const value = parseInt(text, 10);
+      // A break is a run of points scored within the frame, so it can't exceed
+      // that player's own points in the frame.
+      const framePoints =
+        state.awaitingBreak.slot === 'player1'
+          ? frame.player1Points
+          : frame.player2Points;
+      if (value > framePoints) {
+        await renderFramePrompt(
+          ctx.api,
+          state,
+          match,
+          tournament,
+          `Брейк не может превышать счёт игрока в этом фрейме (${String(framePoints)}).`,
+        );
+        return; // keep awaitingBreak so the user can retry
+      }
+      if (state.awaitingBreak.slot === 'player1') frame.player1Break = value;
+      else frame.player2Break = value;
+    }
+    state.awaitingBreak = undefined;
+    await matchFrameState.set(userId, state);
+    await renderFramePrompt(ctx.api, state, match, tournament);
+    return;
+  }
+
+  // Parse a frame line like "74-15" / "74:15" / "74 15".
+  const parsed = parseFrameScoreLine(text);
+  if (!parsed) {
+    await renderFramePrompt(
+      ctx.api,
+      state,
+      match,
+      tournament,
+      'Не удалось распознать счёт фрейма. Пример: 74-15 или 74 15.',
+    );
+    return; // keep state
+  }
+  const p1 = parsed.player1Points;
+  const p2 = parsed.player2Points;
+  if (p1 === p2) {
+    await renderFramePrompt(
+      ctx.api,
+      state,
+      match,
+      tournament,
+      'Ничья в фрейме недопустима — счёт должен отличаться.',
+    );
+    return;
+  }
+  // The match is already decided — no more frames are played in snooker, and a
+  // further frame would break `deriveFrameResult`'s exact-`winScore` invariant.
+  // Let the reporter add breaks / press «Завершить» or undo the last frame.
+  const decided = tallyFrames(state.frames);
+  if (Math.max(decided.p1, decided.p2) >= tournament.winScore) {
+    await renderFramePrompt(
+      ctx.api,
+      state,
+      match,
+      tournament,
+      'Счёт уже достигнут. Добавьте брейки и нажмите «Завершить» или отмените последний фрейм.',
+    );
+    return;
+  }
+
+  state.frames.push({ player1Points: p1, player2Points: p2 });
+  await matchFrameState.set(userId, state);
+  // Once this frame decides the match, the prompt renders the finish state
+  // («✅ Завершить»); the reporter submits explicitly so the deciding frame's
+  // break can still be entered.
+  await renderFramePrompt(ctx.api, state, match, tournament);
+});
+
+// Снукер: отменить последний введённый фрейм.
+matchCommands.callbackQuery(/^match:frame:undo:(.+)$/, async (ctx) => {
+  const userId = ctx.from.id;
+  const state = await matchFrameState.get(userId);
+  if (!state) {
+    await ctx.answerCallbackQuery();
+    return;
+  }
+  state.frames.pop();
+  state.awaitingBreak = undefined;
+  await matchFrameState.set(userId, state);
+  await ctx.answerCallbackQuery('Последний фрейм удалён');
+  const loaded = await loadFrameContext(state.matchId);
+  if (loaded) {
+    await renderFramePrompt(ctx.api, state, loaded.match, loaded.tournament);
+  }
+});
+
+// Снукер: завершить ввод и отправить результат по фреймам.
+matchCommands.callbackQuery(/^match:frame:finish:(.+)$/, async (ctx) => {
+  const userId = ctx.from.id;
+  const state = await matchFrameState.get(userId);
+  if (!state) {
+    await ctx.answerCallbackQuery();
+    return;
+  }
+  await ctx.answerCallbackQuery();
+  const loaded = await loadFrameContext(state.matchId);
+  if (!loaded) {
+    await matchFrameState.delete(userId);
+    await ctx.reply('Матч не найден, ввод результата отменён.');
+    return;
+  }
+  const { match, tournament } = loaded;
+
+  // Guard against a stale click (e.g. the last frame was undone): only submit
+  // when the match is actually decided; otherwise just re-render the prompt.
+  const { p1, p2 } = tallyFrames(state.frames);
+  if (Math.max(p1, p2) < tournament.winScore) {
+    await renderFramePrompt(ctx.api, state, match, tournament);
+    return;
+  }
+
+  await finalizeFrameReport(ctx, userId, state, match, tournament);
+});
+
+// Снукер: запросить ввод макс. брейка для последнего фрейма.
+matchCommands.callbackQuery(
+  /^match:frame:break:(.+):(player1|player2)$/,
+  async (ctx) => {
+    const userId = ctx.from.id;
+    const state = await matchFrameState.get(userId);
+    if (!state || state.frames.length === 0) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const slot = ctx.match[2] as 'player1' | 'player2';
+    state.awaitingBreak = { frameIndex: state.frames.length - 1, slot };
+    await matchFrameState.set(userId, state);
+    await ctx.answerCallbackQuery();
+    const loaded = await loadFrameContext(state.matchId);
+    if (loaded) {
+      await renderFramePrompt(ctx.api, state, loaded.match, loaded.tournament);
+    }
+  },
+);
+
+// Снукер: отменить ввод результата по фреймам.
+matchCommands.callbackQuery(/^match:frame:cancel:(.+)$/, async (ctx) => {
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  await matchFrameState.delete(ctx.from.id);
+  await ctx.answerCallbackQuery('Ввод отменён');
+  await refreshMatchCard(ctx, matchId as UUID);
+});
+
 // Подтвердить результат
 matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   const matchId = ctx.match[1];
@@ -546,7 +989,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   const matchIdUUID = matchId as UUID;
   const userId = ctx.dbUser.id;
 
-  const result = await confirmResult(matchIdUUID, userId);
+  const result = await confirmResult(matchIdUUID, userId, undefined, isAdmin(ctx));
 
   if (!result.success) {
     await ctx.answerCallbackQuery({

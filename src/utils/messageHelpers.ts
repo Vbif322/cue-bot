@@ -95,3 +95,19 @@ export async function safeEditMessageText(
     throw error;
   }
 }
+
+/**
+ * Delete the current update's message, swallowing the benign Telegram failures
+ * (message too old / already deleted / no rights). Used to keep a text-driven
+ * dialog tidy: the user's typed input is removed so the editable prompt message
+ * stays the last message in the chat.
+ */
+export async function safeDeleteMessage(ctx: Context): Promise<void> {
+  try {
+    await ctx.deleteMessage();
+  } catch (error) {
+    // Non-Grammy errors are unexpected — propagate. Grammy/Telegram errors here
+    // (48h limit, already gone, missing rights) are non-fatal for the dialog.
+    if (!(error instanceof GrammyError)) throw error;
+  }
+}

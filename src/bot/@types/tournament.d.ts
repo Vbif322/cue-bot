@@ -55,6 +55,8 @@ export interface ApiPlayerStanding {
   name: string | null;
   /** Mathematically guaranteed a top-`qualifiersPerGroup` finish in the group. */
   clinched: boolean;
+  /** Highest break across the player's group matches (snooker); null if none. */
+  maxBreak: number | null;
 }
 
 export interface ApiGroupStanding {

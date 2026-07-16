@@ -1,5 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import type { tournaments } from '../../db/schema.js';
+import type { tournaments, matchFrames } from '../../db/schema.js';
 import {
   getRoundName,
   calculateRounds,
@@ -9,6 +9,20 @@ import { escapeMarkdown, formatFullName } from '../../utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '../../utils/dateTimeHelper.js';
 import type { Tournament } from '../@types/tournament.js';
 import type { MatchWithPlayers } from '../@types/match.js';
+
+/** A persisted per-frame row (snooker). */
+type MatchFrame = typeof matchFrames.$inferSelect;
+
+/** Highest break for a player across a match's frames, or null if none recorded. */
+function maxBreak(
+  frames: MatchFrame[],
+  slot: 'player1' | 'player2',
+): number | null {
+  const breaks = frames
+    .map((f) => (slot === 'player1' ? f.player1Break : f.player2Break))
+    .filter((b): b is number => b != null);
+  return breaks.length ? Math.max(...breaks) : null;
+}
 
 export interface PlayerNameParts {
   username: string | null;
@@ -106,6 +120,7 @@ export function getMatchStatusEmoji(status: string): string {
 export function formatMatchCard(
   match: MatchWithPlayers,
   tournament: Tournament,
+  frames: MatchFrame[] = [],
 ): string {
   const player1 = formatPlayerName({
     username: match.player1Username ?? null,
@@ -162,6 +177,17 @@ export function formatMatchCard(
 
   if (match.status === 'completed' || match.status === 'pending_confirmation') {
     text += `Счёт: ${String(match.player1Score ?? 0)} : ${String(match.player2Score ?? 0)}\n`;
+    if (frames.length > 0) {
+      const breakdown = frames
+        .map((f) => `${String(f.player1Points)}:${String(f.player2Points)}`)
+        .join(', ');
+      text += `По фреймам: ${breakdown}\n`;
+      const p1Break = maxBreak(frames, 'player1');
+      const p2Break = maxBreak(frames, 'player2');
+      if (p1Break !== null || p2Break !== null) {
+        text += `Макс. брейк: ${player1} — ${String(p1Break ?? 0)}, ${player2} — ${String(p2Break ?? 0)}\n`;
+      }
+    }
   }
 
   if (match.winnerId && match.status === 'completed') {

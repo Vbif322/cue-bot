@@ -42,6 +42,7 @@ export type {
   MatchStatus,
   BracketType,
   ApiMatch,
+  ApiMatchFrame,
   ApiMatchStats,
 } from '../../bot/@types/match.js';
 export type {

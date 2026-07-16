@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -7,6 +7,13 @@ import {
   loginTokens,
   dialogSessions,
   userIdentities,
+  matches,
+  tournamentParticipants,
+  tournamentReferees,
+  disqualifications,
+  matchCorrections,
+  notifications,
+  tournaments,
 } from '@/db/schema.js';
 import type { DbUser } from '@/bot/types.js';
 import type { ApiUser } from '@/bot/@types/user.js';
@@ -120,6 +127,70 @@ export async function findOrCreateEmailUser(
     });
 
     return created;
+  });
+}
+
+/**
+ * Привязывает email-identity к УЖЕ существующему аккаунту `userId` (зеркало
+ * привязки Telegram, но для почты — вход по коду её подтверждает). Всё в одной
+ * транзакции; вызывать только после успешной проверки кода на этот адрес.
+ *
+ * Возвращает статус (без исключений на ожидаемых конфликтах):
+ * - `'linked'`  — identity создана (или уже была ровно эта — идемпотентно);
+ * - `'has_other'` — у аккаунта уже есть ДРУГАЯ email-identity (unique (user_id,
+ *   provider) допускает только одну — молча не перетираем);
+ * - `'exists'`  — этот email уже привязан к другому аккаунту (тут нужен merge,
+ *   а не привязка — вне объёма этой фичи).
+ *
+ * `email` должен быть нормализован. Заполняет `users.email`, если он пуст.
+ */
+export async function linkEmailToUser(
+  userId: UUID,
+  email: string,
+): Promise<'linked' | 'has_other' | 'exists'> {
+  return db.transaction(async (tx) => {
+    const user = await tx.query.users.findFirst({
+      where: eq(users.id, userId),
+    });
+    if (!user) {
+      throw new Error('Пользователь не найден');
+    }
+    if (user.deletedAt !== null) {
+      throw new Error('Пользователь не найден');
+    }
+
+    // Своя email-identity уже есть? Совпадает — идемпотентно, иначе has_other.
+    const own = await tx.query.userIdentities.findFirst({
+      where: and(
+        eq(userIdentities.userId, userId),
+        eq(userIdentities.provider, 'email'),
+      ),
+    });
+    if (own) {
+      return own.providerId === email ? 'linked' : 'has_other';
+    }
+
+    // Email занят другим аккаунтом?
+    const existing = await tx.query.userIdentities.findFirst({
+      where: and(
+        eq(userIdentities.provider, 'email'),
+        eq(userIdentities.providerId, email),
+      ),
+    });
+    if (existing) {
+      return existing.userId === userId ? 'linked' : 'exists';
+    }
+
+    await tx.insert(userIdentities).values({
+      userId,
+      provider: 'email',
+      providerId: email,
+      emailVerifiedAt: new Date(),
+    });
+    if (user.email === null) {
+      await tx.update(users).set({ email }).where(eq(users.id, userId));
+    }
+    return 'linked';
   });
 }
 
@@ -343,5 +414,220 @@ export async function anonymizeUser(userId: UUID): Promise<void> {
         .delete(dialogSessions)
         .where(eq(dialogSessions.key, existing.telegram_id));
     }
+  });
+}
+
+/** Ошибка слияния аккаунтов — текст пригоден для показа пользователю. */
+export class MergeError extends Error {}
+
+/**
+ * Сливает email-аккаунт (`losingId`) в Telegram-аккаунт (`survivorId`): survivor
+ * остаётся, вся история (турниры, матчи, судейство, уведомления) и email-identity
+ * losing переезжают на него, а losing тумбстонится (как в {@link anonymizeUser} —
+ * строку не удаляем, чтобы все FK остались валидны). Необратимо. Вызывать ТОЛЬКО
+ * после доказательства владения обоими аккаунтами (см. POST /telegram/merge).
+ *
+ * Направление выбрано так, что перепривязываются строки лишь с почти пустого
+ * email-аккаунта, а `telegram_id` не двигается — значит нет username-claim и нет
+ * гонки с `authMiddleware` бота (он апсертит по `telegram_id`).
+ *
+ * Бросает {@link MergeError} (инвариант нарушен), если: аккаунты совпадают; любой
+ * из них недоступен/soft-deleted; у survivor нет `telegram_id`; у survivor уже есть
+ * email-identity (перетёрли бы email входа); аккаунты играли друг против друга
+ * (матч стал бы игрой с самим собой). Всё в одной транзакции.
+ */
+export async function mergeAccountIntoTelegram(
+  survivorId: UUID,
+  losingId: UUID,
+): Promise<DbUser> {
+  if (survivorId === losingId) {
+    throw new MergeError('Нельзя слить аккаунт сам с собой.');
+  }
+
+  return db.transaction(async (tx) => {
+    const survivor = await tx.query.users.findFirst({
+      where: eq(users.id, survivorId),
+    });
+    const losing = await tx.query.users.findFirst({
+      where: eq(users.id, losingId),
+    });
+    if (!survivor || !losing) {
+      throw new MergeError('Один из аккаунтов недоступен.');
+    }
+    if (survivor.deletedAt !== null) {
+      throw new MergeError('Аккаунт назначения недоступен.');
+    }
+    if (losing.deletedAt !== null) {
+      throw new MergeError('Исходный аккаунт недоступен.');
+    }
+    if (survivor.telegram_id === null) {
+      throw new MergeError('У аккаунта назначения не привязан Telegram.');
+    }
+
+    // У survivor не должно быть своей email-identity — иначе перетёрли бы email,
+    // которым он входит.
+    const survivorEmailIdentity = await tx.query.userIdentities.findFirst({
+      where: and(
+        eq(userIdentities.userId, survivorId),
+        eq(userIdentities.provider, 'email'),
+      ),
+    });
+    if (survivorEmailIdentity) {
+      throw new MergeError('К аккаунту назначения уже привязана почта.');
+    }
+
+    // Аккаунты не должны были играть друг против друга: после перепривязки такой
+    // матч стал бы игрой с самим собой. Честнее отказать, чем молча портить историю.
+    const [headToHead] = await tx
+      .select({ id: matches.id })
+      .from(matches)
+      .where(
+        or(
+          and(
+            eq(matches.player1Id, survivorId),
+            eq(matches.player2Id, losingId),
+          ),
+          and(
+            eq(matches.player1Id, losingId),
+            eq(matches.player2Id, survivorId),
+          ),
+        ),
+      )
+      .limit(1);
+    if (headToHead) {
+      throw new MergeError(
+        'Аккаунты играли друг против друга — слияние невозможно.',
+      );
+    }
+
+    // 1. Композитные PK (участники/судьи): где есть оба — удаляем строку losing
+    // (иначе дубль PK при перепривязке), остальные переносим на survivor.
+    for (const junction of [tournamentParticipants, tournamentReferees]) {
+      const survivorRows = await tx
+        .select({ tournamentId: junction.tournamentId })
+        .from(junction)
+        .where(eq(junction.userId, survivorId));
+      const survivorTournamentIds = survivorRows.map((r) => r.tournamentId);
+      if (survivorTournamentIds.length > 0) {
+        await tx
+          .delete(junction)
+          .where(
+            and(
+              eq(junction.userId, losingId),
+              inArray(junction.tournamentId, survivorTournamentIds),
+            ),
+          );
+      }
+      await tx
+        .update(junction)
+        .set({ userId: survivorId })
+        .where(eq(junction.userId, losingId));
+    }
+
+    // 2. Прямая перепривязка (суррогатные PK — коллизий нет). Учитываем ВСЕ
+    // колонки-ссылки на users.id, включая нестандартно названные (player*_id, *_by).
+    await tx
+      .update(matches)
+      .set({ player1Id: survivorId })
+      .where(eq(matches.player1Id, losingId));
+    await tx
+      .update(matches)
+      .set({ player2Id: survivorId })
+      .where(eq(matches.player2Id, losingId));
+    await tx
+      .update(matches)
+      .set({ winnerId: survivorId })
+      .where(eq(matches.winnerId, losingId));
+    await tx
+      .update(matches)
+      .set({ reportedBy: survivorId })
+      .where(eq(matches.reportedBy, losingId));
+    await tx
+      .update(matches)
+      .set({ confirmedBy: survivorId })
+      .where(eq(matches.confirmedBy, losingId));
+
+    await tx
+      .update(disqualifications)
+      .set({ userId: survivorId })
+      .where(eq(disqualifications.userId, losingId));
+    await tx
+      .update(disqualifications)
+      .set({ disqualifiedBy: survivorId })
+      .where(eq(disqualifications.disqualifiedBy, losingId));
+
+    await tx
+      .update(matchCorrections)
+      .set({ correctedBy: survivorId })
+      .where(eq(matchCorrections.correctedBy, losingId));
+    await tx
+      .update(matchCorrections)
+      .set({ previousWinnerId: survivorId })
+      .where(eq(matchCorrections.previousWinnerId, losingId));
+    await tx
+      .update(matchCorrections)
+      .set({ newWinnerId: survivorId })
+      .where(eq(matchCorrections.newWinnerId, losingId));
+
+    await tx
+      .update(notifications)
+      .set({ userId: survivorId })
+      .where(eq(notifications.userId, losingId));
+
+    await tx
+      .update(tournaments)
+      .set({ createdBy: survivorId })
+      .where(eq(tournaments.createdBy, losingId));
+
+    // 3. Переносим email-identity на survivor (у него email-identity нет — см. выше,
+    // коллизии по (user_id, provider) не будет). Делаем ДО тумбстона, иначе удаление
+    // identity-строк losing затронуло бы её.
+    await tx
+      .update(userIdentities)
+      .set({ userId: survivorId })
+      .where(
+        and(
+          eq(userIdentities.userId, losingId),
+          eq(userIdentities.provider, 'email'),
+        ),
+      );
+
+    // Проставляем email/роль на survivor: email — если пуст; роль — поднимаем до
+    // admin, чтобы слияние не разжаловало админа.
+    const survivorPatch: Partial<typeof users.$inferInsert> = {};
+    if (survivor.email === null && losing.email !== null) {
+      survivorPatch.email = losing.email;
+    }
+    if (losing.role === 'admin' && survivor.role !== 'admin') {
+      survivorPatch.role = 'admin';
+    }
+    if (Object.keys(survivorPatch).length > 0) {
+      await tx.update(users).set(survivorPatch).where(eq(users.id, survivorId));
+    }
+
+    // 4. Тумбстон losing (как anonymizeUser): PII затираем, deletedAt ставим,
+    // остаточные identity/логин-токены удаляем. У email-аккаунта нет telegram_id,
+    // поэтому dialogSessions по нему не ключуются — чистить нечего.
+    await tx
+      .update(users)
+      .set({
+        username: DELETED_USERNAME,
+        telegram_id: null,
+        name: null,
+        surname: null,
+        phone: null,
+        email: null,
+        role: 'user',
+        deletedAt: new Date(),
+      })
+      .where(eq(users.id, losingId));
+    await tx.delete(loginTokens).where(eq(loginTokens.userId, losingId));
+    await tx.delete(userIdentities).where(eq(userIdentities.userId, losingId));
+
+    const merged = await tx.query.users.findFirst({
+      where: eq(users.id, survivorId),
+    });
+    if (!merged) throw new Error('Survivor исчез после слияния');
+    return merged;
   });
 }

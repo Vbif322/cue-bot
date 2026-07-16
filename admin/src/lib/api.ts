@@ -5,6 +5,7 @@ import type {
   ApiGroupStanding,
   ApiPlayerStanding,
   ApiMatch,
+  ApiMatchFrame,
   ApiMatchStats,
   ApiUser,
   ApiUserStats,
@@ -26,6 +27,7 @@ export type {
   ApiGroupStanding,
   ApiPlayerStanding,
   ApiMatch,
+  ApiMatchFrame,
   ApiMatchStats,
   ApiUser,
   ApiUserStats,
@@ -241,6 +243,9 @@ export const matchesApi = {
 
   get: (id: string) => apiFetch<ApiMatch>(`/api/matches/${id}`),
 
+  frames: (id: string) =>
+    apiFetch<ApiMatchFrame[]>(`/api/matches/${id}/frames`),
+
   start: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/start`, { method: 'POST' }),
 
@@ -249,6 +254,23 @@ export const matchesApi = {
     data: { reporterId: string; player1Score: number; player2Score: number },
   ) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/report`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  reportFrames: (
+    id: string,
+    data: {
+      reporterId: string;
+      frames: Array<{
+        player1Points: number;
+        player2Points: number;
+        player1Break?: number | null;
+        player2Break?: number | null;
+      }>;
+    },
+  ) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/report-frames`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
