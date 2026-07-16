@@ -136,6 +136,15 @@ export interface AppMatch {
   tableName?: string | null;
 }
 
+/** Один сохранённый фрейм снукера (для разбивки по фреймам). */
+export interface AppMatchFrame {
+  frameNumber: number;
+  player1Points: number;
+  player2Points: number;
+  player1Break: number | null;
+  player2Break: number | null;
+}
+
 export interface PlayerStanding {
   userId: string;
   seed: number | null;

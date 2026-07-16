@@ -258,6 +258,23 @@ export const matchesApi = {
       body: JSON.stringify(data),
     }),
 
+  reportFrames: (
+    id: string,
+    data: {
+      reporterId: string;
+      frames: Array<{
+        player1Points: number;
+        player2Points: number;
+        player1Break?: number | null;
+        player2Break?: number | null;
+      }>;
+    },
+  ) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/report-frames`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   confirm: (id: string, confirmerId: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/confirm`, {
       method: 'POST',

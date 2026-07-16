@@ -604,9 +604,10 @@ export async function reportResultFromFrames(
   const STALE = 'Статус матча изменился. Попробуйте обновить страницу.';
   try {
     await db.transaction(async (tx) => {
-      // Guard on in_progress so a report can't overwrite an already
-      // pending/completed row (optimistic-concurrency; a report is only
-      // reachable from in_progress).
+      // Guard on scheduled/in_progress so a report can't overwrite an already
+      // pending/completed row (optimistic-concurrency). The bot only reaches
+      // this from in_progress; the player client also reports from scheduled
+      // (parity with the aggregate `reportResult`, which has no status guard).
       const updated = await tx
         .update(matches)
         .set({
@@ -617,7 +618,12 @@ export async function reportResultFromFrames(
           status: 'pending_confirmation',
           updatedAt: new Date(),
         })
-        .where(and(eq(matches.id, matchId), eq(matches.status, 'in_progress')))
+        .where(
+          and(
+            eq(matches.id, matchId),
+            inArray(matches.status, ['scheduled', 'in_progress']),
+          ),
+        )
         .returning({ id: matches.id });
 
       if (!updated.length) throw new Error(STALE);
@@ -662,6 +668,7 @@ export async function confirmResult(
   matchId: UUID,
   confirmerId: UUID,
   botApi?: Api,
+  isAdmin = false,
 ): Promise<{ success: boolean; error?: string }> {
   const match = await getMatch(matchId);
 
@@ -674,8 +681,8 @@ export async function confirmResult(
   if (match.player1Id !== confirmerId && match.player2Id !== confirmerId) {
     return { success: false, error: 'Вы не являетесь участником этого матча' };
   }
-  // S2-10: подтвердить может только соперник, а не автор отчёта.
-  if (match.reportedBy === confirmerId) {
+  // S2-10: подтвердить может только соперник, а не автор отчёта (админ — исключение).
+  if (!isAdmin && match.reportedBy === confirmerId) {
     return {
       success: false,
       error: 'Нельзя подтверждать собственный отчёт',

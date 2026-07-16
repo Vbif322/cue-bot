@@ -5,7 +5,9 @@ import type { UUID } from 'crypto';
 
 import {
   getMatch,
+  getMatchFrames,
   reportResult,
+  reportResultFromFrames,
   confirmResult,
   disputeResult,
 } from '@/services/matchService.js';
@@ -33,6 +35,21 @@ const SCORE_MESSAGES = {
   player1Score: 'Некорректный счёт',
   player2Score: 'Некорректный счёт',
 } as const;
+
+const framesBody = z.object({
+  frames: z
+    .array(
+      z.object({
+        player1Points: z.number().int().min(0),
+        player2Points: z.number().int().min(0),
+        player1Break: z.number().int().min(0).nullable().optional(),
+        player2Break: z.number().int().min(0).nullable().optional(),
+      }),
+    )
+    .min(1),
+});
+
+const FRAMES_MESSAGES = { frames: 'Некорректный счёт по фреймам' } as const;
 
 function isPlayer(
   match: { player1Id: UUID | null; player2Id: UUID | null },
@@ -73,6 +90,84 @@ export function createAppMatchesRouter(botApi: Api) {
 
     return c.json({ data: match });
   });
+
+  // Разбивка по фреймам (снукер) — участник матча ИЛИ видимый турнир.
+  router.get('/:id/frames', validateParam(paramId), async (c) => {
+    const { id } = c.req.valid('param') as { id: UUID };
+    const userId = c.get('appUser').id;
+
+    const match = await getMatch(id);
+    if (!match) return c.json({ error: 'Матч не найден' }, 404);
+
+    if (!isPlayer(match, userId)) {
+      const tournament = await getTournament(match.tournamentId);
+      const participation = tournament
+        ? await getUserParticipation(tournament.id, userId)
+        : undefined;
+      const visible =
+        tournament != null &&
+        isTournamentVisibleTo(tournament, {
+          isAdmin: false,
+          isReferee: false,
+          isParticipant:
+            participation != null && participation.status !== 'cancelled',
+          isCreator: tournament.createdBy === userId,
+        });
+      if (!visible) return c.json({ error: 'Матч не найден' }, 404);
+    }
+
+    const frames = await getMatchFrames(id);
+    const data = frames.map((f) => ({
+      frameNumber: f.frameNumber,
+      player1Points: f.player1Points,
+      player2Points: f.player2Points,
+      player1Break: f.player1Break,
+      player2Break: f.player2Break,
+    }));
+    return c.json({ data });
+  });
+
+  // Внести результат по фреймам (снукер) — только участник матча.
+  router.post(
+    '/:id/report-frames',
+    validateParam(paramId),
+    validateJson(framesBody, FRAMES_MESSAGES),
+    async (c) => {
+      const { id } = c.req.valid('param') as { id: UUID };
+      const userId = c.get('appUser').id;
+      const { frames } = c.req.valid('json');
+
+      const match = await getMatch(id);
+      if (!match) return c.json({ error: 'Матч не найден' }, 404);
+      if (!isPlayer(match, userId)) {
+        return c.json({ error: 'Вы не являетесь участником этого матча' }, 403);
+      }
+
+      const result = await reportResultFromFrames(
+        id,
+        userId,
+        frames.map((f) => ({
+          player1Points: f.player1Points,
+          player2Points: f.player2Points,
+          player1Break: f.player1Break ?? null,
+          player2Break: f.player2Break ?? null,
+        })),
+      );
+      if (!result.success) return c.json({ error: result.error }, 400);
+
+      try {
+        const updated = await getMatch(id);
+        if (updated) {
+          const savedFrames = await getMatchFrames(id);
+          await notifyResultPending(botApi, updated, userId, savedFrames);
+        }
+      } catch (error) {
+        console.error('Failed to send result pending notification:', error);
+      }
+
+      return c.json({ data: { ok: true } });
+    },
+  );
 
   // Внести результат — только участник матча.
   router.post(

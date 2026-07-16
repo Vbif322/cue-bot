@@ -5,6 +5,7 @@ import type {
   AppTournament,
   AppParticipant,
   AppMatch,
+  AppMatchFrame,
   GroupStanding,
   AppBracket,
   TournamentDetail,
@@ -214,6 +215,23 @@ export const matchesApi = {
     apiFetch<{ ok: boolean }>(`/api/app/matches/${id}/report`, {
       method: 'POST',
       ...jsonBody({ player1Score, player2Score }),
+    }),
+
+  frames: (id: string) =>
+    apiFetch<AppMatchFrame[]>(`/api/app/matches/${id}/frames`),
+
+  reportFrames: (
+    id: string,
+    frames: Array<{
+      player1Points: number;
+      player2Points: number;
+      player1Break?: number | null;
+      player2Break?: number | null;
+    }>,
+  ) =>
+    apiFetch<{ ok: boolean }>(`/api/app/matches/${id}/report-frames`, {
+      method: 'POST',
+      ...jsonBody({ frames }),
     }),
 
   confirm: (id: string) =>
