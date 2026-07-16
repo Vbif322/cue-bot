@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { tournamentsApi } from '../../lib/api.ts';
 import type { ApiTournament, ApiPlayerStanding } from '../../lib/api.ts';
+import { sportOfDiscipline } from '@server/apiTypes';
 import { groupLetter } from '../../lib/tournamentLabels.ts';
 
 function playerName(row: ApiPlayerStanding): string {
@@ -17,6 +18,7 @@ export default function StandingsTab({
   tournament: ApiTournament;
 }) {
   const qualifiers = tournament.qualifiersPerGroup ?? 0;
+  const isSnooker = sportOfDiscipline(tournament.discipline) === 'snooker';
 
   const { data: standings, isLoading } = useQuery({
     queryKey: ['tournament-standings', tournament.id],
@@ -60,6 +62,14 @@ export default function StandingsTab({
                 >
                   ±
                 </th>
+                {isSnooker && (
+                  <th
+                    className="px-2 py-1 text-center font-medium"
+                    title="Макс. брейк"
+                  >
+                    Брейк
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -87,6 +97,11 @@ export default function StandingsTab({
                     <td className="px-2 py-1.5 text-center text-gray-600">
                       {diff(row.frameDiff)}
                     </td>
+                    {isSnooker && (
+                      <td className="px-2 py-1.5 text-center text-gray-600">
+                        {row.maxBreak ?? '—'}
+                      </td>
+                    )}
                   </tr>
                 );
               })}

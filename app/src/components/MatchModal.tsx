@@ -4,13 +4,14 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MatchStatusBadge } from '@cue-bot/ui';
-import { matchesApi } from '../lib/api.ts';
+import { matchesApi, tournamentsApi } from '../lib/api.ts';
 import type { AppMatch } from '../lib/types.ts';
 import { useMe } from '../lib/useAuth.ts';
 import { displayName, initials, gradientFor } from '../lib/format.ts';
 import AppModal from './AppModal.tsx';
 import { Btn, Field } from './controls.tsx';
 import { Avatar, ErrorBox } from './ui.tsx';
+import FramesReport from './FramesReport.tsx';
 
 interface Side {
   id: string | null;
@@ -83,6 +84,25 @@ export default function MatchModal({
   const { data: match, isLoading } = useQuery({
     queryKey: ['match', matchId],
     queryFn: () => matchesApi.get(matchId),
+  });
+
+  const { data: tournamentDetail } = useQuery({
+    queryKey: ['tournament', match?.tournamentId],
+    queryFn: () => tournamentsApi.get(match!.tournamentId),
+    enabled: !!match?.tournamentId,
+  });
+  const tournament = tournamentDetail?.tournament;
+  // Snooker disciplines are all id-prefixed `snooker_*`; the app models
+  // `discipline` loosely, so match on the prefix rather than importing the
+  // backend helper (which would drag server-only modules into the app build).
+  const isSnooker =
+    !!tournament && String(tournament.discipline).startsWith('snooker');
+
+  const hasScore0 = match?.player1Score != null && match?.player2Score != null;
+  const { data: frames } = useQuery({
+    queryKey: ['match-frames', matchId],
+    queryFn: () => matchesApi.frames(matchId),
+    enabled: !!matchId && isSnooker && hasScore0,
   });
 
   const [scores, setScores] = useState({ p1: '', p2: '' });
@@ -195,7 +215,15 @@ export default function MatchModal({
         <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {actionError && <ErrorBox message={actionError} />}
 
-          {canReport && (
+          {canReport && isSnooker && tournament && (
+            <FramesReport
+              match={match}
+              winScore={tournament.winScore}
+              onDone={invalidate}
+            />
+          )}
+
+          {canReport && !isSnooker && (
             <>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Внести результат
@@ -232,6 +260,41 @@ export default function MatchModal({
                 {reportMut.isPending ? 'Отправка…' : 'Отправить результат'}
               </Btn>
             </>
+          )}
+
+          {frames && frames.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                По фреймам
+              </div>
+              {frames.map((f) => {
+                const b: string[] = [];
+                if (f.player1Break != null) b.push(`бр.1 ${f.player1Break}`);
+                if (f.player2Break != null) b.push(`бр.2 ${f.player2Break}`);
+                return (
+                  <div
+                    key={f.frameNumber}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      fontSize: 13,
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    <span style={{ width: 16, color: 'var(--text-faint)' }}>
+                      {f.frameNumber}
+                    </span>
+                    <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                      {f.player1Points} : {f.player2Points}
+                    </span>
+                    {b.length > 0 && (
+                      <span style={{ color: 'var(--text-faint)' }}>🎯 {b.join(', ')}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
 
           {waitingOpponent && (

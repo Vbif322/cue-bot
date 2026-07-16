@@ -5,6 +5,7 @@ import type {
   AppTournament,
   AppParticipant,
   AppMatch,
+  AppMatchFrame,
   GroupStanding,
   AppBracket,
   TournamentDetail,
@@ -104,6 +105,32 @@ export const appAuth = {
       ...jsonBody({ initData }),
     }),
 
+  // Привязка email к текущему (обычно Telegram-only) аккаунту: два шага —
+  // запросить код на адрес, затем подтвердить. Успех обновляет email-identity,
+  // поэтому после confirm инвалидируйте ['me','profile'] и ['auth','me'].
+  requestEmailLinkCode: (email: string) =>
+    apiFetch<{ ok: boolean }>('/api/app/auth/email/request-code', {
+      method: 'POST',
+      ...jsonBody({ email }),
+    }),
+
+  confirmEmailLink: (email: string, code: string) =>
+    apiFetch<{ user: AppUser }>('/api/app/auth/email/verify', {
+      method: 'POST',
+      ...jsonBody({ email, code }),
+    }),
+
+  /**
+   * Подтверждение слияния текущего (email) аккаунта в Telegram-аккаунт: доступно
+   * после редиректного OIDC-потока привязки, когда Telegram занят другим аккаунтом
+   * (см. MeProfile.pendingMerge). Сервер сливает и перевыпускает сессию на survivor —
+   * поэтому после успеха инвалидируйте ['auth','me'] и ['me',*].
+   */
+  confirmMerge: () =>
+    apiFetch<{ user: AppUser }>('/api/app/auth/telegram/merge', {
+      method: 'POST',
+    }),
+
   logout: () =>
     apiFetch<{ ok: boolean }>('/api/app/auth/logout', { method: 'POST' }),
 
@@ -188,6 +215,23 @@ export const matchesApi = {
     apiFetch<{ ok: boolean }>(`/api/app/matches/${id}/report`, {
       method: 'POST',
       ...jsonBody({ player1Score, player2Score }),
+    }),
+
+  frames: (id: string) =>
+    apiFetch<AppMatchFrame[]>(`/api/app/matches/${id}/frames`),
+
+  reportFrames: (
+    id: string,
+    frames: Array<{
+      player1Points: number;
+      player2Points: number;
+      player1Break?: number | null;
+      player2Break?: number | null;
+    }>,
+  ) =>
+    apiFetch<{ ok: boolean }>(`/api/app/matches/${id}/report-frames`, {
+      method: 'POST',
+      ...jsonBody({ frames }),
     }),
 
   confirm: (id: string) =>

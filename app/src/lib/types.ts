@@ -136,6 +136,15 @@ export interface AppMatch {
   tableName?: string | null;
 }
 
+/** Один сохранённый фрейм снукера (для разбивки по фреймам). */
+export interface AppMatchFrame {
+  frameNumber: number;
+  player1Points: number;
+  player2Points: number;
+  player1Break: number | null;
+  player2Break: number | null;
+}
+
 export interface PlayerStanding {
   userId: string;
   seed: number | null;
@@ -219,6 +228,14 @@ export interface AppNotification {
 export interface MeProfile extends AppUser {
   emailVerified: boolean;
   telegramLinked: boolean;
+  /**
+   * Присутствует, когда привязываемый Telegram уже занят другим аккаунтом и
+   * доступно слияние текущего (email) аккаунта в него. Счётчики — история survivor'а.
+   */
+  pendingMerge?: {
+    survivorTournaments: number;
+    survivorMatches: number;
+  };
 }
 
 export interface UserMatchStats {

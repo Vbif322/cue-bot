@@ -25,7 +25,9 @@ function validClaims(overrides: Record<string, unknown> = {}) {
     iss: 'https://oauth.telegram.org',
     aud: CLIENT_ID,
     exp: 2_000_000_000,
-    sub: '12345',
+    // sub — непрозрачный per-app id; identity ключуется по числовому `id`, а не по нему.
+    sub: '11066128966037658761',
+    id: 786394171,
     name: 'Иван',
     ...overrides,
   };
@@ -94,12 +96,32 @@ describe('verifyIdToken', () => {
     expect(res).toEqual({
       ok: true,
       data: {
-        id: '12345',
+        id: '786394171',
         firstName: 'Иван',
         username: 'ivan',
         photoUrl: 'https://p/1.jpg',
       },
     });
+  });
+
+  it('id-claim ключует identity (не sub)', () => {
+    const res = verifyIdToken(
+      idToken(validClaims({ id: 786394171, sub: '11066128966037658761' })),
+      NOW_MS,
+    );
+    expect(res.ok && res.data.id).toBe('786394171');
+  });
+
+  it('id числом или строкой из цифр; иначе отказ', () => {
+    expect(
+      verifyIdToken(idToken(validClaims({ id: '999' })), NOW_MS).ok,
+    ).toBe(true);
+    expect(
+      verifyIdToken(idToken(validClaims({ id: 'abc' })), NOW_MS).ok,
+    ).toBe(false);
+    expect(
+      verifyIdToken(idToken(validClaims({ id: 0 })), NOW_MS).ok,
+    ).toBe(false);
   });
 
   it('firstName падает на preferred_username, затем на id', () => {
@@ -113,7 +135,7 @@ describe('verifyIdToken', () => {
       idToken(validClaims({ name: undefined })),
       NOW_MS,
     );
-    expect(bare.ok && bare.data.firstName).toBe('12345');
+    expect(bare.ok && bare.data.firstName).toBe('786394171');
   });
 
   it('чужой iss → отказ', () => {
@@ -142,8 +164,8 @@ describe('verifyIdToken', () => {
     expect(res.ok).toBe(false);
   });
 
-  it('нет sub → отказ', () => {
-    const res = verifyIdToken(idToken(validClaims({ sub: undefined })), NOW_MS);
+  it('нет id → отказ', () => {
+    const res = verifyIdToken(idToken(validClaims({ id: undefined })), NOW_MS);
     expect(res.ok).toBe(false);
   });
 
