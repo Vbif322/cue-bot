@@ -1,6 +1,7 @@
 import {
   boolean,
   integer,
+  jsonb,
   text,
   timestamp,
   uuid,
@@ -18,7 +19,10 @@ import {
 import { users } from './users.js';
 import { venues } from './venues.js';
 
-export { formats, type ITournamentFormat } from '../../shared/tournament/formats.js';
+export {
+  formats,
+  type ITournamentFormat,
+} from '../../shared/tournament/formats.js';
 import { formats } from '../../shared/tournament/formats.js';
 import type { ITournamentFormat } from '../../shared/tournament/formats.js';
 export {
@@ -46,16 +50,25 @@ export {
   validMergeRoundsForSize,
   validateGroupConfig,
   qualifiersOptionsForGroupSize,
+  matchLengthStages,
+  MATCH_LENGTH_STAGE_LABELS,
+  MATCH_LENGTH_STAGE_BY_DISTANCE,
+  validateStageWinScores,
+  formatStageWinScores,
+  winScoreForStageDistance,
   type ITournamentMaxParticipants,
   type ITournamentWinScore,
   type ITournamentMergeRound,
   type IGroupDraw,
   type GroupConfig,
+  type IMatchLengthStage,
+  type IStageWinScores,
 } from '../../shared/tournament/tournamentOptions.js';
 import { groupDraws } from '../../shared/tournament/tournamentOptions.js';
 import type {
   IGroupDraw,
   ITournamentWinScore,
+  IStageWinScores,
 } from '../../shared/tournament/tournamentOptions.js';
 
 export const statuses = [
@@ -132,6 +145,14 @@ export const tournaments = prodSchema.table(
     // back into a single-elimination playoff. 2 = current/default scheme, k = full
     // double elimination (no bracket reset). Ignored for other formats.
     mergeRound: integer('merge_round').notNull().default(2),
+    // Per-stage overrides of `winScore`, keyed FROM THE END of the playoff
+    // bracket ('final' | 'semifinal' | 'quarterfinal') rather than by absolute
+    // round number — the real bracket size is only frozen at registration close,
+    // so an absolute round would point at a different stage depending on turnout.
+    // Null (or an absent key) means "use `winScore`". Applies to the playoff side
+    // only; group tours, round robin and the DE losers bracket always use
+    // `winScore`. Resolved into `matches.winScore` once, at bracket generation.
+    stageWinScores: jsonb('stage_win_scores').$type<IStageWinScores>(),
     // Groups + playoff config. Null for every other format.
     groupsCount: integer('groups_count'),
     participantsPerGroup: integer('participants_per_group'),

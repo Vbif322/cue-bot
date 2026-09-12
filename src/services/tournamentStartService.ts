@@ -144,7 +144,15 @@ export async function startTournamentFull(
       );
 
       // 4. Create matches in database
-      await createMatches(tournamentId, bracket, tx);
+      await createMatches(
+        tournamentId,
+        bracket,
+        {
+          winScore: tournament.winScore,
+          stageWinScores: tournament.stageWinScores,
+        },
+        tx,
+      );
 
       // 5. Update tournament status to in_progress
       await startTournament(tournamentId, tx);
@@ -221,7 +229,9 @@ export async function maybeStartPlayoffPhase(
   const created = await db.transaction(async (tx) => {
     // Serialize concurrent transitions for this tournament; the lock auto-releases
     // at transaction end.
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`);
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
+    );
     const already = await tx.query.matches.findFirst({
       where: and(
         eq(matches.tournamentId, tournamentId),
@@ -229,7 +239,15 @@ export async function maybeStartPlayoffPhase(
       ),
     });
     if (already) return false;
-    await createMatches(tournamentId, bracket, tx);
+    await createMatches(
+      tournamentId,
+      bracket,
+      {
+        winScore: tournament.winScore,
+        stageWinScores: tournament.stageWinScores,
+      },
+      tx,
+    );
     return true;
   });
   if (!created) return false;

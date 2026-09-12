@@ -27,11 +27,19 @@ function playerName(m: AppMatch, slot: 1 | 2): string {
   if (slot === 1) {
     if (m.player1IsWalkover) return 'Проходит';
     if (!m.player1Id) return 'Ожидается';
-    return displayName({ name: m.player1Name, surname: m.player1Surname, username: m.player1Username });
+    return displayName({
+      name: m.player1Name,
+      surname: m.player1Surname,
+      username: m.player1Username,
+    });
   }
   if (m.player2IsWalkover) return 'Проходит';
   if (!m.player2Id) return 'Ожидается';
-  return displayName({ name: m.player2Name, surname: m.player2Surname, username: m.player2Username });
+  return displayName({
+    name: m.player2Name,
+    surname: m.player2Surname,
+    username: m.player2Username,
+  });
 }
 
 function ScoreRow({ side }: { side: Side }) {
@@ -48,7 +56,11 @@ function ScoreRow({ side }: { side: Side }) {
           flex: 1,
           fontSize: 16,
           fontWeight: side.you || side.lead ? 700 : 500,
-          color: side.you ? 'var(--accent-fg)' : side.lead ? 'var(--text-primary)' : 'var(--text-muted)',
+          color: side.you
+            ? 'var(--accent-fg)'
+            : side.lead
+              ? 'var(--text-primary)'
+              : 'var(--text-muted)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -129,7 +141,11 @@ export default function MatchModal({
 
   const reportMut = useMutation({
     mutationFn: () =>
-      matchesApi.report(matchId, Number(scores.p1 || 0), Number(scores.p2 || 0)),
+      matchesApi.report(
+        matchId,
+        Number(scores.p1 || 0),
+        Number(scores.p2 || 0),
+      ),
     onSuccess: invalidate,
   });
   const confirmMut = useMutation({
@@ -147,12 +163,21 @@ export default function MatchModal({
   if (isLoading || !match) {
     return (
       <AppModal onClose={onClose} title="Матч">
-        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-faint)' }}>Загрузка…</div>
+        <div
+          style={{
+            padding: 32,
+            textAlign: 'center',
+            color: 'var(--text-faint)',
+          }}
+        >
+          Загрузка…
+        </div>
       </AppModal>
     );
   }
 
-  const isPlayer = myId != null && (match.player1Id === myId || match.player2Id === myId);
+  const isPlayer =
+    myId != null && (match.player1Id === myId || match.player2Id === myId);
   const s1 = match.player1Score;
   const s2 = match.player2Score;
   const hasScore = s1 != null && s2 != null;
@@ -164,7 +189,11 @@ export default function MatchModal({
     you: myId != null && match.player1Id === myId,
     lead: hasScore && s1! > s2!,
     grad: gradientFor(match.player1Id ?? '1'),
-    init: initials({ name: match.player1Name, surname: match.player1Surname, username: match.player1Username }),
+    init: initials({
+      name: match.player1Name,
+      surname: match.player1Surname,
+      username: match.player1Username,
+    }),
   };
   const side2: Side = {
     id: match.player2Id,
@@ -173,11 +202,16 @@ export default function MatchModal({
     you: myId != null && match.player2Id === myId,
     lead: hasScore && s2! > s1!,
     grad: gradientFor(match.player2Id ?? '2'),
-    init: initials({ name: match.player2Name, surname: match.player2Surname, username: match.player2Username }),
+    init: initials({
+      name: match.player2Name,
+      surname: match.player2Surname,
+      username: match.player2Username,
+    }),
   };
 
   const canReport =
-    isPlayer && (match.status === 'scheduled' || match.status === 'in_progress');
+    isPlayer &&
+    (match.status === 'scheduled' || match.status === 'in_progress');
   const isPending = match.status === 'pending_confirmation';
   const iReported = match.reportedBy != null && match.reportedBy === myId;
   const canConfirm = isPlayer && isPending && !iReported;
@@ -185,16 +219,21 @@ export default function MatchModal({
   const isCompleted = match.status === 'completed';
   const isCancelled = match.status === 'cancelled';
 
-  const busy = reportMut.isPending || confirmMut.isPending || disputeMut.isPending;
+  const busy =
+    reportMut.isPending || confirmMut.isPending || disputeMut.isPending;
   const actionError =
-    reportMut.error?.message || confirmMut.error?.message || disputeMut.error?.message;
+    reportMut.error?.message ||
+    confirmMut.error?.message ||
+    disputeMut.error?.message;
 
   return (
     <>
       <AppModal
         onClose={onClose}
         title="Матч"
-        subtitle={match.tableName ? `Стол: ${match.tableName}` : `Раунд ${match.round}`}
+        subtitle={
+          match.tableName ? `Стол: ${match.tableName}` : `Раунд ${match.round}`
+        }
         rightSlot={<MatchStatusBadge status={match.status} />}
       >
         {/* Scoreboard */}
@@ -212,20 +251,33 @@ export default function MatchModal({
         </div>
 
         {/* Body */}
-        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div
+          style={{
+            padding: 18,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+          }}
+        >
           {actionError && <ErrorBox message={actionError} />}
 
           {canReport && isSnooker && tournament && (
             <FramesReport
               match={match}
-              winScore={tournament.winScore}
+              winScore={match.winScore ?? tournament.winScore}
               onDone={invalidate}
             />
           )}
 
           {canReport && !isSnooker && (
             <>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--text-secondary)',
+                }}
+              >
                 Внести результат
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -235,17 +287,25 @@ export default function MatchModal({
                   inputMode="numeric"
                   aria-label={side1.name}
                   value={scores.p1}
-                  onChange={(e) => setScores((s) => ({ ...s, p1: e.target.value }))}
+                  onChange={(e) =>
+                    setScores((s) => ({ ...s, p1: e.target.value }))
+                  }
                   style={{ textAlign: 'center' }}
                 />
-                <span style={{ color: 'var(--text-disabled)', fontWeight: 700 }}>:</span>
+                <span
+                  style={{ color: 'var(--text-disabled)', fontWeight: 700 }}
+                >
+                  :
+                </span>
                 <Field
                   type="number"
                   min={0}
                   inputMode="numeric"
                   aria-label={side2.name}
                   value={scores.p2}
-                  onChange={(e) => setScores((s) => ({ ...s, p2: e.target.value }))}
+                  onChange={(e) =>
+                    setScores((s) => ({ ...s, p2: e.target.value }))
+                  }
                   style={{ textAlign: 'center' }}
                 />
               </div>
@@ -264,7 +324,13 @@ export default function MatchModal({
 
           {frames && frames.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--text-secondary)',
+                }}
+              >
                 По фреймам
               </div>
               {frames.map((f) => {
@@ -285,11 +351,18 @@ export default function MatchModal({
                     <span style={{ width: 16, color: 'var(--text-faint)' }}>
                       {f.frameNumber}
                     </span>
-                    <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
                       {f.player1Points} : {f.player2Points}
                     </span>
                     {b.length > 0 && (
-                      <span style={{ color: 'var(--text-faint)' }}>🎯 {b.join(', ')}</span>
+                      <span style={{ color: 'var(--text-faint)' }}>
+                        🎯 {b.join(', ')}
+                      </span>
                     )}
                   </div>
                 );
@@ -309,11 +382,24 @@ export default function MatchModal({
                 padding: 16,
               }}
             >
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-tone-warning-fg)' }}>
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: 'var(--color-tone-warning-fg)',
+                }}
+              >
                 Ожидает подтверждения соперником
               </span>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                Вы внесли результат {s1}:{s2}. Соперник подтвердит его или оспорит.
+              <span
+                style={{
+                  fontSize: 13,
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.5,
+                }}
+              >
+                Вы внесли результат {s1}:{s2}. Соперник подтвердит его или
+                оспорит.
               </span>
             </div>
           )}
@@ -331,10 +417,22 @@ export default function MatchModal({
                   padding: 16,
                 }}
               >
-                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-tone-warning-fg)' }}>
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: 'var(--color-tone-warning-fg)',
+                  }}
+                >
                   Ожидает вашего подтверждения
                 </span>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: 'var(--text-secondary)',
+                    lineHeight: 1.5,
+                  }}
+                >
                   Соперник внёс результат{' '}
                   <b style={{ color: 'var(--text-secondary)' }}>
                     {s1}:{s2}
@@ -346,7 +444,11 @@ export default function MatchModal({
                 <Btn block disabled={busy} onClick={() => confirmMut.mutate()}>
                   {confirmMut.isPending ? 'Подтверждение…' : 'Подтвердить'}
                 </Btn>
-                <Btn variant="danger" disabled={busy} onClick={() => setShowDispute(true)}>
+                <Btn
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => setShowDispute(true)}
+                >
                   Оспорить
                 </Btn>
               </div>
@@ -366,17 +468,34 @@ export default function MatchModal({
                   padding: '14px 16px',
                 }}
               >
-                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-tone-success-fg)' }}>
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: 'var(--color-tone-success-fg)',
+                  }}
+                >
                   Результат подтверждён
                 </span>
                 {match.isTechnicalResult && (
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--text-muted)',
+                      marginLeft: 'auto',
+                    }}
+                  >
                     техническое
                   </span>
                 )}
               </div>
               {isPlayer && (
-                <Btn variant="danger" block disabled={busy} onClick={() => setShowDispute(true)}>
+                <Btn
+                  variant="danger"
+                  block
+                  disabled={busy}
+                  onClick={() => setShowDispute(true)}
+                >
                   Оспорить результат
                 </Btn>
               )}
@@ -384,7 +503,9 @@ export default function MatchModal({
           )}
 
           {isCancelled && (
-            <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>Матч отменён.</div>
+            <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>
+              Матч отменён.
+            </div>
           )}
 
           {!isPlayer && !isCompleted && !isCancelled && (
@@ -397,17 +518,39 @@ export default function MatchModal({
 
       {showDispute && (
         <AppModal onClose={() => setShowDispute(false)} maxWidth={400}>
-          <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div
+            style={{
+              padding: 22,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}
+          >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>Оспорить результат?</div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55 }}>
-                Соперник и организатор получат уведомление, а результат будет заморожен до
-                решения организатора.
+              <div style={{ fontSize: 17, fontWeight: 700 }}>
+                Оспорить результат?
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: 'var(--text-muted)',
+                  lineHeight: 1.55,
+                }}
+              >
+                Соперник и организатор получат уведомление, а результат будет
+                заморожен до решения организатора.
               </div>
             </div>
-            {disputeMut.error && <ErrorBox message={disputeMut.error.message} />}
+            {disputeMut.error && (
+              <ErrorBox message={disputeMut.error.message} />
+            )}
             <div style={{ display: 'flex', gap: 10 }}>
-              <Btn variant="ghost" block disabled={disputeMut.isPending} onClick={() => setShowDispute(false)}>
+              <Btn
+                variant="ghost"
+                block
+                disabled={disputeMut.isPending}
+                onClick={() => setShowDispute(false)}
+              >
                 Отмена
               </Btn>
               <Btn

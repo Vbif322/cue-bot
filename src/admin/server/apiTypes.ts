@@ -12,7 +12,10 @@ export type {
   ApiPlayerStanding,
   ApiGroupStanding,
 } from '../../bot/@types/tournament.js';
-export { formats, type ITournamentFormat } from '../../shared/tournament/formats.js';
+export {
+  formats,
+  type ITournamentFormat,
+} from '../../shared/tournament/formats.js';
 export {
   sports,
   disciplines,
@@ -33,6 +36,12 @@ export {
   validMergeRoundsForSize,
   validateGroupConfig,
   qualifiersOptionsForGroupSize,
+  matchLengthStages,
+  MATCH_LENGTH_STAGE_LABELS,
+  validateStageWinScores,
+  formatStageWinScores,
+  type IMatchLengthStage,
+  type IStageWinScores,
   type ITournamentMaxParticipants,
   type ITournamentWinScore,
   type ITournamentMergeRound,

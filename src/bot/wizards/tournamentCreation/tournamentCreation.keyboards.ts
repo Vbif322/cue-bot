@@ -12,8 +12,13 @@ import {
   groupsCountOptions,
   participantsPerGroupOptions,
   qualifiersOptionsForGroupSize,
+  matchLengthStages,
+  MATCH_LENGTH_STAGE_LABELS,
 } from '@/db/schema/tournaments.js';
-import type { ITournamentSport } from '@/db/schema/tournaments.js';
+import type {
+  ITournamentSport,
+  IStageWinScores,
+} from '@/db/schema/tournaments.js';
 import {
   formatDiscipline,
   formatFormat,
@@ -28,9 +33,7 @@ import type { Table } from '../../@types/table.js';
 // #region Types / Interfaces
 
 export interface ITournamentCreationKeyboards {
-  buildVenuesKeyboard(
-    venues: Pick<Venue, 'id' | 'name'>[],
-  ): InlineKeyboard;
+  buildVenuesKeyboard(venues: Pick<Venue, 'id' | 'name'>[]): InlineKeyboard;
   buildVisibilityKeyboard(): InlineKeyboard;
   buildScheduleModeKeyboard(): InlineKeyboard;
   buildSportKeyboard(): InlineKeyboard;
@@ -44,6 +47,10 @@ export interface ITournamentCreationKeyboards {
   buildQualifiersPerGroupKeyboard(participantsPerGroup: number): InlineKeyboard;
   buildGroupDrawKeyboard(): InlineKeyboard;
   buildWinScoreKeyboard(): InlineKeyboard;
+  buildStageWinScoresKeyboard(
+    current: IStageWinScores,
+    tournamentWinScore: number,
+  ): InlineKeyboard;
   buildTablesKeyboard(
     tables: Pick<Table, 'id' | 'name'>[],
     selectedTableIds: string[],
@@ -66,9 +73,7 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
    *
    * @returns {InlineKeyboard} Клавиатура с названиями площадок и коллбеком 'venue:<id>' для каждой кнопки
    */
-  buildVenuesKeyboard(
-    venues: Pick<Venue, 'id' | 'name'>[],
-  ): InlineKeyboard {
+  buildVenuesKeyboard(venues: Pick<Venue, 'id' | 'name'>[]): InlineKeyboard {
     const keyboard = new InlineKeyboard();
 
     for (const venue of venues) {
@@ -274,6 +279,50 @@ export class TournamentCreationKeyboards implements ITournamentCreationKeyboards
         keyboard.row();
       }
     });
+
+    return keyboard;
+  }
+
+  /**
+   * Создает клавиатуру настройки длины матча по стадиям плей-офф.
+   *
+   * Одна строка на стадию (от финала к четвертьфиналу): текущее значение
+   * помечается, «—» возвращает стадию к турнирному winScore. Шаг накапливает
+   * несколько ответов и завершается явной кнопкой — как шаг выбора столов.
+   *
+   * @param {IStageWinScores} current Уже выбранные значения по стадиям
+   * @param {number} tournamentWinScore Базовая длина матча турнира
+   *
+   * @returns {InlineKeyboard} Клавиатура с коллбеками 'tc:swsc:<stage>:<value>'
+   * (value 0 — сброс) и управляющими 'tc:swsc_done' / 'tc:swsc_skip'
+   */
+  buildStageWinScoresKeyboard(
+    current: IStageWinScores,
+    tournamentWinScore: number,
+  ): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+
+    for (const stage of matchLengthStages) {
+      const selected = current[stage];
+
+      keyboard.text(MATCH_LENGTH_STAGE_LABELS[stage], 'tc:swsc_noop');
+      keyboard.row();
+
+      keyboard.text(
+        selected === undefined ? `✅ ${String(tournamentWinScore)}` : '—',
+        `tc:swsc:${stage}:0`,
+      );
+      for (const v of winScores) {
+        keyboard.text(
+          selected === v ? `✅ ${String(v)}` : String(v),
+          `tc:swsc:${stage}:${String(v)}`,
+        );
+      }
+      keyboard.row();
+    }
+
+    keyboard.text('Готово', 'tc:swsc_done');
+    keyboard.text('Пропустить', 'tc:swsc_skip');
 
     return keyboard;
   }

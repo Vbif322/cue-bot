@@ -66,6 +66,9 @@ export interface AppTournament {
   confirmedParticipants: number | null;
   maxParticipants: number;
   winScore: number;
+  stageWinScores: Partial<
+    Record<'final' | 'semifinal' | 'quarterfinal', number>
+  > | null;
   mergeRound: number;
   groupsCount: number | null;
   participantsPerGroup: number | null;
@@ -104,6 +107,8 @@ export interface AppMatch {
   winnerId: string | null;
   player1Score: number | null;
   player2Score: number | null;
+  /** Длина именно этого матча; null — играется до турнирного winScore. */
+  winScore: number | null;
   status: MatchStatus;
   scheduledAt: string | null;
   startedAt: string | null;

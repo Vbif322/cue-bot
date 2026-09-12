@@ -153,22 +153,22 @@ cue-bot/
 
 ### Команды разработки и сборки
 
-| Команда                     | Назначение                                              |
-| --------------------------- | ------------------------------------------------------- |
-| `npm run dev`               | бот + Hono API через `nodemon` (:3000)                  |
-| `npm run dev:admin`         | Vite dev server для admin SPA (:5173, проксирует /api)  |
-| `npm run dev:all`           | Postgres + бот/API + admin Vite + Drizzle Studio        |
-| `npm run build`             | сборка серверной части (`tsc` + `tsc-alias` → `build/`) |
-| `npm run build:admin`       | сборка admin SPA → `admin/dist/`                        |
-| `npm start`                 | запуск собранного бота (`node build/index.js`)          |
-| `npm run db:up` / `db:down` | запуск / остановка Docker-контейнера PostgreSQL         |
-| `npm run db:generate`       | генерация миграции из изменений схемы                   |
-| `npm run db:migrate`        | применение миграций                                     |
-| `npm run db:studio`         | запуск Drizzle Studio                                   |
-| `npm run lint` / `lint:fix` | ESLint (+ автопочинка)                                  |
-| `npm run format`            | форматирование через Prettier                           |
-| `npm test`                  | unit + integration (Vitest)                             |
-| `npm run test:unit`         | только unit-тесты (без БД)                              |
+| Команда                     | Назначение                                                |
+| --------------------------- | --------------------------------------------------------- |
+| `npm run dev`               | бот + Hono API через `nodemon` (:3000)                    |
+| `npm run dev:admin`         | Vite dev server для admin SPA (:5173, проксирует /api)    |
+| `npm run dev:all`           | Postgres + бот/API + admin Vite + Drizzle Studio          |
+| `npm run build`             | сборка серверной части (`tsc` + `tsc-alias` → `build/`)   |
+| `npm run build:admin`       | сборка admin SPA → `admin/dist/`                          |
+| `npm start`                 | запуск собранного бота (`node build/index.js`)            |
+| `npm run db:up` / `db:down` | запуск / остановка Docker-контейнера PostgreSQL           |
+| `npm run db:generate`       | генерация миграции из изменений схемы                     |
+| `npm run db:migrate`        | применение миграций                                       |
+| `npm run db:studio`         | запуск Drizzle Studio                                     |
+| `npm run lint` / `lint:fix` | ESLint (+ автопочинка)                                    |
+| `npm run format`            | форматирование через Prettier                             |
+| `npm test`                  | unit + integration (Vitest)                               |
+| `npm run test:unit`         | только unit-тесты (без БД)                                |
 | `npm run test:integration`  | integration-тесты (Postgres через testcontainers, docker) |
 
 ### Переменные окружения
@@ -274,7 +274,14 @@ erDiagram
 - `startDate`: опциональная дата старта
 - `confirmedParticipants`: число подтверждённых участников, фиксируется при закрытии регистрации
 - `maxParticipants`: для SE/DE/RR — одно из `[8, 16, 32, 64, 128]`; для `groups_playoff` хранит производный итог (`groupsCount × participantsPerGroup`)
-- `winScore`: одно из `[2, 3, 4, 5]` (default 3)
+- `winScore`: одно из `[2, 3, 4, 5]` (default 3) — базовая длина матча турнира
+- `stageWinScores`: `jsonb`, переопределение длины матча по стадиям плей-оффа (`final` /
+  `semifinal` / `quarterfinal` → значение из `winScores`); `null` или отсутствующий ключ =
+  играется до `winScore`. Стадии считаются **от конца сетки**, а не по номеру раунда:
+  фактический размер сетки фиксируется лишь при закрытии регистрации
+  (`confirmedParticipants`), поэтому номер раунда указывал бы на разную стадию при разной
+  явке. Действует только на плей-офф (SE, плей-офф фаза `groups_playoff`, верхняя сетка DE);
+  групповые туры, круговик и нижняя сетка DE всегда играются до `winScore`
 - `mergeRound`: для double elimination — после какого раунда верхней сетки нижняя сливается в single-elim плей-офф (default 2; `k` = полный double elimination без bracket reset); игнорируется для прочих форматов
 - `groupsCount` / `participantsPerGroup` / `qualifiersPerGroup` / `groupDraw`: конфигурация `groups_playoff` (`null` для остальных форматов); `groupDraw` = `snake` | `random`
 - `inviteCode`: 16-символьный `unique`-код для вступления по deep-link
@@ -314,6 +321,11 @@ erDiagram
 - `player1IsWalkover` / `player2IsWalkover`: признак прохода без игры (bye)
 - `winnerId`: победитель матча
 - `player1Score` / `player2Score`: счёт матча
+- `winScore`: длина **этого** матча, материализуется один раз при генерации сетки из
+  `tournaments.winScore` + `tournaments.stageWinScores` (см. `createMatches`). `null` =
+  играется до турнирного `winScore` — так выглядят все строки, созданные до M2-11, все
+  групповые матчи и вся нижняя сетка DE. Читать только через `winScoreForMatch`
+  (`src/services/matchService.ts`), не обращаясь к `tournament.winScore` напрямую
 - `status`: `scheduled` | `in_progress` | `pending_confirmation` | `completed` | `cancelled`
 - `scheduledAt` / `startedAt` / `completedAt`: временные метки этапов матча
 - `phase`: `group` | `playoff` (default `playoff`); значение `group` пишется только для группового этапа `groups_playoff`
@@ -406,7 +418,8 @@ erDiagram
 4. Выбор дисциплины
 5. Выбор формата
 6. Параметры формата (число участников / `winScore`; для double elimination — `mergeRound`; для `groups_playoff` — число групп, участников в группе, выходящих и тип жеребьёвки)
-7. Опциональный выбор столов площадки
+7. Необязательная длина матча по стадиям плей-оффа (пропускается для `round_robin`)
+8. Опциональный выбор столов площадки
 
 Особенности:
 
@@ -490,7 +503,8 @@ deep-link `/start join_<code>` (см. путь 1).
 
 - `match:tech:{id}` — открыть меню выбора победителя
 - `match:tech_win:{id}:{playerIndex}:{reason}` — установить победителя (`playerIndex` = `1` | `2`)
-- победителю засчитывается счёт `winScore:0`
+- победителю засчитывается счёт `winScore:0`, где `winScore` — длина **этого** матча
+  (`matches.winScore ?? tournaments.winScore`, см. `winScoreForMatch`)
 - матч завершается без двухфазного подтверждения, далее вызывается `advanceWinner()`
 
 ### 8. Завершение турнира
