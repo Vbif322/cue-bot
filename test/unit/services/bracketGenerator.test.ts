@@ -16,6 +16,8 @@ import {
   getBracketStats,
   getNextPowerOfTwo,
   getRoundName,
+  lastPlayoffWinnersRound,
+  stageWinScoreForMatch,
   shuffleArray,
 } from '@/services/bracketGenerator.js';
 
@@ -174,7 +176,9 @@ describe('generateSingleEliminationBracket', () => {
   });
 
   it('links every match into an existing downstream slot (4 players)', () => {
-    assertWinnersConnectivity(generateSingleEliminationBracket(makeParticipants(4)));
+    assertWinnersConnectivity(
+      generateSingleEliminationBracket(makeParticipants(4)),
+    );
   });
 
   it('links every match with correct topology (8 players)', () => {
@@ -248,8 +252,13 @@ function assertDoubleElimTopology(
   const occupied = new Set<string>();
   const claim = (pos: number | undefined, slot: unknown): void => {
     if (pos === undefined) throw new Error('pointer with no position');
-    expect(byPos.has(pos), `pointer to missing position ${String(pos)}`).toBe(true);
-    expect(slot === 'player1' || slot === 'player2', 'pointer missing slot').toBe(true);
+    expect(byPos.has(pos), `pointer to missing position ${String(pos)}`).toBe(
+      true,
+    );
+    expect(
+      slot === 'player1' || slot === 'player2',
+      'pointer missing slot',
+    ).toBe(true);
     const key = `${String(pos)}:${String(slot)}`;
     expect(occupied.has(key), `slot collision at ${key}`).toBe(false);
     occupied.add(key);
@@ -257,11 +266,17 @@ function assertDoubleElimTopology(
 
   for (const m of matches) {
     if (m.nextMatchId !== undefined) {
-      expect(m.nextMatchId, `winner pointer not topological at pos ${String(m.position)}`).toBeGreaterThan(m.position);
+      expect(
+        m.nextMatchId,
+        `winner pointer not topological at pos ${String(m.position)}`,
+      ).toBeGreaterThan(m.position);
       claim(m.nextMatchId, m.nextMatchPosition);
     }
     if (m.losersNextMatchPosition !== undefined) {
-      expect(m.losersNextMatchPosition, `loser pointer not topological at pos ${String(m.position)}`).toBeGreaterThan(m.position);
+      expect(
+        m.losersNextMatchPosition,
+        `loser pointer not topological at pos ${String(m.position)}`,
+      ).toBeGreaterThan(m.position);
       claim(m.losersNextMatchPosition, m.losersNextMatchSlot);
     }
   }
@@ -275,8 +290,12 @@ function assertDoubleElimTopology(
 
 describe('generateDoubleEliminationBracket', () => {
   it('throws outside the 8..128 participant range', () => {
-    expect(() => generateDoubleEliminationBracket(makeParticipants(7))).toThrow();
-    expect(() => generateDoubleEliminationBracket(makeParticipants(129))).toThrow();
+    expect(() =>
+      generateDoubleEliminationBracket(makeParticipants(7)),
+    ).toThrow();
+    expect(() =>
+      generateDoubleEliminationBracket(makeParticipants(129)),
+    ).toThrow();
   });
 
   it.each([
@@ -341,7 +360,9 @@ describe('generateDoubleEliminationBracket', () => {
   it('marks empty seats as walkovers and resolves them at gen time (byes)', () => {
     // 12 players in a 16-slot bracket => 4 walkover seats across R1 upper.
     const matches = generateDoubleEliminationBracket(makeParticipants(12));
-    const r1 = matches.filter((m) => m.round === 1 && m.bracketType === 'winners');
+    const r1 = matches.filter(
+      (m) => m.round === 1 && m.bracketType === 'winners',
+    );
     const walkoverSeats = r1.filter(
       (m) => m.player1IsWalkover === true || m.player2IsWalkover === true,
     );
@@ -389,7 +410,9 @@ describe('generateRoundRobinMatches', () => {
 
 describe('generateBracket (dispatcher)', () => {
   it('throws with fewer than 2 participants', () => {
-    expect(() => generateBracket('single_elimination', makeParticipants(1))).toThrow();
+    expect(() =>
+      generateBracket('single_elimination', makeParticipants(1)),
+    ).toThrow();
   });
 
   it('dispatches to the round-robin generator', () => {
@@ -398,7 +421,11 @@ describe('generateBracket (dispatcher)', () => {
   });
 
   it('threads randomAdvancement into single elimination (pointers cleared)', () => {
-    const matches = generateBracket('single_elimination', makeParticipants(8), true);
+    const matches = generateBracket(
+      'single_elimination',
+      makeParticipants(8),
+      true,
+    );
     expect(matches).toHaveLength(7);
     for (const m of matches) {
       expect(m.nextMatchId).toBeUndefined();
@@ -521,7 +548,12 @@ describe('assignParticipantsToGroups', () => {
 
 describe('generateGroupStageMatches', () => {
   it('builds a round-robin per group with phase/groupIndex tags', () => {
-    const matches = generateGroupStageMatches(makeParticipants(8), 2, 4, 'snake');
+    const matches = generateGroupStageMatches(
+      makeParticipants(8),
+      2,
+      4,
+      'snake',
+    );
     // 2 groups × C(4,2)=6 = 12 matches.
     expect(matches).toHaveLength(12);
     expect(matches.every((m) => m.phase === 'group')).toBe(true);
@@ -537,7 +569,12 @@ describe('generateGroupStageMatches', () => {
   it('pads an under-filled group with walkovers', () => {
     // 11 players, 2 groups × 6 → snake split 5 + 6; the short group gets one
     // walkover slot. Each group still has C(6,2)=15 match rows.
-    const matches = generateGroupStageMatches(makeParticipants(11), 2, 6, 'snake');
+    const matches = generateGroupStageMatches(
+      makeParticipants(11),
+      2,
+      6,
+      'snake',
+    );
     expect(matches).toHaveLength(30);
     expect(matches.every((m) => m.phase === 'group')).toBe(true);
 
@@ -556,7 +593,12 @@ describe('generateGroupStageMatches', () => {
 
   it('handles odd full groups via a scheduling bye (no walkovers)', () => {
     // 10 players, 2 groups × 5 (odd, full) → C(5,2)=10 per group, no walkovers.
-    const matches = generateGroupStageMatches(makeParticipants(10), 2, 5, 'snake');
+    const matches = generateGroupStageMatches(
+      makeParticipants(10),
+      2,
+      5,
+      'snake',
+    );
     expect(matches).toHaveLength(20);
     expect(matches.some((m) => m.isCompletedWalkover)).toBe(false);
   });
@@ -609,11 +651,17 @@ describe('getBracketStats (groups_playoff)', () => {
 
 describe('generateBracket (groups_playoff dispatch)', () => {
   it('generates only the group phase from the group config', () => {
-    const matches = generateBracket('groups_playoff', makeParticipants(8), false, 2, {
-      groupsCount: 2,
-      participantsPerGroup: 4,
-      groupDraw: 'snake',
-    });
+    const matches = generateBracket(
+      'groups_playoff',
+      makeParticipants(8),
+      false,
+      2,
+      {
+        groupsCount: 2,
+        participantsPerGroup: 4,
+        groupDraw: 'snake',
+      },
+    );
     expect(matches).toHaveLength(12);
     expect(matches.every((m) => m.phase === 'group')).toBe(true);
   });
@@ -622,5 +670,68 @@ describe('generateBracket (groups_playoff dispatch)', () => {
     expect(() =>
       generateBracket('groups_playoff', makeParticipants(8)),
     ).toThrow();
+  });
+});
+
+describe('lastPlayoffWinnersRound', () => {
+  const m = (
+    round: number,
+    bracketType: 'winners' | 'losers' = 'winners',
+    phase: 'group' | 'playoff' = 'playoff',
+  ) => ({ round, bracketType, phase });
+
+  it('returns the highest winners-side playoff round', () => {
+    expect(lastPlayoffWinnersRound([m(1), m(2), m(3)])).toBe(3);
+  });
+
+  it('ignores the losers bracket, which has its own numbering', () => {
+    expect(
+      lastPlayoffWinnersRound([m(1), m(3), m(6, 'losers'), m(8, 'losers')]),
+    ).toBe(3);
+  });
+
+  it('ignores group-phase rows', () => {
+    expect(lastPlayoffWinnersRound([m(1, 'winners', 'group')])).toBeNull();
+  });
+
+  it('returns null for an empty bracket', () => {
+    expect(lastPlayoffWinnersRound([])).toBeNull();
+  });
+});
+
+describe('stageWinScoreForMatch', () => {
+  const cfg = { final: 5, semifinal: 4 } as const;
+  const m = (
+    round: number,
+    bracketType: 'winners' | 'losers' = 'winners',
+    phase: 'group' | 'playoff' = 'playoff',
+  ) => ({ round, bracketType, phase });
+
+  it('resolves stages by distance from the last winners round', () => {
+    // 16 players -> 4 rounds: r4 final, r3 semifinal, r2 has no override.
+    expect(stageWinScoreForMatch(m(4), 4, 3, cfg)).toBe(5);
+    expect(stageWinScoreForMatch(m(3), 4, 3, cfg)).toBe(4);
+    expect(stageWinScoreForMatch(m(2), 4, 3, cfg)).toBeNull();
+  });
+
+  it('is stable when the real draw is smaller than the cap', () => {
+    // 8 players -> 3 rounds: the final is r3, and still gets the final length.
+    expect(stageWinScoreForMatch(m(3), 3, 3, cfg)).toBe(5);
+    expect(stageWinScoreForMatch(m(2), 3, 3, cfg)).toBe(4);
+  });
+
+  it('returns null when the override equals the tournament win score', () => {
+    expect(stageWinScoreForMatch(m(4), 4, 5, cfg)).toBeNull();
+  });
+
+  it('never overrides the losers bracket or the group phase', () => {
+    expect(stageWinScoreForMatch(m(4, 'losers'), 4, 3, cfg)).toBeNull();
+    expect(
+      stageWinScoreForMatch(m(1, 'winners', 'group'), 4, 3, cfg),
+    ).toBeNull();
+  });
+
+  it('returns null when the tournament has no overrides', () => {
+    expect(stageWinScoreForMatch(m(4), 4, 3, null)).toBeNull();
   });
 });

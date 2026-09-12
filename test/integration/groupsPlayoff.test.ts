@@ -37,7 +37,10 @@ const GROUP_CONFIG = {
 };
 
 /** Create a groups_playoff tournament with `count` seeded confirmed participants. */
-async function makeGroupsTournament(count: number, status = 'registration_open') {
+async function makeGroupsTournament(
+  count: number,
+  status = 'registration_open',
+) {
   const tournament = await createTournament({
     format: 'groups_playoff',
     status: status as 'registration_open',
@@ -57,7 +60,10 @@ async function startGroupPhase(tournamentId: UUID) {
     participantsPerGroup: GROUP_CONFIG.participantsPerGroup,
     groupDraw: GROUP_CONFIG.groupDraw,
   });
-  await createMatches(tournamentId, bracket);
+  await createMatches(tournamentId, bracket, {
+    winScore: 3,
+    stageWinScores: null,
+  });
   await startTournament(tournamentId);
 }
 

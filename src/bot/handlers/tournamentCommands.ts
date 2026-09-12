@@ -199,12 +199,15 @@ tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
 /**
  * Switch tournament list tab (Текущие / Завершённые / Мои) — edits in place.
  */
-tournamentCommands.callbackQuery(/^tlist:(current|archive|my)$/, async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await renderTournamentsList(ctx, ctx.match[1] as TournamentTab, {
-    edit: true,
-  });
-});
+tournamentCommands.callbackQuery(
+  /^tlist:(current|archive|my)$/,
+  async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await renderTournamentsList(ctx, ctx.match[1] as TournamentTab, {
+      edit: true,
+    });
+  },
+);
 
 /**
  * Show tournament info when selected from list
@@ -390,7 +393,10 @@ tournamentCommands.callbackQuery(
         `${getMatchStatusEmoji('cancelled')} Да, отменить`,
         `tournament_cancel:${tournament.id}`,
       )
-      .text(`${getMatchStatusEmoji('completed')} Нет`, `tournament_cancel_abort`);
+      .text(
+        `${getMatchStatusEmoji('completed')} Нет`,
+        `tournament_cancel_abort`,
+      );
 
     await safeEditMessageText(ctx, {
       text:
@@ -418,7 +424,10 @@ tournamentCommands.callbackQuery(/^tournament_cancel:(.+)$/, async (ctx) => {
   const tournament = await getTournament(tournamentId as UUID);
 
   if (!tournament) {
-    await ctx.answerCallbackQuery({ text: 'Турнир не найден', show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: 'Турнир не найден',
+      show_alert: true,
+    });
     return;
   }
 
@@ -431,7 +440,11 @@ tournamentCommands.callbackQuery(/^tournament_cancel:(.+)$/, async (ctx) => {
   }
 
   await cancelTournament(tournamentId as UUID);
-  await notifyTournamentCancelled(ctx.api, tournamentId as UUID, tournament.name);
+  await notifyTournamentCancelled(
+    ctx.api,
+    tournamentId as UUID,
+    tournament.name,
+  );
 
   await ctx.answerCallbackQuery('Турнир отменён');
   await safeEditMessageText(ctx, {
@@ -567,7 +580,10 @@ tournamentCommands.callbackQuery(
     await ctx.answerCallbackQuery('Запуск турнира...');
 
     try {
-      const startResult = await startTournamentFull(tournamentId as UUID, ctx.api);
+      const startResult = await startTournamentFull(
+        tournamentId as UUID,
+        ctx.api,
+      );
 
       const keyboard = new InlineKeyboard()
         .text('📊 Посмотреть сетку', `bracket:view:${tournamentId}`)
@@ -658,7 +674,10 @@ tournamentCommands.callbackQuery(/^tc:merge:(\d+)$/, async (ctx) => {
 tournamentCommands.callbackQuery(/^tc:groups:(\d+)$/, async (ctx) => {
   const val = ctx.match[1];
   if (!val) return;
-  await tournamentCreationFlow.handleGroupsCountSelection(ctx, parseInt(val, 10));
+  await tournamentCreationFlow.handleGroupsCountSelection(
+    ctx,
+    parseInt(val, 10),
+  );
 });
 
 tournamentCommands.callbackQuery(/^tc:ppg:(\d+)$/, async (ctx) => {
@@ -690,6 +709,29 @@ tournamentCommands.callbackQuery(/^tc:winscore:(\d+)$/, async (ctx) => {
   if (!val) return;
   const winScore = parseInt(val, 10);
   await tournamentCreationFlow.handleWinScoreSelection(ctx, winScore);
+});
+
+tournamentCommands.callbackQuery(/^tc:swsc:([a-z]+):(\d+)$/, async (ctx) => {
+  const stage = ctx.match[1];
+  const val = ctx.match[2];
+  if (!stage || val === undefined) return;
+  await tournamentCreationFlow.handleStageWinScoreSelection(
+    ctx,
+    stage,
+    parseInt(val, 10),
+  );
+});
+
+tournamentCommands.callbackQuery(/^tc:swsc_(done|skip)$/, async (ctx) => {
+  await tournamentCreationFlow.handleStageWinScoresFinalize(
+    ctx,
+    ctx.match[1] === 'skip',
+  );
+});
+
+// Stage captions are inert buttons; acknowledge so the client stops spinning.
+tournamentCommands.callbackQuery('tc:swsc_noop', async (ctx) => {
+  await ctx.answerCallbackQuery();
 });
 
 tournamentCommands.callbackQuery(/^tc:tables_toggle:(.+)$/, async (ctx) => {

@@ -29,6 +29,7 @@ export interface ICreationData {
       | 'qualifiersPerGroup'
       | 'groupDraw'
       | 'winScore'
+      | 'stageWinScores'
     >
   >;
 
@@ -62,6 +63,7 @@ export interface IRequiredCreationData extends Required<ICreationData> {
         | 'participantsPerGroup'
         | 'qualifiersPerGroup'
         | 'groupDraw'
+        | 'stageWinScores'
       >
     >;
 }

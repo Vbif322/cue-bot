@@ -14,6 +14,8 @@ import {
   sports,
   SPORT_DISCIPLINES,
   DEFAULT_WIN_SCORE_BY_DISCIPLINE,
+  matchLengthStages,
+  MATCH_LENGTH_STAGE_LABELS,
 } from '@server/apiTypes';
 import type {
   ApiTournament,
@@ -21,6 +23,7 @@ import type {
   ITournamentSport,
   ITournamentDiscipline,
   IGroupDraw,
+  IStageWinScores,
   TournamentVisibility,
   TournamentScheduleMode,
 } from '../lib/api.ts';
@@ -72,6 +75,7 @@ function TournamentFormModal({
       'single_day') as TournamentScheduleMode,
     maxParticipants: (tournament?.maxParticipants ?? 16) as number,
     winScore: (tournament?.winScore ?? 2) as number,
+    stageWinScores: (tournament?.stageWinScores ?? {}) as IStageWinScores,
     mergeRound: (tournament?.mergeRound ?? 2) as number,
     groupsCount: (tournament?.groupsCount ?? 4) as number,
     participantsPerGroup: (tournament?.participantsPerGroup ?? 4) as number,
@@ -121,8 +125,14 @@ function TournamentFormModal({
   const save = useMutation({
     mutationFn: () => {
       const isGroups = form.format === 'groups_playoff';
+      const hasPlayoff = form.format !== 'round_robin';
       const payload = {
         ...form,
+        // Per-stage lengths only mean anything where there is a playoff bracket.
+        stageWinScores:
+          hasPlayoff && Object.keys(form.stageWinScores).length > 0
+            ? form.stageWinScores
+            : null,
         description: form.description || undefined,
         rules: form.rules || undefined,
         startDate: form.startDate || undefined,
@@ -152,8 +162,7 @@ function TournamentFormModal({
     onError: (e: Error) => setError(e.message),
   });
 
-  const canSubmit =
-    venues.length > 0 && form.venueId !== '' && !save.isPending;
+  const canSubmit = venues.length > 0 && form.venueId !== '' && !save.isPending;
 
   const toggleTable = (id: string) => {
     setSelectedTableIds((prev) =>
@@ -252,6 +261,9 @@ function TournamentFormModal({
                     sport,
                     discipline,
                     winScore: DEFAULT_WIN_SCORE_BY_DISCIPLINE[discipline],
+                    // The baseline changed under them; stale per-stage values
+                    // would silently mean something else.
+                    stageWinScores: {},
                   });
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
@@ -276,6 +288,7 @@ function TournamentFormModal({
                     ...form,
                     discipline,
                     winScore: DEFAULT_WIN_SCORE_BY_DISCIPLINE[discipline],
+                    stageWinScores: {},
                   });
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
@@ -317,20 +330,20 @@ function TournamentFormModal({
 
           {form.format !== 'round_robin' &&
             form.format !== 'groups_playoff' && (
-            <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={form.randomAdvancement}
-                  onChange={(e) =>
-                    setForm({ ...form, randomAdvancement: e.target.checked })
-                  }
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                Случайные пары после каждого раунда
-              </label>
-            </div>
-          )}
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={form.randomAdvancement}
+                    onChange={(e) =>
+                      setForm({ ...form, randomAdvancement: e.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Случайные пары после каждого раунда
+                </label>
+              </div>
+            )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -347,11 +360,13 @@ function TournamentFormModal({
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {(Object.keys(VISIBILITY_LABELS) as TournamentVisibility[]).map((v) => (
-                  <option key={v} value={v}>
-                    {VISIBILITY_LABELS[v]}
-                  </option>
-                ))}
+                {(Object.keys(VISIBILITY_LABELS) as TournamentVisibility[]).map(
+                  (v) => (
+                    <option key={v} value={v}>
+                      {VISIBILITY_LABELS[v]}
+                    </option>
+                  ),
+                )}
               </select>
             </div>
             <div>
@@ -368,13 +383,13 @@ function TournamentFormModal({
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {(Object.keys(SCHEDULE_MODE_LABELS) as TournamentScheduleMode[]).map(
-                  (m) => (
-                    <option key={m} value={m}>
-                      {SCHEDULE_MODE_LABELS[m]}
-                    </option>
-                  ),
-                )}
+                {(
+                  Object.keys(SCHEDULE_MODE_LABELS) as TournamentScheduleMode[]
+                ).map((m) => (
+                  <option key={m} value={m}>
+                    {SCHEDULE_MODE_LABELS[m]}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -427,6 +442,49 @@ function TournamentFormModal({
               </select>
             </div>
           </div>
+          {form.format !== 'round_robin' && (
+            <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+              <div className="text-sm font-medium text-gray-700">
+                Длина матча по стадиям
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {matchLengthStages.map((stage) => (
+                  <div key={stage}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {MATCH_LENGTH_STAGE_LABELS[stage]}
+                    </label>
+                    <select
+                      value={form.stageWinScores[stage] ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next = { ...form.stageWinScores };
+                        if (raw === '') delete next[stage];
+                        else
+                          next[stage] = Number(
+                            raw,
+                          ) as (typeof winScores)[number];
+                        setForm({ ...form, stageWinScores: next });
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">как в турнире</option>
+                      {winScores.map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500">
+                Необязательно. Задаёт длину закрывающих матчей сетки — стадии
+                считаются от финала, поэтому настройка не сбивается при любом
+                числе участников. Групповые туры и нижняя сетка double
+                elimination всегда играются до турнирного значения.
+              </p>
+            </div>
+          )}
 
           {form.format === 'double_elimination' && (
             <div>
@@ -490,7 +548,10 @@ function TournamentFormModal({
                         ...form,
                         participantsPerGroup: ppg,
                         // Keep qualifiers within 1..(size-1).
-                        qualifiersPerGroup: Math.min(form.qualifiersPerGroup, maxQ),
+                        qualifiersPerGroup: Math.min(
+                          form.qualifiersPerGroup,
+                          maxQ,
+                        ),
                       });
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -516,13 +577,13 @@ function TournamentFormModal({
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {qualifiersOptionsForGroupSize(form.participantsPerGroup).map(
-                      (n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ),
-                    )}
+                    {qualifiersOptionsForGroupSize(
+                      form.participantsPerGroup,
+                    ).map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -533,7 +594,10 @@ function TournamentFormModal({
                 <select
                   value={form.groupDraw}
                   onChange={(e) =>
-                    setForm({ ...form, groupDraw: e.target.value as IGroupDraw })
+                    setForm({
+                      ...form,
+                      groupDraw: e.target.value as IGroupDraw,
+                    })
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
@@ -546,9 +610,9 @@ function TournamentFormModal({
               </div>
               <p className="text-xs text-gray-500">
                 Максимум участников:{' '}
-                {form.groupsCount * form.participantsPerGroup} (недостающие места
-                в группах заполнятся walkover). Из каждой группы в плей-офф
-                (олимпийка) выходит {form.qualifiersPerGroup}.
+                {form.groupsCount * form.participantsPerGroup} (недостающие
+                места в группах заполнятся walkover). Из каждой группы в
+                плей-офф (олимпийка) выходит {form.qualifiersPerGroup}.
               </p>
             </div>
           )}
@@ -661,6 +725,10 @@ export function EditTournamentModal({
   onClose: () => void;
 }) {
   return (
-    <TournamentFormModal mode="edit" tournament={tournament} onClose={onClose} />
+    <TournamentFormModal
+      mode="edit"
+      tournament={tournament}
+      onClose={onClose}
+    />
   );
 }

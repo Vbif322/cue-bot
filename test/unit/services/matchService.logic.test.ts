@@ -7,6 +7,7 @@ import {
   loserTarget,
   parseFrameScoreLine,
   validateCorrectionScores,
+  winScoreForMatch,
   type FrameInput,
 } from '@/services/matchService.js';
 
@@ -213,5 +214,15 @@ describe('deriveFrameResult (snooker frame → winner/aggregate)', () => {
       player1Score: 2,
       player2Score: 0,
     });
+  });
+});
+
+describe('winScoreForMatch', () => {
+  it('prefers the match-level length when one was materialized', () => {
+    expect(winScoreForMatch({ winScore: 5 }, { winScore: 3 })).toBe(5);
+  });
+
+  it('falls back to the tournament for pre-M2-11 and non-playoff rows', () => {
+    expect(winScoreForMatch({ winScore: null }, { winScore: 3 })).toBe(3);
   });
 });

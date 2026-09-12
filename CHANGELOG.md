@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a per-stage match length (`stageWinScores`): a tournament may play its
+  closing playoff matches longer than its baseline `winScore` (e.g. race to 3
+  early, 4 in the semifinals, 5 in the final). Stages are keyed from the end of
+  the bracket (`final` / `semifinal` / `quarterfinal`), so the setting keeps its
+  meaning whatever the actual turnout. The effective length is resolved once at
+  bracket generation into the new `matches.win_score` column and drives result
+  reporting, per-frame entry, technical results and result corrections.
+  Selectable in the Telegram wizard and the admin panel; applies to the playoff
+  side only (group tours, round robin and the double-elimination losers bracket
+  always use the tournament `winScore`).
 - Added a configurable double-elimination "merge round" (`mergeRound`): tournaments
   choose after which upper-bracket round the losers bracket merges into a
   single-elimination playoff (default 2 = previous scheme, k = full double
