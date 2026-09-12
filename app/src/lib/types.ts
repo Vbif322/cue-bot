@@ -154,12 +154,16 @@ export interface PlayerStanding {
   framesWon: number;
   framesLost: number;
   frameDiff: number;
+  pointsWon: number;
+  pointsLost: number;
+  pointsDiff: number;
   rank: number;
 }
 
 export interface GroupStanding {
   groupIndex: number;
   rows: PlayerStanding[];
+  pointsComplete: boolean;
 }
 
 export interface BracketPlayer {

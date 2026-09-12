@@ -16,10 +16,16 @@ import { groupLetter } from '@/utils/constants.js';
 
 import { formatPlayerName, getMatchStatusEmoji } from './matchUI.js';
 
+/** Signed difference, always with an explicit sign for a non-negative value. */
+function signed(n: number): string {
+  return n >= 0 ? `+${String(n)}` : String(n);
+}
+
 /**
  * Format a group's standings table. Players who have already CLINCHED a qualifying
  * spot (guaranteed top-`qualifiersPerGroup` regardless of remaining matches) are
- * marked with ✅. Shows wins and frame difference per player.
+ * marked with ✅. Shows wins and frame difference per player, plus the points
+ * difference when the group's frame data is complete (snooker).
  */
 function formatGroupStandings(
   group: GroupStanding,
@@ -37,8 +43,9 @@ function formatGroupStandings(
     const parts = playerMap.get(row.userId);
     const name = parts ? formatPlayerName(parts) : 'TBD';
     const mark = clinched.has(row.userId) ? '✅' : '▫️';
-    const diff =
-      row.frameDiff >= 0 ? `+${String(row.frameDiff)}` : String(row.frameDiff);
+    const diff = group.pointsComplete
+      ? `${signed(row.frameDiff)} фр., ${signed(row.pointsDiff)} оч.`
+      : signed(row.frameDiff);
     text += `${mark} ${String(row.rank)}. ${name} — ${String(row.wins)} поб., ${diff}\n`;
   }
   return text + '\n';

@@ -17,6 +17,15 @@ export interface StandingMatch {
   player1Score: number | null;
   player2Score: number | null;
   status: string; // only 'completed' matches count toward standings
+  /**
+   * Sum of the match's per-frame points, slot-wise (`player1Points` belongs to
+   * `player1Id`). `null`/absent means the match has NO per-frame breakdown:
+   * non-snooker, aggregate-reported, walkover/technical, or admin-corrected (a
+   * correction drops the stale frames). Presence must be null-encoded, never
+   * 0-encoded — a player can legitimately score 0 points across a match.
+   */
+  player1Points?: number | null;
+  player2Points?: number | null;
 }
 
 export interface PlayerStanding {
@@ -28,6 +37,10 @@ export interface PlayerStanding {
   framesWon: number;
   framesLost: number;
   frameDiff: number;
+  /** Points scored/conceded across the group's frames; 0 when no frame data. */
+  pointsWon: number;
+  pointsLost: number;
+  pointsDiff: number;
   /** 1-based final position within the group (always unique — seed breaks ties). */
   rank: number;
 }
@@ -35,6 +48,13 @@ export interface PlayerStanding {
 export interface GroupStanding {
   groupIndex: number;
   rows: PlayerStanding[]; // sorted best-first
+  /**
+   * True when every completed non-walkover match of the group carries a frame
+   * breakdown, i.e. `pointsDiff` is comparable across the whole group. Only then
+   * does the points difference take part in the tiebreak, and only then should a
+   * UI show a points column.
+   */
+  pointsComplete: boolean;
 }
 
 /** Lower seed number is better; a missing seed sorts last. */
@@ -53,8 +73,10 @@ type Mutable = Omit<PlayerStanding, 'rank'>;
  *      scalar over the subset, so it stays transitive; a cycle like A>B>C>A leaves
  *      everyone equal and falls through)
  *   3. frame difference (framesWon − framesLost)
- *   4. frames won
- *   5. best seed (decisive — guarantees a total order, never stalls)
+ *   4. points difference — ONLY when the group's frame data is complete
+ *      (see `pointsComplete`); otherwise this level is skipped entirely
+ *   5. frames won
+ *   6. best seed (decisive — guarantees a total order, never stalls)
  */
 export function computeGroupStanding(
   groupIndex: number,
@@ -72,6 +94,9 @@ export function computeGroupStanding(
       framesWon: 0,
       framesLost: 0,
       frameDiff: 0,
+      pointsWon: 0,
+      pointsLost: 0,
+      pointsDiff: 0,
     });
   }
 
@@ -85,6 +110,8 @@ export function computeGroupStanding(
     const p2 = player2Id != null ? stats.get(player2Id) : undefined;
     const s1 = m.player1Score ?? 0;
     const s2 = m.player2Score ?? 0;
+    const q1 = m.player1Points ?? 0;
+    const q2 = m.player2Points ?? 0;
 
     if (p1 && p2) {
       // Real vs real.
@@ -94,6 +121,10 @@ export function computeGroupStanding(
       p1.framesLost += s2;
       p2.framesWon += s2;
       p2.framesLost += s1;
+      p1.pointsWon += q1;
+      p1.pointsLost += q2;
+      p2.pointsWon += q2;
+      p2.pointsLost += q1;
       if (m.winnerId === player1Id) {
         p1.wins += 1;
         p2.losses += 1;
@@ -106,6 +137,8 @@ export function computeGroupStanding(
       p1.played += 1;
       p1.framesWon += s1;
       p1.framesLost += s2;
+      p1.pointsWon += q1;
+      p1.pointsLost += q2;
       if (m.winnerId === player1Id) p1.wins += 1;
       else p1.losses += 1;
     } else if (p2 && !p1) {
@@ -113,6 +146,8 @@ export function computeGroupStanding(
       p2.played += 1;
       p2.framesWon += s2;
       p2.framesLost += s1;
+      p2.pointsWon += q2;
+      p2.pointsLost += q1;
       if (m.winnerId === player2Id) p2.wins += 1;
       else p2.losses += 1;
     }
@@ -120,7 +155,30 @@ export function computeGroupStanding(
 
   for (const s of stats.values()) {
     s.frameDiff = s.framesWon - s.framesLost;
+    s.pointsDiff = s.pointsWon - s.pointsLost;
   }
+
+  // Is the points difference comparable across this group?
+  //
+  // A structural walkover (a missing slot) never has frames and contributes 0 points
+  // to everyone; a round-robin hands every real member the same number of them, so it
+  // is a constant offset and cannot skew the comparison — exempt it, or every
+  // under-filled group would lose the tiebreak for good.
+  //
+  // A match between two REAL players with no frames (technical winScore-0 result,
+  // aggregate-reported score, admin correction — corrections delete the frames) is a
+  // different matter: it too contributes 0 to both, but winning a real match normally
+  // contributes a *positive* points difference, so that shortfall shifts the player
+  // against their group rivals. Such a match therefore closes the gate for the whole
+  // group. (It does not distort frameDiff — a 3-0 is a plausible frame score — which is
+  // why frames are not gated and points are: the points scale is two orders of
+  // magnitude larger, so a single match would outweigh the entire group.)
+  const scorable = completed.filter(
+    (m) => m.player1Id != null && m.player2Id != null,
+  );
+  const pointsComplete =
+    scorable.length > 0 &&
+    scorable.every((m) => m.player1Points != null && m.player2Points != null);
 
   // Head-to-head wins of `player` against the given tied subset (completed only).
   const h2hWins = (playerId: UUID, subset: Set<UUID>): number =>
@@ -156,6 +214,9 @@ export function computeGroupStanding(
         const hb = h2h.get(b.userId) ?? 0;
         if (hb !== ha) return hb - ha;
         if (b.frameDiff !== a.frameDiff) return b.frameDiff - a.frameDiff;
+        if (pointsComplete && b.pointsDiff !== a.pointsDiff) {
+          return b.pointsDiff - a.pointsDiff;
+        }
         if (b.framesWon !== a.framesWon) return b.framesWon - a.framesWon;
         return seedRank(a.seed) - seedRank(b.seed);
       });
@@ -167,6 +228,7 @@ export function computeGroupStanding(
   return {
     groupIndex,
     rows: sorted.map((s, idx) => ({ ...s, rank: idx + 1 })),
+    pointsComplete,
   };
 }
 

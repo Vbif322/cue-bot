@@ -193,6 +193,7 @@ export function createTournamentsRouter(botApi: Api) {
       const clinched = clinchedUserIds(g.rows, totalMatches, qualifiers);
       return {
         groupIndex: g.groupIndex,
+        pointsComplete: g.pointsComplete,
         rows: g.rows.map((r) => ({
           ...r,
           username: nameById.get(r.userId)?.username ?? null,
