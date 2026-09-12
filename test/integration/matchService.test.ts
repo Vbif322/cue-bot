@@ -12,6 +12,7 @@ import {
   disputeResult,
   setTechnicalResult,
   startMatch,
+  getTournamentMatches,
 } from '@/services/matchService.js';
 import type { FrameInput } from '@/services/matchService.js';
 
@@ -21,6 +22,7 @@ import {
   createTournamentWithParticipants,
   createUser,
   completeMatch,
+  playAllReady,
 } from '../helpers/factories.js';
 import { must } from '../helpers/must.js';
 import { truncateAll } from '../helpers/truncate.js';
@@ -382,5 +384,108 @@ describe('matchService lifecycle', () => {
       expect(after?.player1Score).toBe(before?.player1Score);
       expect(after?.player2Score).toBe(before?.player2Score);
     });
+  });
+});
+
+describe('per-stage match length (M2-11)', () => {
+  beforeEach(async () => {
+    await truncateAll();
+  });
+
+  /** 4-player SE: round 1 = semifinals, round 2 = the final. */
+  async function stagedTournament() {
+    const { tournament, participantIds } =
+      await createTournamentWithParticipants(4, 'single_elimination', {
+        winScore: 3,
+        stageWinScores: { final: 5, semifinal: 4 },
+      });
+    const all = await createMatchesForTournament(
+      tournament.id,
+      'single_elimination',
+    );
+    return { tournament, participantIds, all };
+  }
+
+  it('materializes the stage length onto each match row', async () => {
+    const { all } = await stagedTournament();
+
+    const semis = all.filter((m) => m.round === 1);
+    const final = must(
+      all.find((m) => m.round === 2),
+      'final',
+    );
+
+    expect(semis).toHaveLength(2);
+    for (const s of semis) expect(s.winScore).toBe(4);
+    expect(final.winScore).toBe(5);
+  });
+
+  it('validates a report against the match stage, not the tournament', async () => {
+    const { all } = await stagedTournament();
+    const semi = must(
+      all.find((m) => m.round === 1),
+      'semi',
+    );
+    const p1 = must(semi.player1Id, 'p1');
+
+    // 3 is the tournament winScore, but this round is played to 4.
+    const tooShort = await reportResult(semi.id, p1, 3, 1);
+    expect(tooShort).toEqual({
+      success: false,
+      error: 'Один из игроков должен набрать 4 побед',
+    });
+
+    const ok = await reportResult(semi.id, p1, 4, 1);
+    expect(ok.success).toBe(true);
+  });
+
+  it('uses the final length for a technical result in the final', async () => {
+    const { all } = await stagedTournament();
+
+    // Play both semifinals so the final has two players.
+    for (const semi of all.filter((m) => m.round === 1)) {
+      await completeMatch(semi.id, must(semi.player1Id, 'p1'));
+    }
+
+    const tournamentId = must(all[0], 'any match').tournamentId;
+    const final = must(
+      (await getTournamentMatches(tournamentId)).find((m) => m.round === 2),
+      'final',
+    );
+    const winner = must(final.player1Id, 'finalist');
+
+    const admin = await createAdminUser();
+    const res = await setTechnicalResult(final.id, winner, 'неявка', admin.id);
+    expect(res.success).toBe(true);
+
+    const stored = must(await getMatch(final.id), 'stored final');
+    expect(Math.max(stored.player1Score ?? 0, stored.player2Score ?? 0)).toBe(
+      5,
+    );
+  });
+
+  it('leaves matches of a tournament without overrides on the tournament length', async () => {
+    const { tournament } = await createTournamentWithParticipants(
+      4,
+      'single_elimination',
+      { winScore: 3 },
+    );
+    const all = await createMatchesForTournament(
+      tournament.id,
+      'single_elimination',
+    );
+
+    for (const m of all) expect(m.winScore).toBeNull();
+  });
+
+  it('drives a full staged bracket to completion', async () => {
+    const { tournament } = await createTournamentWithParticipants(
+      8,
+      'single_elimination',
+      { winScore: 3, stageWinScores: { final: 5, semifinal: 4 } },
+    );
+    await createMatchesForTournament(tournament.id, 'single_elimination');
+
+    await playAllReady(tournament.id, 'single_elimination');
   });
 });

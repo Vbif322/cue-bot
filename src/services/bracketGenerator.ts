@@ -2,7 +2,11 @@ import type { UUID } from 'crypto';
 
 import type { Tournament } from '@/bot/@types/tournament.js';
 import type { TournamentParticipant } from '@/bot/@types/tournament.js';
-import { validateDoubleEliminationSize } from '@/shared/tournament/tournamentOptions.js';
+import {
+  validateDoubleEliminationSize,
+  winScoreForStageDistance,
+} from '@/shared/tournament/tournamentOptions.js';
+import type { IStageWinScores } from '@/shared/tournament/tournamentOptions.js';
 import { groupLetter } from '@/utils/constants.js';
 
 export interface BracketMatch {
@@ -258,8 +262,9 @@ export function generateDoubleEliminationBracket(
   const mergeRound = Math.max(2, Math.min(options?.mergeRound ?? 2, k));
 
   const seedPositions = generateSeedPositions(bracketSize);
-  const allSlots: (TournamentParticipant | null)[] = seedPositions.map((seed) =>
-    seed <= participants.length ? participants[seed - 1] ?? null : null,
+  const allSlots: (TournamentParticipant | null)[] = seedPositions.map(
+    (seed) =>
+      seed <= participants.length ? (participants[seed - 1] ?? null) : null,
   );
 
   const allMatches: BracketMatch[] = [];
@@ -369,7 +374,11 @@ export function generateDoubleEliminationBracket(
     const cur = need(upperRounds[r], `upper round ${String(r)}`);
     const next = need(upperRounds[r + 1], `upper round ${String(r + 1)}`);
     cur.forEach((m, i) => {
-      link(m, need(next[Math.floor(i / 2)], 'upper target'), i % 2 === 0 ? 'player1' : 'player2');
+      link(
+        m,
+        need(next[Math.floor(i / 2)], 'upper target'),
+        i % 2 === 0 ? 'player1' : 'player2',
+      );
     });
   }
   // Upper round M -> merge round M+1 (1:1, as player1).
@@ -391,9 +400,16 @@ export function generateDoubleEliminationBracket(
     });
     if (j < mergeRound - 1) {
       // major_j -> minor_(j+1) (pairs).
-      const nextMinor = need(losersRounds[2 * (j + 1) - 1], `LB minor ${String(j + 1)}`);
+      const nextMinor = need(
+        losersRounds[2 * (j + 1) - 1],
+        `LB minor ${String(j + 1)}`,
+      );
       major.forEach((m, i) => {
-        link(m, need(nextMinor[Math.floor(i / 2)], 'LB minor target'), i % 2 === 0 ? 'player1' : 'player2');
+        link(
+          m,
+          need(nextMinor[Math.floor(i / 2)], 'LB minor target'),
+          i % 2 === 0 ? 'player1' : 'player2',
+        );
       });
     } else {
       // Final LB major -> merge round M+1 (1:1, as player2).
@@ -409,7 +425,11 @@ export function generateDoubleEliminationBracket(
     const cur = need(mergeRounds[mr], `merge round ${String(mr)}`);
     const next = need(mergeRounds[mr + 1], `merge round ${String(mr + 1)}`);
     cur.forEach((m, i) => {
-      link(m, need(next[Math.floor(i / 2)], 'merge target'), i % 2 === 0 ? 'player1' : 'player2');
+      link(
+        m,
+        need(next[Math.floor(i / 2)], 'merge target'),
+        i % 2 === 0 ? 'player1' : 'player2',
+      );
     });
   }
 
@@ -419,7 +439,11 @@ export function generateDoubleEliminationBracket(
     const cur = need(upperRounds[1], 'upper round 1');
     const target = need(losersRounds[1], 'LB minor 1');
     cur.forEach((m, i) => {
-      linkLoser(m, need(target[Math.floor(i / 2)], 'LB drop target'), i % 2 === 0 ? 'player1' : 'player2');
+      linkLoser(
+        m,
+        need(target[Math.floor(i / 2)], 'LB drop target'),
+        i % 2 === 0 ? 'player1' : 'player2',
+      );
     });
   }
   // Upper round r losers (2<=r<=M) -> LB major_(r-1) (1:1, as player2).
@@ -504,7 +528,9 @@ function markNextMatchSlotAsWalkover(
   currentMatch: BracketMatch,
 ): void {
   if (currentMatch.nextMatchId === undefined) return;
-  const nextMatch = matches.find((m) => m.position === currentMatch.nextMatchId);
+  const nextMatch = matches.find(
+    (m) => m.position === currentMatch.nextMatchId,
+  );
   if (!nextMatch) return;
   if (currentMatch.nextMatchPosition === 'player1') {
     nextMatch.player1IsWalkover = true;
@@ -849,6 +875,58 @@ export function getBracketStats(
 }
 
 /**
+ * The last playoff round present in a generated bracket, i.e. the round of the
+ * final. Only the winners side counts: the DE losers bracket runs on its own
+ * numbering and never contains the final.
+ *
+ * Derived from the bracket itself rather than from `maxParticipants`, so it is
+ * correct whatever the actual turnout, and for double elimination whatever the
+ * `mergeRound` (the last winners round is the grand final either way).
+ *
+ * Returns null when the bracket has no playoff winners matches at all (the
+ * group phase of groups_playoff, generated as its own batch).
+ */
+export function lastPlayoffWinnersRound(
+  bracket: Pick<BracketMatch, 'round' | 'bracketType' | 'phase'>[],
+): number | null {
+  let max: number | null = null;
+  for (const match of bracket) {
+    if ((match.phase ?? 'playoff') !== 'playoff') continue;
+    if (match.bracketType === 'losers') continue;
+    if (max === null || match.round > max) max = match.round;
+  }
+  return max;
+}
+
+/**
+ * Effective win score for one generated match, given the tournament's baseline
+ * and its per-stage overrides. Returns null when the match takes the
+ * tournament's own `winScore` — which is what gets stored in `matches.winScore`,
+ * so a null there always means "fall back to the tournament".
+ *
+ * Only the playoff winners side can be overridden (see `stageWinScores` on the
+ * tournaments schema); group tours, round robin and the DE losers bracket
+ * always return null.
+ */
+export function stageWinScoreForMatch(
+  match: Pick<BracketMatch, 'round' | 'bracketType' | 'phase'>,
+  lastWinnersRound: number | null,
+  tournamentWinScore: number,
+  stageWinScores: IStageWinScores | null | undefined,
+): number | null {
+  if (stageWinScores == null || lastWinnersRound === null) return null;
+  if ((match.phase ?? 'playoff') !== 'playoff') return null;
+  if (match.bracketType === 'losers') return null;
+
+  const resolved = winScoreForStageDistance(
+    lastWinnersRound - match.round,
+    tournamentWinScore,
+    stageWinScores,
+  );
+  return resolved === tournamentWinScore ? null : resolved;
+}
+
+/**
  * Get round name for display
  */
 export function getRoundName(
@@ -882,8 +960,7 @@ export function getRoundName(
     if (round === totalRounds && m === k) return 'Гранд-финал';
     if (round === m + 1 && round !== totalRounds) return 'Объединение';
     // Name by the number of matches in the round.
-    const matchCount =
-      round <= m ? 2 ** (k - round) : 2 ** (k - round + 1);
+    const matchCount = round <= m ? 2 ** (k - round) : 2 ** (k - round + 1);
     if (matchCount <= 1) return 'Финал';
     if (matchCount === 2) return 'Полуфинал';
     return `1/${String(matchCount)} финала`;

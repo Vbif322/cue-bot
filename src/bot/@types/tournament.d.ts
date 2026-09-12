@@ -51,6 +51,10 @@ export interface ApiPlayerStanding {
   framesWon: number;
   framesLost: number;
   frameDiff: number;
+  /** Points scored/conceded across the player's group frames; 0 when no frame data. */
+  pointsWon: number;
+  pointsLost: number;
+  pointsDiff: number;
   username: string | null;
   name: string | null;
   /** Mathematically guaranteed a top-`qualifiersPerGroup` finish in the group. */
@@ -62,4 +66,7 @@ export interface ApiPlayerStanding {
 export interface ApiGroupStanding {
   groupIndex: number;
   rows: ApiPlayerStanding[];
+  /** Every completed non-walkover match of the group has a frame breakdown, so
+   *  `pointsDiff` is comparable and worth showing. */
+  pointsComplete: boolean;
 }

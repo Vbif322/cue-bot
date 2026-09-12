@@ -11,6 +11,8 @@ import {
   winScores,
   groupsCountOptions,
   participantsPerGroupOptions,
+  matchLengthStages,
+  MATCH_LENGTH_STAGE_LABELS,
 } from '@/db/schema/tournaments.js';
 
 const kbds = new TournamentCreationKeyboards();
@@ -24,8 +26,12 @@ const TABLE_1 = '00000000-0000-0000-0000-000000000001';
 const TABLE_2 = '00000000-0000-0000-0000-000000000002';
 
 /** Flatten an InlineKeyboard into a list of {text, data} buttons. */
-const buttons = (kb: { inline_keyboard: { text: string; callback_data?: string }[][] }) =>
-  kb.inline_keyboard.flat().map((b) => ({ text: b.text, data: b.callback_data }));
+const buttons = (kb: {
+  inline_keyboard: { text: string; callback_data?: string }[][];
+}) =>
+  kb.inline_keyboard
+    .flat()
+    .map((b) => ({ text: b.text, data: b.callback_data }));
 
 describe('TournamentCreationKeyboards', () => {
   it('buildVenuesKeyboard: one button per venue with tc:venue:<id> callback', () => {
@@ -57,9 +63,7 @@ describe('TournamentCreationKeyboards', () => {
 
   it('buildSportKeyboard: one button per sport with tc:sport:<s>', () => {
     const btns = buttons(kbds.buildSportKeyboard());
-    expect(btns.map((b) => b.data)).toEqual(
-      sports.map((s) => `tc:sport:${s}`),
-    );
+    expect(btns.map((b) => b.data)).toEqual(sports.map((s) => `tc:sport:${s}`));
     expect(btns.map((b) => b.text)).toEqual([
       'Снукер',
       'Пул',
@@ -89,6 +93,38 @@ describe('TournamentCreationKeyboards', () => {
     expect(btns.map((b) => b.data)).toEqual(
       maxParticipants.map((v) => `tc:participants:${String(v)}`),
     );
+  });
+
+  it('buildStageWinScoresKeyboard: a caption + reset + one button per win score, per stage', () => {
+    const btns = buttons(kbds.buildStageWinScoresKeyboard({}, 3));
+
+    for (const stage of matchLengthStages) {
+      expect(btns).toContainEqual({
+        text: MATCH_LENGTH_STAGE_LABELS[stage],
+        data: 'tc:swsc_noop',
+      });
+      // The reset button carries value 0 and shows the tournament default.
+      expect(btns).toContainEqual({ text: '✅ 3', data: `tc:swsc:${stage}:0` });
+      for (const v of winScores) {
+        expect(btns).toContainEqual({
+          text: String(v),
+          data: `tc:swsc:${stage}:${String(v)}`,
+        });
+      }
+    }
+
+    expect(btns.map((b) => b.data)).toEqual(
+      expect.arrayContaining(['tc:swsc_done', 'tc:swsc_skip']),
+    );
+  });
+
+  it('buildStageWinScoresKeyboard: marks the chosen value and unmarks the reset', () => {
+    const btns = buttons(kbds.buildStageWinScoresKeyboard({ final: 5 }, 3));
+
+    expect(btns).toContainEqual({ text: '✅ 5', data: 'tc:swsc:final:5' });
+    expect(btns).toContainEqual({ text: '—', data: 'tc:swsc:final:0' });
+    // Untouched stages still show the tournament default as selected.
+    expect(btns).toContainEqual({ text: '✅ 3', data: 'tc:swsc:semifinal:0' });
   });
 
   it('buildWinScoreKeyboard: one button per allowed win score', () => {
@@ -124,7 +160,10 @@ describe('TournamentCreationKeyboards', () => {
 
   it('buildGroupDrawKeyboard: snake and random options', () => {
     const btns = buttons(kbds.buildGroupDrawKeyboard());
-    expect(btns.map((b) => b.data)).toEqual(['tc:draw:snake', 'tc:draw:random']);
+    expect(btns.map((b) => b.data)).toEqual([
+      'tc:draw:snake',
+      'tc:draw:random',
+    ]);
   });
 
   it('buildTablesKeyboard: marks selected tables and adds control buttons', () => {
@@ -136,10 +175,20 @@ describe('TournamentCreationKeyboards', () => {
       [TABLE_1],
     );
     const btns = buttons(kb);
-    expect(btns).toContainEqual({ text: '✅ Table 1', data: `tc:tables_toggle:${TABLE_1}` });
-    expect(btns).toContainEqual({ text: '⬜ Table 2', data: `tc:tables_toggle:${TABLE_2}` });
+    expect(btns).toContainEqual({
+      text: '✅ Table 1',
+      data: `tc:tables_toggle:${TABLE_1}`,
+    });
+    expect(btns).toContainEqual({
+      text: '⬜ Table 2',
+      data: `tc:tables_toggle:${TABLE_2}`,
+    });
     expect(btns.map((b) => b.data)).toEqual(
-      expect.arrayContaining(['tc:tables_done', 'tc:tables_skip', 'tc:tables_all']),
+      expect.arrayContaining([
+        'tc:tables_done',
+        'tc:tables_skip',
+        'tc:tables_all',
+      ]),
     );
   });
 

@@ -24,6 +24,7 @@ import {
   setTechnicalResult,
   setMatchSchedule,
   startMatch,
+  winScoreForMatch,
   type FrameInput,
 } from '@/services/matchService.js';
 import { sportOfDiscipline } from '@/shared/tournament/disciplines.js';
@@ -129,7 +130,7 @@ function buildFrameEntryView(
 
   let text = `📝 *Внесение результата (по фреймам)*\n\n`;
   text += `${player1} vs ${player2}\n`;
-  text += `Игра до: ${String(tournament.winScore)} побед\n\n`;
+  text += `Игра до: ${String(winScoreForMatch(match, tournament))} побед\n\n`;
   if (errorLine) text += `⚠️ ${errorLine}\n\n`;
 
   if (state.frames.length > 0) {
@@ -156,7 +157,7 @@ function buildFrameEntryView(
     const who = formatPlayerName(whoParts, { link: false });
     text += `Введите макс. брейк для *${who}* (фрейм ${String(state.awaitingBreak.frameIndex + 1)}) числом:`;
   } else {
-    const decided = Math.max(p1, p2) >= tournament.winScore;
+    const decided = Math.max(p1, p2) >= winScoreForMatch(match, tournament);
     if (decided) {
       text += `Счёт достигнут (${String(p1)} : ${String(p2)}). Добавьте макс. брейки при необходимости и нажмите «Завершить».`;
       keyboard
@@ -694,7 +695,7 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
     return;
   }
 
-  const winScore = tournament.winScore;
+  const winScore = winScoreForMatch(match, tournament);
   const player1 = formatPlayerName({
     username: match.player1Username ?? null,
     name: match.player1Name,
@@ -887,7 +888,7 @@ matchCommands.on('message:text', async (ctx, next) => {
   // further frame would break `deriveFrameResult`'s exact-`winScore` invariant.
   // Let the reporter add breaks / press «Завершить» or undo the last frame.
   const decided = tallyFrames(state.frames);
-  if (Math.max(decided.p1, decided.p2) >= tournament.winScore) {
+  if (Math.max(decided.p1, decided.p2) >= winScoreForMatch(match, tournament)) {
     await renderFramePrompt(
       ctx.api,
       state,
@@ -944,7 +945,7 @@ matchCommands.callbackQuery(/^match:frame:finish:(.+)$/, async (ctx) => {
   // Guard against a stale click (e.g. the last frame was undone): only submit
   // when the match is actually decided; otherwise just re-render the prompt.
   const { p1, p2 } = tallyFrames(state.frames);
-  if (Math.max(p1, p2) < tournament.winScore) {
+  if (Math.max(p1, p2) < winScoreForMatch(match, tournament)) {
     await renderFramePrompt(ctx.api, state, match, tournament);
     return;
   }
@@ -989,7 +990,12 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   const matchIdUUID = matchId as UUID;
   const userId = ctx.dbUser.id;
 
-  const result = await confirmResult(matchIdUUID, userId, undefined, isAdmin(ctx));
+  const result = await confirmResult(
+    matchIdUUID,
+    userId,
+    undefined,
+    isAdmin(ctx),
+  );
 
   if (!result.success) {
     await ctx.answerCallbackQuery({

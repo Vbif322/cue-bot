@@ -14,6 +14,7 @@ import {
   formatLabel,
   isEliminationFormat,
   fillPercent,
+  formatStageWinScores,
 } from '../lib/format.ts';
 import { Avatar, ErrorBox, Loader, ProgressBar } from '../components/ui.tsx';
 import { Btn } from '../components/controls.tsx';
@@ -46,12 +47,26 @@ function MetaCard({ label, value }: { label: string; value: string }) {
       >
         {label}
       </span>
-      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>{value}</span>
+      <span
+        style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: 'var(--text-secondary)',
+        }}
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
-function ParticipantChip({ person, you }: { person?: AppParticipant; you?: boolean }) {
+function ParticipantChip({
+  person,
+  you,
+}: {
+  person?: AppParticipant;
+  you?: boolean;
+}) {
   const name = you ? 'Вы' : displayName(person);
   return (
     <div
@@ -60,7 +75,9 @@ function ParticipantChip({ person, you }: { person?: AppParticipant; you?: boole
         alignItems: 'center',
         gap: 9,
         background: you ? 'var(--accent-subtle-bg)' : 'var(--surface-inset)',
-        border: you ? '1px solid var(--accent-border)' : '1px solid var(--border-subtle)',
+        border: you
+          ? '1px solid var(--accent-border)'
+          : '1px solid var(--border-subtle)',
         borderRadius: 999,
         padding: '5px 14px 5px 5px',
       }}
@@ -73,7 +90,12 @@ function ParticipantChip({ person, you }: { person?: AppParticipant; you?: boole
         size={32}
       />
       <span
-        style={{ fontSize: 14, color: you ? 'var(--text-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap', fontWeight: you ? 600 : 400 }}
+        style={{
+          fontSize: 14,
+          color: you ? 'var(--text-primary)' : 'var(--text-secondary)',
+          whiteSpace: 'nowrap',
+          fontWeight: you ? 600 : 400,
+        }}
       >
         {name}
       </span>
@@ -100,13 +122,28 @@ function RegistrationCta({
     qc.invalidateQueries({ queryKey: ['tournaments'] });
     qc.invalidateQueries({ queryKey: ['me', 'tournaments'] });
   };
-  const registerMut = useMutation({ mutationFn: () => tournamentsApi.register(id), onSuccess: invalidate });
-  const cancelMut = useMutation({ mutationFn: () => tournamentsApi.cancel(id), onSuccess: invalidate });
-  const acceptMut = useMutation({ mutationFn: () => tournamentsApi.acceptInvitation(id), onSuccess: invalidate });
-  const declineMut = useMutation({ mutationFn: () => tournamentsApi.declineInvitation(id), onSuccess: invalidate });
+  const registerMut = useMutation({
+    mutationFn: () => tournamentsApi.register(id),
+    onSuccess: invalidate,
+  });
+  const cancelMut = useMutation({
+    mutationFn: () => tournamentsApi.cancel(id),
+    onSuccess: invalidate,
+  });
+  const acceptMut = useMutation({
+    mutationFn: () => tournamentsApi.acceptInvitation(id),
+    onSuccess: invalidate,
+  });
+  const declineMut = useMutation({
+    mutationFn: () => tournamentsApi.declineInvitation(id),
+    onSuccess: invalidate,
+  });
 
   const busy =
-    registerMut.isPending || cancelMut.isPending || acceptMut.isPending || declineMut.isPending;
+    registerMut.isPending ||
+    cancelMut.isPending ||
+    acceptMut.isPending ||
+    declineMut.isPending;
   const err =
     registerMut.error?.message ||
     cancelMut.error?.message ||
@@ -124,7 +161,10 @@ function RegistrationCta({
 
   if (!authed) {
     cta = (
-      <Btn block onClick={() => nav('/login', { state: { from: `/tournaments/${id}` } })}>
+      <Btn
+        block
+        onClick={() => nav('/login', { state: { from: `/tournaments/${id}` } })}
+      >
         Войти для регистрации
       </Btn>
     );
@@ -135,7 +175,11 @@ function RegistrationCta({
         <Btn block disabled={busy} onClick={() => acceptMut.mutate()}>
           Принять приглашение
         </Btn>
-        <Btn variant="danger" disabled={busy} onClick={() => declineMut.mutate()}>
+        <Btn
+          variant="danger"
+          disabled={busy}
+          onClick={() => declineMut.mutate()}
+        >
           Отклонить
         </Btn>
       </div>
@@ -151,11 +195,19 @@ function RegistrationCta({
       helper = 'Турнир идёт — отменить участие уже нельзя.';
     } else {
       cta = (
-        <Btn block variant="danger" disabled={busy} onClick={() => cancelMut.mutate()}>
+        <Btn
+          block
+          variant="danger"
+          disabled={busy}
+          onClick={() => cancelMut.mutate()}
+        >
           {cancelMut.isPending ? 'Отмена…' : 'Отменить регистрацию'}
         </Btn>
       );
-      helper = ps === 'confirmed' ? 'Вы в списке участников.' : 'Заявка ожидает подтверждения.';
+      helper =
+        ps === 'confirmed'
+          ? 'Вы в списке участников.'
+          : 'Заявка ожидает подтверждения.';
     }
   } else if (ps === 'disqualified') {
     cta = (
@@ -199,16 +251,44 @@ function RegistrationCta({
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+        <div
+          style={{
+            fontSize: 28,
+            fontWeight: 700,
+            lineHeight: 1,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
           {t.confirmedCount}
-          <span style={{ fontSize: 18, color: 'var(--text-faint)', fontWeight: 600 }}> / {t.maxParticipants}</span>
+          <span
+            style={{
+              fontSize: 18,
+              color: 'var(--text-faint)',
+              fontWeight: 600,
+            }}
+          >
+            {' '}
+            / {t.maxParticipants}
+          </span>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>участников зарегистрировано</div>
+        <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+          участников зарегистрировано
+        </div>
       </div>
       <ProgressBar percent={fillPercent(t.confirmedCount, t.maxParticipants)} />
       {err && <ErrorBox message={err} />}
       {cta}
-      {helper && <div style={{ fontSize: 12, color: 'var(--text-faint)', textAlign: 'center' }}>{helper}</div>}
+      {helper && (
+        <div
+          style={{
+            fontSize: 12,
+            color: 'var(--text-faint)',
+            textAlign: 'center',
+          }}
+        >
+          {helper}
+        </div>
+      )}
     </div>
   );
 }
@@ -219,7 +299,11 @@ export default function TournamentPage() {
   const myId = me?.user?.id ?? null;
   const authed = !!me?.user;
 
-  const { data: detail, isLoading, error } = useQuery({
+  const {
+    data: detail,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['tournament', id],
     queryFn: () => tournamentsApi.get(id),
   });
@@ -249,7 +333,9 @@ export default function TournamentPage() {
   const others = (participants ?? []).filter((p) => p.userId !== myId);
   const shown = others.slice(0, MAX_SHOWN);
   const overflow = others.length - shown.length;
-  const bracketLinkLabel = isEliminationFormat(t.format) ? 'Смотреть сетку турнира' : 'Смотреть таблицу турнира';
+  const bracketLinkLabel = isEliminationFormat(t.format)
+    ? 'Смотреть сетку турнира'
+    : 'Смотреть таблицу турнира';
 
   return (
     <div
@@ -263,12 +349,27 @@ export default function TournamentPage() {
         gap: 24,
       }}
     >
-      <Link to="/" style={{ fontSize: 13, color: 'var(--text-faint)', textDecoration: 'none', width: 'fit-content' }}>
+      <Link
+        to="/"
+        style={{
+          fontSize: 13,
+          color: 'var(--text-faint)',
+          textDecoration: 'none',
+          width: 'fit-content',
+        }}
+      >
         ← Все турниры
       </Link>
 
       <header style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
+        >
           <span
             style={{
               fontSize: 11,
@@ -282,16 +383,33 @@ export default function TournamentPage() {
           </span>
           <TournamentStatusBadge status={t.status} />
         </div>
-        <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.12, fontWeight: 700, letterSpacing: '-0.02em' }}>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 28,
+            lineHeight: 1.12,
+            fontWeight: 700,
+            letterSpacing: '-0.02em',
+          }}
+        >
           {t.name}
         </h1>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 2 }}>
+        <div
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 2 }}
+        >
           <MetaCard
             label="Дата"
             value={t.startDate ? formatDateTime(t.startDate) : 'не назначена'}
           />
           <MetaCard label="Формат" value={formatLabel(t.format)} />
-          <MetaCard label="Матчи" value={`до ${t.winScore} побед`} />
+          <MetaCard
+            label="Матчи"
+            value={
+              formatStageWinScores(t.stageWinScores)
+                ? `до ${t.winScore} побед · ${formatStageWinScores(t.stageWinScores)}`
+                : `до ${t.winScore} побед`
+            }
+          />
         </div>
       </header>
 
@@ -311,12 +429,28 @@ export default function TournamentPage() {
             Описание
           </div>
           {t.description && (
-            <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 15,
+                lineHeight: 1.6,
+                color: 'var(--text-secondary)',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
               {t.description}
             </p>
           )}
           {t.rules && (
-            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 14,
+                lineHeight: 1.6,
+                color: 'var(--text-muted)',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
               {t.rules}
             </p>
           )}
@@ -336,7 +470,9 @@ export default function TournamentPage() {
           >
             Участники
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>{t.confirmedCount}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-disabled)' }}>
+            {t.confirmedCount}
+          </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           {detail.isParticipant && <ParticipantChip you />}
@@ -371,11 +507,15 @@ export default function TournamentPage() {
               >
                 +{overflow}
               </span>
-              <span style={{ fontSize: 14, color: 'var(--text-faint)' }}>ещё {overflow}</span>
+              <span style={{ fontSize: 14, color: 'var(--text-faint)' }}>
+                ещё {overflow}
+              </span>
             </div>
           )}
           {others.length === 0 && !detail.isParticipant && (
-            <div style={{ fontSize: 14, color: 'var(--text-faint)' }}>Пока никто не зарегистрировался.</div>
+            <div style={{ fontSize: 14, color: 'var(--text-faint)' }}>
+              Пока никто не зарегистрировался.
+            </div>
           )}
         </div>
       </section>
@@ -399,8 +539,18 @@ export default function TournamentPage() {
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{bracketLinkLabel}</span>
-            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Сетка сформирована</span>
+            <span
+              style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+              }}
+            >
+              {bracketLinkLabel}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+              Сетка сформирована
+            </span>
           </div>
           <span style={{ fontSize: 20, color: 'var(--color-primary)' }}>→</span>
         </Link>
@@ -417,10 +567,18 @@ export default function TournamentPage() {
             gap: 2,
           }}
         >
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-muted)' }}>
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--text-muted)',
+            }}
+          >
             Сетка ещё не сформирована
           </span>
-          <span style={{ fontSize: 12, color: 'var(--text-disabled)' }}>Появится после закрытия регистрации.</span>
+          <span style={{ fontSize: 12, color: 'var(--text-disabled)' }}>
+            Появится после закрытия регистрации.
+          </span>
         </div>
       )}
     </div>

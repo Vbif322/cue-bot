@@ -1,5 +1,5 @@
 import type { UUID } from 'crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
 import { matches, matchFrames } from '@/db/schema.js';
@@ -24,7 +24,10 @@ export async function getGroupStandings(
   const groupMatches = allMatches.filter((m) => m.phase === 'group');
   if (groupMatches.length === 0) return [];
 
-  const participants = await getConfirmedParticipantsBySeed(tournamentId);
+  const [participants, pointsByMatch] = await Promise.all([
+    getConfirmedParticipantsBySeed(tournamentId),
+    getGroupFramePoints(tournamentId),
+  ]);
   const seedById = new Map<UUID, number | null>(
     participants.map((p) => [p.userId, p.seed]),
   );
@@ -46,17 +49,62 @@ export async function getGroupStandings(
       userId,
       seed: seedById.get(userId) ?? null,
     }));
-    matchesByGroup[g] = gMatches.map((m) => ({
-      player1Id: m.player1Id,
-      player2Id: m.player2Id,
-      winnerId: m.winnerId,
-      player1Score: m.player1Score,
-      player2Score: m.player2Score,
-      status: m.status,
-    }));
+    matchesByGroup[g] = gMatches.map((m) => {
+      const pts = pointsByMatch.get(m.id);
+      return {
+        player1Id: m.player1Id,
+        player2Id: m.player2Id,
+        winnerId: m.winnerId,
+        player1Score: m.player1Score,
+        player2Score: m.player2Score,
+        status: m.status,
+        player1Points: pts?.player1Points ?? null,
+        player2Points: pts?.player2Points ?? null,
+      };
+    });
   }
 
   return computeAllStandings(membersByGroup, matchesByGroup);
+}
+
+export interface MatchFramePoints {
+  player1Points: number;
+  player2Points: number;
+}
+
+/**
+ * Per-match sums of frame points across the tournament's group phase (snooker).
+ * Only matches that actually have frame rows appear in the map — an absent key is
+ * the signal that the match has no per-frame breakdown (non-snooker, aggregate
+ * report, walkover/technical, or an admin correction, which deletes the frames).
+ *
+ * No status filter: `computeGroupStanding` only counts completed matches, so rows
+ * for a still-pending match are inert.
+ */
+export async function getGroupFramePoints(
+  tournamentId: UUID,
+): Promise<Map<UUID, MatchFramePoints>> {
+  const rows = await db
+    .select({
+      matchId: matchFrames.matchId,
+      // sum(int4) is bigint in Postgres, which node-postgres hands back as a
+      // string — the ::int cast is what makes the `sql<number>` annotation true.
+      player1Points: sql<number>`sum(${matchFrames.player1Points})::int`,
+      player2Points: sql<number>`sum(${matchFrames.player2Points})::int`,
+    })
+    .from(matchFrames)
+    .innerJoin(matches, eq(matchFrames.matchId, matches.id))
+    .where(
+      and(eq(matches.tournamentId, tournamentId), eq(matches.phase, 'group')),
+    )
+    .groupBy(matchFrames.matchId);
+
+  return new Map(
+    rows.map((r) => [
+      r.matchId,
+      { player1Points: r.player1Points, player2Points: r.player2Points },
+    ]),
+  );
 }
 
 /**
