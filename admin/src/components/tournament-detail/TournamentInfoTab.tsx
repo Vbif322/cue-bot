@@ -1,5 +1,6 @@
 import type { ApiTournament, ApiTable } from '../../lib/api.ts';
 import { TournamentStatusBadge, InfoRow } from '@cue-bot/ui';
+import { formatStageWinScores } from '@server/apiTypes';
 import {
   VISIBILITY_LABELS,
   SCHEDULE_MODE_LABELS,
@@ -56,6 +57,12 @@ export default function TournamentInfoTab({
         />
       )}
       <InfoRow label="Win score" value={String(tournament.winScore)} />
+      {formatStageWinScores(tournament.stageWinScores) && (
+        <InfoRow
+          label="Длина по стадиям"
+          value={String(formatStageWinScores(tournament.stageWinScores))}
+        />
+      )}
       {tournament.startDate && (
         <InfoRow
           label="Дата начала"

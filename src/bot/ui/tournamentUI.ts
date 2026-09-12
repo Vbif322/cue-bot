@@ -10,6 +10,8 @@ import {
 import { db } from '@/db/db.js';
 import { tournamentParticipants } from '@/db/schema.js';
 import type { ParticipantStatus } from '@/db/schema.js';
+import { formatStageWinScores } from '@/shared/tournament/tournamentOptions.js';
+import type { IStageWinScores } from '@/shared/tournament/tournamentOptions.js';
 import { getParticipantsCount } from '@/services/tournamentService.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
@@ -29,6 +31,7 @@ export interface TournamentInfo {
   maxParticipants: number;
   startDate: Date | null;
   winScore: number;
+  stageWinScores: IStageWinScores | null;
   description: string | null;
   participantsCount: number;
   userParticipationStatus: 'pending' | 'confirmed' | null;
@@ -86,6 +89,7 @@ export async function getTournamentInfo(
     maxParticipants: number;
     startDate: Date | null;
     winScore: number;
+    stageWinScores: IStageWinScores | null;
     description: string | null;
   },
   userId: UUID,
@@ -123,6 +127,9 @@ export function buildTournamentMessage(
     `Участников: ${String(info.participantsCount)}/${String(info.maxParticipants)}\n` +
     `Дата: ${info.startDate ? DateTimeHelperInstance.formatDate(info.startDate) : 'Не указана'}\n` +
     `Игра до: ${String(info.winScore)} побед\n` +
+    (formatStageWinScores(info.stageWinScores)
+      ? `Длина по стадиям: ${String(formatStageWinScores(info.stageWinScores))}\n`
+      : '') +
     (info.description ? `\nОписание: ${info.description}\n` : '') +
     (info.isInvited
       ? '\n📨 Вас пригласили в этот турнир'
@@ -147,8 +154,7 @@ export function buildTournamentListItemCompact(
   info: TournamentInfo,
   isAdmin: boolean,
 ): string {
-  const status =
-    STATUS_LABELS[info.status] ?? info.status;
+  const status = STATUS_LABELS[info.status] ?? info.status;
   const date = info.startDate
     ? ` · ${DateTimeHelperInstance.formatDate(info.startDate)}`
     : '';

@@ -39,7 +39,8 @@ export function initials(p: NameParts | null | undefined): string {
   if (!p) return '?';
   if (p.name) {
     const first = p.name.trim()[0] ?? '';
-    const second = p.surname?.trim()[0] ?? p.name.trim().split(/\s+/)[1]?.[0] ?? '';
+    const second =
+      p.surname?.trim()[0] ?? p.name.trim().split(/\s+/)[1]?.[0] ?? '';
     return (first + second).toUpperCase() || '?';
   }
   if (p.username) return p.username.slice(0, 2).toUpperCase();
@@ -101,7 +102,9 @@ export function isEliminationFormat(format: string): boolean {
 
 /** Латинская буква группы: 0 → A. */
 export function groupLetter(index: number): string {
-  return index >= 0 && index < 26 ? String.fromCharCode(65 + index) : `#${index + 1}`;
+  return index >= 0 && index < 26
+    ? String.fromCharCode(65 + index)
+    : `#${index + 1}`;
 }
 
 /**
@@ -114,6 +117,33 @@ export function roundLabel(round: number, totalRounds: number): string {
   if (fromEnd === 1) return 'Полуфинал';
   const size = Math.pow(2, fromEnd);
   return `1/${size} финала`;
+}
+
+/**
+ * Описание длины закрывающих матчей сетки: «Финал — до 5, Полуфинал — до 4».
+ * null, если переопределений нет. Метки держим в синхроне с
+ * MATCH_LENGTH_STAGE_LABELS (src/shared/tournament/tournamentOptions.ts) —
+ * app-слой презентационный и не тянет бэкенд-модули (см. lib/types.ts).
+ */
+const STAGE_LABELS_FROM_END: [keyof StageWinScores, string][] = [
+  ['final', 'Финал'],
+  ['semifinal', 'Полуфинал'],
+  ['quarterfinal', '1/4 финала'],
+];
+
+type StageWinScores = Partial<
+  Record<'final' | 'semifinal' | 'quarterfinal', number>
+>;
+
+export function formatStageWinScores(
+  stageWinScores: StageWinScores | null | undefined,
+): string | null {
+  if (!stageWinScores) return null;
+  const parts = STAGE_LABELS_FROM_END.flatMap(([stage, label]) => {
+    const value = stageWinScores[stage];
+    return value === undefined ? [] : [`${label} — до ${value}`];
+  });
+  return parts.length > 0 ? parts.join(', ') : null;
 }
 
 /** «X / max» участников. */

@@ -3,6 +3,7 @@ import type { UUID } from 'crypto';
 import { describe, expect, it } from 'vitest';
 
 import {
+  computeAllStandings,
   computeGroupStanding,
   selectQualifiers,
   clinchedUserIds,
@@ -28,6 +29,21 @@ function game(p1: string, p2: string, s1: number, s2: number): StandingMatch {
     player2Score: s2,
     status: 'completed',
   };
+}
+
+/**
+ * Completed match reported frame-by-frame: aggregate frame counts PLUS the summed
+ * frame points that `match_frames` would yield.
+ */
+function frameGame(
+  p1: string,
+  p2: string,
+  s1: number,
+  s2: number,
+  q1: number,
+  q2: number,
+): StandingMatch {
+  return { ...game(p1, p2, s1, s2), player1Points: q1, player2Points: q2 };
 }
 
 /** Order of userIds, best-first (UUID is a string subtype, so compare as strings). */
@@ -112,6 +128,108 @@ describe('computeGroupStanding', () => {
     expect(g.rows.every((r) => r.played === 0)).toBe(true);
   });
 
+  it('leaves points at zero and the gate closed without frame data', () => {
+    const g = computeGroupStanding(0, members, [
+      game('a', 'c', 3, 0),
+      game('b', 'c', 3, 1),
+    ]);
+    expect(g.pointsComplete).toBe(false);
+    expect(g.rows.every((r) => r.pointsWon === 0 && r.pointsLost === 0)).toBe(
+      true,
+    );
+    // Unchanged pre-M2-8 order: frame difference decides.
+    expect(order(g)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('breaks a tie by points difference when frame difference is equal', () => {
+    const four = [member('a', 1), member('b', 2), member('c', 3), member('d', 4)];
+    // a and b both win 3-1 (frame diff +2, frames won 3), no head-to-head.
+    // b outscored its opponent by more points → b above a despite the better seed.
+    const g = computeGroupStanding(0, four, [
+      frameGame('a', 'c', 3, 1, 300, 250), // a +50
+      frameGame('b', 'd', 3, 1, 400, 200), // b +200
+    ]);
+    expect(g.pointsComplete).toBe(true);
+    expect(order(g).slice(0, 2)).toEqual(['b', 'a']);
+  });
+
+  it('applies points AFTER frame difference, BEFORE frames won', () => {
+    const four = [member('a', 1), member('b', 2), member('c', 3), member('d', 4)];
+    // Frame diff equal (+2). framesWon alone would put a (5) above b (3);
+    // points put b above a. Points must win → b first.
+    const g = computeGroupStanding(0, four, [
+      frameGame('a', 'c', 5, 3, 400, 390), // a +10, frames won 5
+      frameGame('b', 'd', 3, 1, 400, 100), // b +300, frames won 3
+    ]);
+    expect(order(g).slice(0, 2)).toEqual(['b', 'a']);
+
+    // Frame difference still outranks points: a's +3 beats b's +2 regardless.
+    const g2 = computeGroupStanding(0, four, [
+      frameGame('a', 'c', 3, 0, 300, 290), // frame diff +3, points +10
+      frameGame('b', 'd', 3, 1, 400, 100), // frame diff +2, points +300
+    ]);
+    expect(order(g2).slice(0, 2)).toEqual(['a', 'b']);
+  });
+
+  it('closes the gate when one real match lacks frames, restoring the old order', () => {
+    const four = [member('a', 1), member('b', 2), member('c', 3), member('d', 4)];
+    // Same shape as the "after frame difference" case, but b's match was reported
+    // as an aggregate score → points are not comparable, so framesWon decides and
+    // a (5 frames won) goes above b (3).
+    const g = computeGroupStanding(0, four, [
+      frameGame('a', 'c', 5, 3, 400, 390),
+      game('b', 'd', 3, 1),
+    ]);
+    expect(g.pointsComplete).toBe(false);
+    expect(order(g).slice(0, 2)).toEqual(['a', 'b']);
+  });
+
+  it('keeps the gate open across a structural walkover', () => {
+    const walkover: StandingMatch = {
+      player1Id: u('a'),
+      player2Id: null,
+      winnerId: u('a'),
+      player1Score: null,
+      player2Score: null,
+      status: 'completed',
+    };
+    const g = computeGroupStanding(0, [member('a', 1), member('b', 2)], [
+      frameGame('a', 'b', 3, 1, 300, 200),
+      walkover,
+    ]);
+    expect(g.pointsComplete).toBe(true);
+    const a = g.rows.find((r) => r.userId === u('a'));
+    // The walkover adds nothing on either side.
+    expect(a?.pointsWon).toBe(300);
+    expect(a?.pointsLost).toBe(200);
+    expect(a?.pointsDiff).toBe(100);
+  });
+
+  it('closes the gate on a technical result between two real players', () => {
+    const g = computeGroupStanding(0, members, [
+      frameGame('a', 'b', 3, 1, 300, 200),
+      game('a', 'c', 3, 0), // technical win: aggregate score, no frames
+    ]);
+    expect(g.pointsComplete).toBe(false);
+  });
+
+  it('closes the gate when no match has been completed', () => {
+    const g = computeGroupStanding(0, members, []);
+    expect(g.pointsComplete).toBe(false);
+  });
+
+  it('accumulates points slot-wise across several matches', () => {
+    // a loses to b but still scores; points follow the slot, not the winner.
+    const g = computeGroupStanding(0, members, [
+      frameGame('a', 'b', 1, 3, 220, 310),
+      frameGame('c', 'a', 0, 3, 90, 260),
+    ]);
+    const a = g.rows.find((r) => r.userId === u('a'));
+    expect(a?.pointsWon).toBe(220 + 260);
+    expect(a?.pointsLost).toBe(310 + 90);
+    expect(a?.pointsDiff).toBe(80);
+  });
+
   it('counts a walkover (missing opponent) as a win for the present player', () => {
     const walkover: StandingMatch = {
       player1Id: u('a'),
@@ -134,6 +252,19 @@ describe('computeGroupStanding', () => {
   });
 });
 
+describe('computeAllStandings', () => {
+  it('gates each group independently', () => {
+    const g0 = [member('a', 1), member('b', 2)];
+    const g1 = [member('c', 3), member('d', 4)];
+    const standings = computeAllStandings(
+      [g0, g1],
+      [[frameGame('a', 'b', 3, 1, 300, 200)], [game('c', 'd', 3, 1)]],
+    );
+    expect(standings.map((g) => g.pointsComplete)).toEqual([true, false]);
+    expect(standings.map((g) => g.groupIndex)).toEqual([0, 1]);
+  });
+});
+
 describe('selectQualifiers', () => {
   function standing(groupIndex: number, ids: string[]): GroupStanding {
     return {
@@ -147,8 +278,12 @@ describe('selectQualifiers', () => {
         framesWon: 0,
         framesLost: 0,
         frameDiff: 0,
+        pointsWon: 0,
+        pointsLost: 0,
+        pointsDiff: 0,
         rank: i + 1,
       })),
+      pointsComplete: false,
     };
   }
 
@@ -194,6 +329,9 @@ describe('clinchedUserIds', () => {
       framesWon: 0,
       framesLost: 0,
       frameDiff: 0,
+      pointsWon: 0,
+      pointsLost: 0,
+      pointsDiff: 0,
     };
   }
   const ids = (s: Set<string>): string[] => [...s].sort();

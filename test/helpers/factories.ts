@@ -17,6 +17,7 @@ import {
   getTournamentMatches,
   reportResult,
   confirmResult,
+  winScoreForMatch,
 } from '@/services/matchService.js';
 import {
   getConfirmedParticipantsBySeed,
@@ -94,7 +95,9 @@ export async function createTournamentWithParticipants(
 
   const participantIds: UUID[] = [];
   for (let seed = 1; seed <= count; seed++) {
-    const { userId } = await createConfirmedParticipant(tournament.id, { seed });
+    const { userId } = await createConfirmedParticipant(tournament.id, {
+      seed,
+    });
     participantIds.push(userId);
   }
 
@@ -119,7 +122,10 @@ export async function createMatchesForTournament(
     tournament?.randomAdvancement ?? false,
     tournament?.mergeRound ?? 2,
   );
-  await createMatches(tournamentId, bracket);
+  await createMatches(tournamentId, bracket, {
+    winScore: tournament?.winScore ?? 3,
+    stageWinScores: tournament?.stageWinScores ?? null,
+  });
   await startTournament(tournamentId);
   return getTournamentMatches(tournamentId);
 }
@@ -141,7 +147,10 @@ export async function completeMatch(
 
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) throw new Error('completeMatch: tournament not found');
-  const winScore = tournament.winScore;
+  // Must be the match's own length, not the tournament's: with per-stage
+  // overrides (M2-11) a winScore-0 line valid in round 1 is rejected in the
+  // final, which would break every multi-round bracket driver below.
+  const winScore = winScoreForMatch(match, tournament);
 
   const loserId =
     match.player1Id === winnerId ? match.player2Id : match.player1Id;

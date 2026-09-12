@@ -13,6 +13,7 @@ import {
   groupsCountOptions,
   participantsPerGroupOptions,
   qualifiersOptionsForGroupSize,
+  matchLengthStages,
 } from '@/db/schema.js';
 import { getVenue, getVenues } from '@/services/venueService.js';
 import { getTablesByVenue } from '@/services/tableService.js';
@@ -27,6 +28,8 @@ import type {
   ITournamentVisibility,
   ITournamentWinScore,
   IGroupDraw,
+  IMatchLengthStage,
+  IStageWinScores,
 } from '@/db/schema.js';
 
 import type { BotContext } from '../../types.js';
@@ -107,6 +110,17 @@ export interface ITournamentCreationFlow {
 
   handleWinScoreSelection(ctx: BotContext, winScore: number): Promise<boolean>;
 
+  handleStageWinScoreSelection(
+    ctx: BotContext,
+    stage: string,
+    value: number,
+  ): Promise<boolean>;
+
+  handleStageWinScoresFinalize(
+    ctx: BotContext,
+    isSkip: boolean,
+  ): Promise<boolean>;
+
   handleTableSelectionToggle(ctx: BotContext, tableId: UUID): Promise<boolean>;
 
   handleTableSelectAll(ctx: BotContext): Promise<boolean>;
@@ -163,9 +177,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
    *
    * @returns {ICreationState | undefined} Состояние создания или undefined, если сессия не найдена
    */
-  async getCreationState(
-    userId: number,
-  ): Promise<ICreationState | undefined> {
+  async getCreationState(userId: number): Promise<ICreationState | undefined> {
     return this.stateStore.get(userId);
   }
 
@@ -515,10 +527,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     // The keyboard only offers the selected sport's disciplines; a mismatch
     // means a stale/forged callback.
-    if (
-      sport === undefined ||
-      !this.isDisciplineOfSport(discipline, sport)
-    ) {
+    if (sport === undefined || !this.isDisciplineOfSport(discipline, sport)) {
       await this.renderer.showInvalidDiscipline(ctx);
 
       return true;
@@ -1030,8 +1039,14 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return true;
     }
 
+    const current = await this.stateStore.getOrThrow(userId);
+
+    // round_robin has no playoff bracket, so the per-stage step is meaningless
+    // there — skip straight to tables, as before.
+    const hasPlayoff = current.data.tournament?.format !== 'round_robin';
+
     const state = await this.stateStore.update(userId, {
-      step: 'tables',
+      step: hasPlayoff ? 'stageWinScores' : 'tables',
       data: {
         tournament: {
           winScore,
@@ -1041,10 +1056,135 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     });
 
     if (
-      state.step !== 'tables' ||
+      state.step !== (hasPlayoff ? 'stageWinScores' : 'tables') ||
       state.data.tournament?.winScore !== winScore ||
       state.data.tables?.length !== 0
     ) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    if (state.data.venue?.id === undefined) {
+      await this.stateStore.clear(userId);
+
+      await this.renderer.showVenueMissing(ctx);
+
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    if (hasPlayoff) {
+      await this.renderer.showStageWinScoresStep(ctx, {}, winScore, true);
+
+      return true;
+    }
+
+    const venueTables = await getTablesByVenue(state.data.venue.id);
+
+    await this.renderer.showTablesStep(ctx, venueTables, [], winScore);
+
+    return true;
+  }
+
+  async handleStageWinScoreSelection(
+    ctx: BotContext,
+    stage: string,
+    value: number,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'stageWinScores',
+    );
+
+    if (!hasStep) return false;
+
+    if (!this.isMatchLengthStage(stage)) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    // value 0 is the "как в турнире" reset; anything else must be a valid length.
+    if (value !== 0 && !this.isAllowedWinScore(value)) {
+      await this.renderer.showIncorrectWinScore(ctx);
+
+      return true;
+    }
+
+    const current = await this.stateStore.getOrThrow(userId);
+    const tournamentWinScore = current.data.tournament?.winScore;
+
+    if (tournamentWinScore === undefined) {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    // Rebuild rather than delete: `stage` is a computed key, and the reset
+    // ("как в турнире") simply drops it from the map.
+    const prev: IStageWinScores = {
+      ...current.data.tournament?.stageWinScores,
+    };
+    const next: IStageWinScores = Object.fromEntries(
+      Object.entries(prev).filter(([key]) => key !== stage),
+    );
+
+    if (value !== 0) next[stage] = value;
+
+    const state = await this.stateStore.update(userId, {
+      step: 'stageWinScores',
+      data: { tournament: { stageWinScores: next } },
+    });
+
+    if (state.step !== 'stageWinScores') {
+      await this.renderer.showSavedStateError(ctx);
+
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    await this.renderer.showStageWinScoresStep(
+      ctx,
+      state.data.tournament?.stageWinScores ?? {},
+      tournamentWinScore,
+    );
+
+    return true;
+  }
+
+  async handleStageWinScoresFinalize(
+    ctx: BotContext,
+    isSkip: boolean,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'stageWinScores',
+    );
+
+    if (!hasStep) return false;
+
+    const current = await this.stateStore.getOrThrow(userId);
+
+    // «Пропустить» clears any overrides; «Готово» keeps them, but an empty map
+    // is stored as null so "no overrides" has a single representation.
+    const chosen = current.data.tournament?.stageWinScores ?? null;
+    const stageWinScores =
+      isSkip || chosen === null || Object.keys(chosen).length === 0
+        ? null
+        : chosen;
+
+    const state = await this.stateStore.update(userId, {
+      step: 'tables',
+      data: {
+        tournament: { stageWinScores },
+        tables: [],
+      },
+    });
+
+    if (state.step !== 'tables' || state.data.tables?.length !== 0) {
       await this.renderer.showSavedStateError(ctx);
 
       return false;
@@ -1062,7 +1202,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     await ctx.answerCallbackQuery();
 
-    await this.renderer.showTablesStep(ctx, venueTables, [], winScore);
+    await this.renderer.showTablesStep(ctx, venueTables, []);
 
     return true;
   }
@@ -1217,9 +1357,11 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
         scheduleMode: state.data.tournament.scheduleMode,
         maxParticipants: state.data.tournament.maxParticipants,
         winScore: state.data.tournament.winScore,
+        stageWinScores: state.data.tournament.stageWinScores ?? null,
         mergeRound: state.data.tournament.mergeRound ?? 2,
         groupsCount: state.data.tournament.groupsCount ?? null,
-        participantsPerGroup: state.data.tournament.participantsPerGroup ?? null,
+        participantsPerGroup:
+          state.data.tournament.participantsPerGroup ?? null,
         qualifiersPerGroup: state.data.tournament.qualifiersPerGroup ?? null,
         groupDraw: state.data.tournament.groupDraw ?? null,
         startDate: state.data.tournament.startDate ?? null,
@@ -1259,7 +1401,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!userId) return { status: false };
 
-    if (!await this.stateStore.hasStep(userId, step)) {
+    if (!(await this.stateStore.hasStep(userId, step))) {
       if (isReturnAnswer) {
         await this.renderer.showSessionExpired(ctx);
       }
@@ -1301,6 +1443,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
   private isAllowedWinScore(value: number): value is ITournamentWinScore {
     return Object.values<number>(winScores).includes(value);
+  }
+
+  private isMatchLengthStage(value: string): value is IMatchLengthStage {
+    return Object.values<string>(matchLengthStages).includes(value);
   }
 
   private isAllowedMergeRound(value: number, maxParticipants: number): boolean {

@@ -134,6 +134,13 @@
       "when": 1783925756563,
       "tag": "0018_condemned_cerebro",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789206930846,
+      "tag": "0019_chunky_firelord",
+      "breakpoints": true
     }
   ]
 }

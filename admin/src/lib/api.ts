@@ -19,6 +19,7 @@ import type {
   ITournamentSport,
   ITournamentDiscipline,
   IGroupDraw,
+  IStageWinScores,
 } from '@server/apiTypes';
 
 export type {
@@ -41,6 +42,7 @@ export type {
   ITournamentSport,
   ITournamentDiscipline,
   IGroupDraw,
+  IStageWinScores,
 };
 
 /** Group + playoff config fields, shared by create/update payloads. */
@@ -121,23 +123,26 @@ export const tournamentsApi = {
   standings: (id: string) =>
     apiFetch<ApiGroupStanding[]>(`/api/tournaments/${id}/standings`),
 
-  create: (data: {
-    name: string;
-    description?: string;
-    rules?: string;
-    sport: ITournamentSport;
-    discipline: ITournamentDiscipline;
-    format: ITournamentFormat;
-    randomAdvancement?: boolean;
-    visibility?: TournamentVisibility;
-    scheduleMode?: TournamentScheduleMode;
-    maxParticipants?: number;
-    winScore?: number;
-    mergeRound?: number;
-    startDate?: string;
-    venueId: string;
-    tableIds?: string[];
-  } & GroupConfigFields) =>
+  create: (
+    data: {
+      name: string;
+      description?: string;
+      rules?: string;
+      sport: ITournamentSport;
+      discipline: ITournamentDiscipline;
+      format: ITournamentFormat;
+      randomAdvancement?: boolean;
+      visibility?: TournamentVisibility;
+      scheduleMode?: TournamentScheduleMode;
+      maxParticipants?: number;
+      winScore?: number;
+      stageWinScores?: IStageWinScores | null;
+      mergeRound?: number;
+      startDate?: string;
+      venueId: string;
+      tableIds?: string[];
+    } & GroupConfigFields,
+  ) =>
     apiFetch<ApiTournament>('/api/tournaments', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -158,6 +163,7 @@ export const tournamentsApi = {
       scheduleMode?: TournamentScheduleMode;
       maxParticipants?: number;
       winScore?: number;
+      stageWinScores?: IStageWinScores | null;
       mergeRound?: number;
       startDate?: string;
       venueId: string;

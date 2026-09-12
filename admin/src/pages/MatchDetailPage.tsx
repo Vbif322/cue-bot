@@ -398,7 +398,7 @@ export default function MatchDetailPage() {
           tournament && (
             <ReportFramesCard
               match={match}
-              winScore={tournament.winScore}
+              winScore={match.winScore ?? tournament.winScore}
               onSuccess={invalidate}
             />
           )}

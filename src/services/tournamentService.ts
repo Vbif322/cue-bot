@@ -30,6 +30,7 @@ import type {
   ITournamentScheduleMode,
   ITournamentVisibility,
   ITournamentWinScore,
+  IStageWinScores,
   IGroupDraw,
   ParticipantStatus,
 } from '@/db/schema.js';
@@ -75,6 +76,7 @@ export interface CreateTournamentDraftInput extends GroupConfigInput {
   // Plain integer: discrete enum values for SE/DE/RR, derived total for groups_playoff.
   maxParticipants: number;
   winScore: ITournamentWinScore;
+  stageWinScores?: IStageWinScores | null;
   mergeRound?: number;
   rules?: string | null;
   createdBy: UUID;
@@ -94,6 +96,7 @@ export interface UpdateTournamentDraftInput extends GroupConfigInput {
   startDate?: Date | null;
   maxParticipants: number;
   winScore: ITournamentWinScore;
+  stageWinScores?: IStageWinScores | null;
   mergeRound?: number;
   rules?: string | null;
 
@@ -421,6 +424,7 @@ export async function createTournamentDraft(
         startDate: input.startDate ?? null,
         maxParticipants: input.maxParticipants,
         winScore: input.winScore,
+        stageWinScores: input.stageWinScores ?? null,
         mergeRound: input.mergeRound ?? 2,
         groupsCount: input.groupsCount ?? null,
         participantsPerGroup: input.participantsPerGroup ?? null,
@@ -526,6 +530,7 @@ export async function updateTournamentDraft(
         startDate: input.startDate ?? null,
         maxParticipants: input.maxParticipants,
         winScore: input.winScore,
+        stageWinScores: input.stageWinScores ?? null,
         mergeRound: input.mergeRound ?? 2,
         groupsCount: input.groupsCount ?? null,
         participantsPerGroup: input.participantsPerGroup ?? null,
@@ -1073,7 +1078,11 @@ export type RegisterOutcome =
   | { ok: true; status: 'pending' | 'confirmed'; reregistered: boolean }
   | {
       ok: false;
-      reason: 'not_found' | 'registration_closed' | 'already_registered' | 'full';
+      reason:
+        | 'not_found'
+        | 'registration_closed'
+        | 'already_registered'
+        | 'full';
     };
 
 /**
@@ -1160,7 +1169,9 @@ export async function registerParticipant(
  * Count slot-occupying participants (`pending` + `confirmed`) of a tournament.
  * Excludes `cancelled`/`invited`/`disqualified`.
  */
-export async function getParticipantsCount(tournamentId: UUID): Promise<number> {
+export async function getParticipantsCount(
+  tournamentId: UUID,
+): Promise<number> {
   const result = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(tournamentParticipants)
@@ -1188,7 +1199,10 @@ export async function getUserParticipation(tournamentId: UUID, userId: UUID) {
 
 export type CancelRegistrationOutcome =
   | { ok: true }
-  | { ok: false; reason: 'not_found' | 'not_registered' | 'tournament_started' };
+  | {
+      ok: false;
+      reason: 'not_found' | 'not_registered' | 'tournament_started';
+    };
 
 /**
  * Cancel a user's registration (any active status → `cancelled`, clearing the
@@ -1201,7 +1215,10 @@ export async function cancelRegistration(
   const tournament = await getTournament(tournamentId);
   if (!tournament) return { ok: false, reason: 'not_found' };
 
-  if (tournament.status === 'in_progress' || tournament.status === 'completed') {
+  if (
+    tournament.status === 'in_progress' ||
+    tournament.status === 'completed'
+  ) {
     return { ok: false, reason: 'tournament_started' };
   }
 

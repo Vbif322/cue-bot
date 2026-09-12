@@ -105,3 +105,122 @@ export function validMergeRoundsForSize(maxParticipants: number): number[] {
   for (let m = 2; m <= k; m++) out.push(m);
   return out;
 }
+
+// ── Per-stage match length (M2-11) ───────────────────────────────────────────
+// A tournament's `winScore` is the baseline "race to N" for every match. Real
+// tournaments lengthen the closing matches (final longer than the semis, and so
+// on), so a tournament may override the length of the last few playoff stages.
+//
+// Stages are keyed FROM THE END of the bracket, never by absolute round number:
+// the real bracket size is only frozen when registration closes
+// (`confirmedParticipants`), so round 4 is the final in a 16-player draw but the
+// semifinal in a 32-player one. Keying from the end keeps the organiser's intent
+// stable whatever the turnout.
+//
+// Scope: the playoff side only (single elimination, the playoff phase of
+// groups_playoff, and the winners side of double elimination). Group tours,
+// round robin and the DE losers bracket always use the tournament `winScore`.
+export const matchLengthStages = [
+  'final',
+  'semifinal',
+  'quarterfinal',
+] as const;
+
+export type IMatchLengthStage = (typeof matchLengthStages)[number];
+
+/** Distance from the last playoff round: 0 = final, 1 = semifinal, 2 = 1/4. */
+export const MATCH_LENGTH_STAGE_BY_DISTANCE: readonly IMatchLengthStage[] = [
+  'final',
+  'semifinal',
+  'quarterfinal',
+];
+
+export const MATCH_LENGTH_STAGE_LABELS: Record<IMatchLengthStage, string> = {
+  final: 'Финал',
+  semifinal: 'Полуфинал',
+  quarterfinal: '1/4 финала',
+};
+
+/**
+ * Per-stage overrides of the tournament `winScore`. A missing key means "use the
+ * tournament's own winScore", so `{}` and `null` both mean "no overrides".
+ */
+export type IStageWinScores = Partial<
+  Record<IMatchLengthStage, ITournamentWinScore>
+>;
+
+function isMatchLengthStage(value: string): value is IMatchLengthStage {
+  return Object.values<string>(matchLengthStages).includes(value);
+}
+
+function isAllowedWinScore(value: unknown): value is ITournamentWinScore {
+  return (
+    typeof value === 'number' &&
+    Object.values<number>(winScores).includes(value)
+  );
+}
+
+/**
+ * Validate a per-stage match-length map. Returns a Russian error string or null
+ * if valid. Dependency-free so it is shared by the bot wizard, the admin zod
+ * schema and the tournament service (mirrors `validateGroupConfig`).
+ *
+ * `null`/`undefined`/`{}` are valid and mean "no overrides".
+ */
+export function validateStageWinScores(cfg: unknown): string | null {
+  if (cfg == null) return null;
+  if (typeof cfg !== 'object' || Array.isArray(cfg)) {
+    return 'Некорректная настройка длины матча по стадиям';
+  }
+
+  for (const [stage, value] of Object.entries(cfg)) {
+    if (value === undefined) continue;
+    if (!isMatchLengthStage(stage)) {
+      return `Неизвестная стадия: ${stage}`;
+    }
+    if (!isAllowedWinScore(value)) {
+      return (
+        `Длина матча для стадии «${MATCH_LENGTH_STAGE_LABELS[stage]}» ` +
+        `должна быть одной из: ${winScores.join(', ')}`
+      );
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolve the effective win score for a playoff round.
+ *
+ * `distanceFromLast` is `lastPlayoffRound - round`, so 0 is the final. Rounds
+ * further from the end than the known stages, and any stage without an
+ * override, fall back to the tournament `winScore`.
+ */
+export function winScoreForStageDistance(
+  distanceFromLast: number,
+  tournamentWinScore: number,
+  stageWinScores: IStageWinScores | null | undefined,
+): number {
+  const stage = MATCH_LENGTH_STAGE_BY_DISTANCE[distanceFromLast];
+  if (stage === undefined) return tournamentWinScore;
+  return stageWinScores?.[stage] ?? tournamentWinScore;
+}
+
+/**
+ * Human-readable summary of the per-stage overrides, ordered from the final
+ * outwards: «Финал — до 5, Полуфинал — до 4». Returns null when nothing is
+ * overridden, so callers can simply skip the line.
+ */
+export function formatStageWinScores(
+  stageWinScores: IStageWinScores | null | undefined,
+): string | null {
+  if (stageWinScores == null) return null;
+
+  const parts = MATCH_LENGTH_STAGE_BY_DISTANCE.flatMap((stage) => {
+    const value = stageWinScores[stage];
+    if (value === undefined) return [];
+    return [`${MATCH_LENGTH_STAGE_LABELS[stage]} — до ${String(value)}`];
+  });
+
+  return parts.length > 0 ? parts.join(', ') : null;
+}

@@ -60,6 +60,12 @@ export const matches = prodSchema.table(
       .references(() => users.id),
     player1Score: integer('player1_score'),
     player2Score: integer('player2_score'),
+    // Effective "race to N" for THIS match, materialized once at bracket
+    // generation from the tournament's `winScore` + `stageWinScores` (see
+    // createMatches). Null means "use the tournament's winScore" — which is what
+    // every pre-M2-11 row and every non-playoff match carries, so no backfill is
+    // needed. Always read it through `winScoreForMatch`, never directly.
+    winScore: integer('win_score'),
     status: varchar({ enum: matchStatuses }).notNull().default('scheduled'),
     scheduledAt: timestamp('scheduled_at'),
     startedAt: timestamp('started_at'),
@@ -97,6 +103,7 @@ export const matches = prodSchema.table(
     enumCheck('matches_phase_check', table.phase, matchPhases),
     nonNegativeCheck('matches_round_nonneg', table.round),
     nonNegativeCheck('matches_position_nonneg', table.position),
+    nonNegativeCheck('matches_win_score_nonneg', table.winScore),
     nonNegativeCheck('matches_player1_score_nonneg', table.player1Score),
     nonNegativeCheck('matches_player2_score_nonneg', table.player2Score),
     nonNegativeCheck('matches_group_index_nonneg', table.groupIndex),

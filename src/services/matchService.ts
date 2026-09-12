@@ -38,12 +38,33 @@ type DownstreamVisitor = (
 import { completeTournament, getTournament } from './tournamentService.js';
 import { notifyMatchStart } from './notificationService.js';
 import type { BracketMatch } from './bracketGenerator.js';
-import { getNextPowerOfTwo } from './bracketGenerator.js';
+import {
+  getNextPowerOfTwo,
+  lastPlayoffWinnersRound,
+  stageWinScoreForMatch,
+} from './bracketGenerator.js';
+import type { IStageWinScores } from '@/shared/tournament/tournamentOptions.js';
 import {
   getRandomTargetPool,
   placeIntoRandomFreeSlot,
 } from './randomBracketAdvancement.js';
 import { errorMessage } from '@/utils/errors.js';
+
+/**
+ * Effective "race to N" for a match.
+ *
+ * `matches.winScore` is materialized at bracket generation and is null whenever
+ * the match simply uses the tournament's own length — which covers every
+ * pre-M2-11 row, every group/round-robin match and the whole DE losers bracket.
+ * Every read of a match length must go through here rather than touching
+ * `tournament.winScore` directly.
+ */
+export function winScoreForMatch(
+  match: { winScore: number | null },
+  tournament: { winScore: number },
+): number {
+  return match.winScore ?? tournament.winScore;
+}
 
 /** Bracket dimensions the DE random-advancement pool map needs at runtime. */
 function deBracketDims(tournament: {
@@ -63,14 +84,32 @@ function deBracketDims(tournament: {
 }
 
 /**
+ * The tournament-level match-length config `createMatches` needs to materialize
+ * `matches.winScore`. Passed in (rather than re-read) because both call sites in
+ * tournamentStartService already hold the tournament row.
+ */
+export interface MatchLengthConfig {
+  winScore: number;
+  stageWinScores: IStageWinScores | null;
+}
+
+/**
  * Create matches in database from generated bracket
  */
 export async function createMatches(
   tournamentId: UUID,
   bracket: BracketMatch[],
+  matchLength: MatchLengthConfig,
   executor: Executor = db,
 ): Promise<void> {
   if (bracket.length === 0) return;
+
+  // Resolved once per batch: the per-stage overrides are keyed by distance from
+  // the final, so they need the last winners round of THIS bracket. For
+  // groups_playoff the two phases are separate batches, and the group batch has
+  // no playoff rounds at all — lastPlayoffWinnersRound returns null there and
+  // every group match keeps the tournament's winScore.
+  const lastWinnersRound = lastPlayoffWinnersRound(bracket);
 
   const now = new Date();
   const values = bracket.map((match) => {
@@ -84,6 +123,12 @@ export async function createMatches(
       player1IsWalkover: match.player1IsWalkover ?? false,
       player2IsWalkover: match.player2IsWalkover ?? false,
       bracketType: match.bracketType,
+      winScore: stageWinScoreForMatch(
+        match,
+        lastWinnersRound,
+        matchLength.winScore,
+        matchLength.stageWinScores,
+      ),
       phase: match.phase ?? 'playoff',
       groupIndex: match.groupIndex ?? null,
       nextMatchPosition: match.nextMatchPosition ?? null,
@@ -470,7 +515,7 @@ export async function reportResult(
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return { success: false, error: 'Турнир не найден' };
 
-  const winScore = tournament.winScore;
+  const winScore = winScoreForMatch(match, tournament);
   if (player1Score !== winScore && player2Score !== winScore) {
     return {
       success: false,
@@ -594,7 +639,7 @@ export async function reportResultFromFrames(
 
   const derived = deriveFrameResult(
     frames,
-    tournament.winScore,
+    winScoreForMatch(match, tournament),
     match.player1Id,
     match.player2Id,
   );
@@ -787,7 +832,7 @@ export async function setTechnicalResult(
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return { success: false, error: 'Турнир не найден' };
 
-  const winScore = tournament.winScore;
+  const winScore = winScoreForMatch(match, tournament);
   const player1Score = match.player1Id === winnerId ? winScore : 0;
   const player2Score = match.player2Id === winnerId ? winScore : 0;
 
@@ -1593,7 +1638,7 @@ export async function previewCorrection(
   const scoreError = validateCorrectionScores(
     newPlayer1Score,
     newPlayer2Score,
-    tournament.winScore,
+    winScoreForMatch(match, tournament),
   );
   if (scoreError) return { valid: false, error: scoreError, ...empty };
 
@@ -1666,7 +1711,7 @@ export async function correctMatchResult(
   const scoreError = validateCorrectionScores(
     newPlayer1Score,
     newPlayer2Score,
-    tournament.winScore,
+    winScoreForMatch(match, tournament),
   );
   if (scoreError) return { success: false, error: scoreError };
 

@@ -18,10 +18,12 @@ import {
   users,
   visibilities,
   winScores,
+  validateStageWinScores,
   groupDraws,
   validateGroupConfig,
   validateSportDiscipline,
   type ITournamentWinScore,
+  type IStageWinScores,
 } from '@/db/schema.js';
 import {
   createTournamentDraft,
@@ -50,7 +52,10 @@ import {
 } from '@/services/notificationService.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
 import { getMatchStats } from '@/services/matchService.js';
-import { getGroupStandings, getGroupMaxBreaks } from '@/services/groupPhaseService.js';
+import {
+  getGroupStandings,
+  getGroupMaxBreaks,
+} from '@/services/groupPhaseService.js';
 import { clinchedUserIds } from '@/services/standingsService.js';
 import { getTournamentTables } from '@/services/tableService.js';
 import { requireAdmin } from '../middleware.js';
@@ -85,6 +90,13 @@ const tournamentBodySchema = z
       .min(Math.min(...mergeRounds))
       .max(Math.max(...mergeRounds))
       .default(2),
+    // Per-stage match length. Validated as a whole by validateStageWinScores in
+    // the superRefine below (shared with the bot wizard), so the shape here is
+    // deliberately permissive.
+    stageWinScores: z
+      .record(z.string(), z.number().int())
+      .nullable()
+      .optional(),
     groupsCount: z.number().int().optional(),
     participantsPerGroup: z.number().int().optional(),
     qualifiersPerGroup: z.number().int().optional(),
@@ -96,6 +108,9 @@ const tournamentBodySchema = z
   .superRefine((data, ctx) => {
     const sportError = validateSportDiscipline(data.sport, data.discipline);
     if (sportError) ctx.addIssue({ code: 'custom', message: sportError });
+
+    const stageError = validateStageWinScores(data.stageWinScores);
+    if (stageError) ctx.addIssue({ code: 'custom', message: stageError });
 
     if (data.format === 'groups_playoff') {
       if (
@@ -175,13 +190,17 @@ export function createTournamentsRouter(botApi: Api) {
     ]);
 
     const ids = standings.flatMap((g) => g.rows.map((r) => r.userId));
-    const nameById = new Map<string, { username: string | null; name: string | null }>();
+    const nameById = new Map<
+      string,
+      { username: string | null; name: string | null }
+    >();
     if (ids.length > 0) {
       const rows = await db.query.users.findMany({
         where: inArray(users.id, ids),
         columns: { id: true, username: true, name: true },
       });
-      for (const u of rows) nameById.set(u.id, { username: u.username, name: u.name });
+      for (const u of rows)
+        nameById.set(u.id, { username: u.username, name: u.name });
     }
 
     // A player plays (participantsPerGroup − 1) group matches; mark who has
@@ -193,6 +212,7 @@ export function createTournamentsRouter(botApi: Api) {
       const clinched = clinchedUserIds(g.rows, totalMatches, qualifiers);
       return {
         groupIndex: g.groupIndex,
+        pointsComplete: g.pointsComplete,
         rows: g.rows.map((r) => ({
           ...r,
           username: nameById.get(r.userId)?.username ?? null,
@@ -206,51 +226,46 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ data });
   });
 
-  router.post(
-    '/',
-    zValidator('json', tournamentBodySchema),
-    async (c) => {
-      const body = c.req.valid('json');
-      const admin = c.get('adminUser');
+  router.post('/', zValidator('json', tournamentBodySchema), async (c) => {
+    const body = c.req.valid('json');
+    const admin = c.get('adminUser');
 
-      try {
-        const tournament = await createTournamentDraft({
-          name: body.name,
-          description: body.description ?? null,
-          rules: body.rules ?? null,
-          sport: body.sport,
-          discipline: body.discipline,
-          format: body.format,
-          randomAdvancement: body.randomAdvancement,
-          visibility: body.visibility,
-          scheduleMode: body.scheduleMode,
-          maxParticipants: resolveMaxParticipants(body),
-          winScore: body.winScore as ITournamentWinScore,
-          mergeRound: body.mergeRound,
-          groupsCount: body.groupsCount ?? null,
-          participantsPerGroup: body.participantsPerGroup ?? null,
-          qualifiersPerGroup: body.qualifiersPerGroup ?? null,
-          groupDraw: body.groupDraw ?? null,
-          startDate: body.startDate ? new Date(body.startDate) : null,
-          venueId: body.venueId as UUID,
-          ...(body.tableIds ? { tableIds: body.tableIds as UUID[] } : {}),
-          createdBy: admin.id,
-        });
+    try {
+      const tournament = await createTournamentDraft({
+        name: body.name,
+        description: body.description ?? null,
+        rules: body.rules ?? null,
+        sport: body.sport,
+        discipline: body.discipline,
+        format: body.format,
+        randomAdvancement: body.randomAdvancement,
+        visibility: body.visibility,
+        scheduleMode: body.scheduleMode,
+        maxParticipants: resolveMaxParticipants(body),
+        winScore: body.winScore as ITournamentWinScore,
+        stageWinScores: (body.stageWinScores ?? null) as IStageWinScores | null,
+        mergeRound: body.mergeRound,
+        groupsCount: body.groupsCount ?? null,
+        participantsPerGroup: body.participantsPerGroup ?? null,
+        qualifiersPerGroup: body.qualifiersPerGroup ?? null,
+        groupDraw: body.groupDraw ?? null,
+        startDate: body.startDate ? new Date(body.startDate) : null,
+        venueId: body.venueId as UUID,
+        ...(body.tableIds ? { tableIds: body.tableIds as UUID[] } : {}),
+        createdBy: admin.id,
+      });
 
-        return c.json({ data: tournament }, 201);
-      } catch (error) {
-        return c.json(
-          {
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Ошибка создания турнира',
-          },
-          400,
-        );
-      }
-    },
-  );
+      return c.json({ data: tournament }, 201);
+    } catch (error) {
+      return c.json(
+        {
+          error:
+            error instanceof Error ? error.message : 'Ошибка создания турнира',
+        },
+        400,
+      );
+    }
+  });
 
   router.patch(
     '/:id',
@@ -281,6 +296,8 @@ export function createTournamentsRouter(botApi: Api) {
           scheduleMode: body.scheduleMode,
           maxParticipants: resolveMaxParticipants(body),
           winScore: body.winScore as ITournamentWinScore,
+          stageWinScores: (body.stageWinScores ??
+            null) as IStageWinScores | null,
           mergeRound: body.mergeRound,
           groupsCount: body.groupsCount ?? null,
           participantsPerGroup: body.participantsPerGroup ?? null,
@@ -325,7 +342,10 @@ export function createTournamentsRouter(botApi: Api) {
       // in_progress / completed are reached only via the dedicated start and
       // auto-complete flows, never a manual PATCH.
       if (status === 'in_progress' || status === 'completed') {
-        return c.json({ error: 'Этот статус устанавливается автоматически' }, 400);
+        return c.json(
+          { error: 'Этот статус устанавливается автоматически' },
+          400,
+        );
       }
       if (!canTransitionTournamentStatus(tournament.status, status)) {
         return c.json(

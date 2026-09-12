@@ -6,6 +6,8 @@ import {
   formatVisibility,
 } from '@/utils/constants.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
+import { formatStageWinScores } from '@/shared/tournament/tournamentOptions.js';
+import type { IStageWinScores } from '@/shared/tournament/tournamentOptions.js';
 import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
 
 import { STEPS_COUNT } from './tournamentCreation.const.js';
@@ -59,7 +61,10 @@ export interface ITournamentCreationRenderer {
   ): Promise<void>; // unnumbered (double_elimination only)
   // Unnumbered groups_playoff sub-steps.
   showGroupsCountStep(ctx: BotContext): Promise<void>;
-  showParticipantsPerGroupStep(ctx: BotContext, groupsCount: number): Promise<void>;
+  showParticipantsPerGroupStep(
+    ctx: BotContext,
+    groupsCount: number,
+  ): Promise<void>;
   showQualifiersPerGroupStep(
     ctx: BotContext,
     participantsPerGroup: number,
@@ -69,6 +74,13 @@ export interface ITournamentCreationRenderer {
     ctx: BotContext,
     maxParticipants: Tournament['maxParticipants'],
   ): Promise<void>; // Step 10
+  showStageWinScoresStep(
+    ctx: BotContext,
+    current: IStageWinScores,
+    tournamentWinScore: Tournament['winScore'],
+    echoWinScore?: boolean,
+  ): Promise<void>;
+
   showTablesStep(
     ctx: BotContext,
     tables: Pick<Table, 'id' | 'name'>[],
@@ -421,6 +433,44 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
+  /**
+   * Шаг настройки длины матча по стадиям плей-офф (безномерной подшаг).
+   *
+   * При входе со шага winScore подтверждает предыдущий ответ и присылает новый
+   * промпт; при каждом последующем тапе перерисовывает то же сообщение на месте
+   * — как шаг выбора столов.
+   */
+  async showStageWinScoresStep(
+    ctx: BotContext,
+    current: IStageWinScores,
+    tournamentWinScore: Tournament['winScore'],
+    echoWinScore = false,
+  ): Promise<void> {
+    const message = `
+    Длина матча по стадиям (необязательно)
+    Закрывающие матчи сетки можно играть длиннее. Стадии считаются от финала,
+    поэтому настройка не сбивается при любом числе участников.
+    Групповые туры и нижняя сетка double elimination всегда играются до ${String(tournamentWinScore)}.
+    `.trim();
+
+    const reply_markup = this.keyboards.buildStageWinScoresKeyboard(
+      current,
+      tournamentWinScore,
+    );
+
+    if (echoWinScore) {
+      await safeEditMessageText(ctx, {
+        text: `Установленное количество побед: ${String(tournamentWinScore)}`,
+      });
+
+      await ctx.reply(message, { reply_markup });
+
+      return;
+    }
+
+    await safeEditMessageText(ctx, { text: message, reply_markup });
+  }
+
   async showTablesStep(
     ctx: BotContext,
     tables: Pick<Table, 'id' | 'name'>[],
@@ -633,6 +683,10 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
         ? `\n    - Раунд объединения: ${String(tournament.mergeRound ?? 2)}`
         : '';
 
+    const stageLine = formatStageWinScores(tournament.stageWinScores)
+      ? `\n    - Длина по стадиям: ${String(formatStageWinScores(tournament.stageWinScores))}`
+      : '';
+
     const message = `
     Данные турнира:
     - ID: ${tournament.id}
@@ -647,7 +701,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     - Формат: ${formattedFormat}
     - Случайные пары: ${formattedRandom}
     - Участников: ${String(tournament.maxParticipants)}${mergeRoundLine}
-    - Количество необходимых побед: ${String(tournament.winScore)}
+    - Количество необходимых побед: ${String(tournament.winScore)}${stageLine}
     - Количество выбранных столов: ${String(tables.length)}
     `.trim();
 
