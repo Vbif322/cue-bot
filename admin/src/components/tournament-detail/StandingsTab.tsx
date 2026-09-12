@@ -62,6 +62,14 @@ export default function StandingsTab({
                 >
                   ±
                 </th>
+                {group.pointsComplete && (
+                  <th
+                    className="px-2 py-1 text-center font-medium"
+                    title="Разница очков"
+                  >
+                    Очки
+                  </th>
+                )}
                 {isSnooker && (
                   <th
                     className="px-2 py-1 text-center font-medium"
@@ -97,6 +105,14 @@ export default function StandingsTab({
                     <td className="px-2 py-1.5 text-center text-gray-600">
                       {diff(row.frameDiff)}
                     </td>
+                    {group.pointsComplete && (
+                      <td
+                        className="px-2 py-1.5 text-center text-gray-600"
+                        title={`${row.pointsWon}:${row.pointsLost}`}
+                      >
+                        {diff(row.pointsDiff)}
+                      </td>
+                    )}
                     {isSnooker && (
                       <td className="px-2 py-1.5 text-center text-gray-600">
                         {row.maxBreak ?? '—'}

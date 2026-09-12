@@ -23,7 +23,7 @@ function StandingsTables({ bracket }: { bracket: AppBracket }) {
             </div>
           )}
           <div style={{ overflowX: 'auto' }} className="cb-scroll">
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 420 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: group.pointsComplete ? 480 : 420 }}>
               <thead>
                 <tr style={{ color: 'var(--text-faint)', textAlign: 'left' }}>
                   <th style={{ padding: '8px 10px', fontWeight: 600 }}>#</th>
@@ -33,6 +33,9 @@ function StandingsTables({ bracket }: { bracket: AppBracket }) {
                   <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'center' }}>П</th>
                   <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'center' }}>Фреймы</th>
                   <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'center' }}>±</th>
+                  {group.pointsComplete && (
+                    <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'center' }}>Очки</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -51,6 +54,11 @@ function StandingsTables({ bracket }: { bracket: AppBracket }) {
                       <td style={{ padding: '10px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                         {row.frameDiff > 0 ? `+${row.frameDiff}` : row.frameDiff}
                       </td>
+                      {group.pointsComplete && (
+                        <td style={{ padding: '10px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                          {row.pointsDiff > 0 ? `+${row.pointsDiff}` : row.pointsDiff}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

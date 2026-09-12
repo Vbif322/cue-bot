@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Changed the group-phase tiebreak to use the real points difference from
+  `match_frames` (after frame difference, before frames won). It only applies when
+  every completed non-walkover match of the group has a frame breakdown; otherwise
+  standings behave exactly as before. The points column is shown in the bot, the
+  admin panel and the player web app under the same condition.
 - Changed double-elimination bracket generation to be size-generalized (8–128
   participants, true bracket sizing instead of a fixed 16-slot layout) and to store
   the losers-bracket drop slot on each match, so runtime advancement and correction
