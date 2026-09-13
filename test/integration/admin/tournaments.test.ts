@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type { UUID } from 'crypto';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,9 +12,12 @@ import type {
 } from '@/shared/tournament/disciplines.js';
 
 import { apiRequest } from '../../helpers/auth.js';
+import { must } from '../../helpers/must.js';
 import {
   createAdminUser,
+  createMatchesForTournament,
   createTournament,
+  createTournamentWithParticipants,
   createUser,
   createVenue,
 } from '../../helpers/factories.js';
@@ -365,6 +369,64 @@ describe('admin tournaments router', () => {
         { user: admin },
       );
       expect(status).toBe(200);
+    });
+  });
+
+  describe('GET /:id/standings', () => {
+    interface StandingsRow {
+      userId: UUID;
+      rank: number;
+      wins: number;
+      name: string | null;
+      clinched: boolean;
+    }
+    interface StandingsGroup {
+      groupIndex: number;
+      pointsComplete: boolean;
+      rows: StandingsRow[];
+    }
+
+    it('returns the single table of a round-robin tournament', async () => {
+      const { tournament, participantIds } =
+        await createTournamentWithParticipants(3, 'round_robin');
+      await createMatchesForTournament(tournament.id, 'round_robin');
+
+      const { status, body } = await apiRequest<{ data: StandingsGroup[] }>(
+        app,
+        'GET',
+        `/api/tournaments/${tournament.id}/standings`,
+        { user: admin },
+      );
+      expect(status).toBe(200);
+      expect(body.data).toHaveLength(1);
+      const table = must(body.data[0], 'standings');
+      expect(table.groupIndex).toBe(0);
+      expect(table.rows.map((r) => r.userId)).toEqual(participantIds);
+      // No qualification out of a round robin, so nobody is ever marked.
+      expect(table.rows.every((r) => !r.clinched)).toBe(true);
+    });
+
+    it('returns an empty list for an elimination format', async () => {
+      const t = await createTournament({ format: 'single_elimination' });
+
+      const { status, body } = await apiRequest<{ data: StandingsGroup[] }>(
+        app,
+        'GET',
+        `/api/tournaments/${t.id}/standings`,
+        { user: admin },
+      );
+      expect(status).toBe(200);
+      expect(body.data).toEqual([]);
+    });
+
+    it('404s for an unknown tournament', async () => {
+      const { status } = await apiRequest(
+        app,
+        'GET',
+        `/api/tournaments/${randomUUID()}/standings`,
+        { user: admin },
+      );
+      expect(status).toBe(404);
     });
   });
 });

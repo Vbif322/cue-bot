@@ -53,7 +53,7 @@ import {
 import { startTournamentFull } from '@/services/tournamentStartService.js';
 import { getMatchStats } from '@/services/matchService.js';
 import {
-  getGroupStandings,
+  getStandings,
   getGroupMaxBreaks,
 } from '@/services/groupPhaseService.js';
 import { clinchedUserIds } from '@/services/standingsService.js';
@@ -179,14 +179,19 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ data: list });
   });
 
-  // Group-stage standings for the groups_playoff format (empty array otherwise).
-  // Rows are enriched with player display names for the SPA.
+  // Standings: per-group tables for groups_playoff, one table for round_robin,
+  // empty for the elimination formats. Rows are enriched with player display names
+  // for the SPA.
   router.get('/:id/standings', validateParam(idParam), async (c) => {
     const { id } = c.req.valid('param');
-    const [standings, tournament, maxBreakById] = await Promise.all([
-      getGroupStandings(id),
-      getTournament(id),
-      getGroupMaxBreaks(id),
+    const tournament = await getTournament(id);
+    if (!tournament) return c.json({ error: 'Не найден' }, 404);
+
+    // Round-robin matches carry the default 'playoff' phase, so every match counts.
+    const phase = tournament.format === 'round_robin' ? null : 'group';
+    const [standings, maxBreakById] = await Promise.all([
+      getStandings(id, tournament.format),
+      getGroupMaxBreaks(id, phase),
     ]);
 
     const ids = standings.flatMap((g) => g.rows.map((r) => r.userId));
@@ -204,9 +209,10 @@ export function createTournamentsRouter(botApi: Api) {
     }
 
     // A player plays (participantsPerGroup − 1) group matches; mark who has
-    // already clinched a qualifying spot.
-    const totalMatches = (tournament?.participantsPerGroup ?? 1) - 1;
-    const qualifiers = tournament?.qualifiersPerGroup ?? 0;
+    // already clinched a qualifying spot. Round-robin has no qualification at all
+    // (both columns are null for it), so qualifiers 0 leaves the set empty.
+    const totalMatches = (tournament.participantsPerGroup ?? 1) - 1;
+    const qualifiers = tournament.qualifiersPerGroup ?? 0;
 
     const data = standings.map((g) => {
       const clinched = clinchedUserIds(g.rows, totalMatches, qualifiers);

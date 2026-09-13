@@ -22,13 +22,16 @@ function signed(n: number): string {
 }
 
 /**
- * Format a group's standings table. Players who have already CLINCHED a qualifying
- * spot (guaranteed top-`qualifiersPerGroup` regardless of remaining matches) are
- * marked with ✅. Shows wins and frame difference per player, plus the points
- * difference when the group's frame data is complete (snooker).
+ * Format a standings table under `heading` — one group of the group phase, or the
+ * single table of a round-robin tournament. Players who have already CLINCHED a
+ * qualifying spot (guaranteed top-`qualifiersPerGroup` regardless of remaining
+ * matches) are marked with ✅; pass `qualifiersPerGroup: 0` where there is no
+ * qualification (round robin) and nobody is marked. Shows wins and frame difference
+ * per player, plus the points difference when the frame data is complete (snooker).
  */
-function formatGroupStandings(
+function formatStandingsTable(
   group: GroupStanding,
+  heading: string,
   qualifiersPerGroup: number,
   totalMatches: number,
   playerMap: Map<string, BracketPlayer>,
@@ -38,7 +41,7 @@ function formatGroupStandings(
     totalMatches,
     qualifiersPerGroup,
   );
-  let text = `*Группа ${groupLetter(group.groupIndex)}* (выходят ${String(qualifiersPerGroup)})\n`;
+  let text = `${heading}\n`;
   for (const row of group.rows) {
     const parts = playerMap.get(row.userId);
     const name = parts ? formatPlayerName(parts) : 'TBD';
@@ -185,7 +188,13 @@ export function buildBracketView(model: BracketReadModel): {
 
     const totalMatches = (tournament.participantsPerGroup ?? 1) - 1;
     for (const group of model.standings) {
-      text += formatGroupStandings(group, qpg, totalMatches, playerMap);
+      text += formatStandingsTable(
+        group,
+        `*Группа ${groupLetter(group.groupIndex)}* (выходят ${String(qpg)})`,
+        qpg,
+        totalMatches,
+        playerMap,
+      );
       const groupSection = groupMatches.filter(
         (m) => m.groupIndex === group.groupIndex,
       );
@@ -212,7 +221,19 @@ export function buildBracketView(model: BracketReadModel): {
       );
     }
   } else {
-    // Show rounds (existing logic for single_elimination and round_robin)
+    // Round robin: the standings table first (a single group, index 0), then the
+    // rounds. Single elimination: just the rounds.
+    const table = model.standings[0];
+    if (tournament.format === 'round_robin' && table && table.rows.length > 0) {
+      text += formatStandingsTable(
+        table,
+        '*═══ ТАБЛИЦА ═══*',
+        0, // no qualification in a round robin — nobody gets a ✅
+        table.rows.length - 1,
+        playerMap,
+      );
+    }
+
     const rounds = Array.from(matchesByRound.keys()).sort((a, b) => a - b);
 
     for (const round of rounds) {
