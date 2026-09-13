@@ -7,7 +7,7 @@ import type { MatchWithPlayers } from '@/bot/@types/match.js';
 
 import { getTournamentMatches, getMatchStats } from './matchService.js';
 import { calculateRounds, getNextPowerOfTwo } from './bracketGenerator.js';
-import { getGroupStandings } from './groupPhaseService.js';
+import { getStandings } from './groupPhaseService.js';
 import type { GroupStanding } from './standingsService.js';
 
 /** Player display fields keyed by user id in a bracket read-model. */
@@ -21,8 +21,9 @@ export interface BracketPlayer {
 /**
  * Everything the bracket view needs, gathered in one place: the tournament, its
  * matches (with embedded player fields), completion stats, a player-id → name
- * map, the computed total round count, and group standings (only populated for
- * `groups_playoff`). Pure transformation/formatting lives in
+ * map, the computed total round count, and standings (per-group for
+ * `groups_playoff`, a single table for `round_robin`, empty for the elimination
+ * formats, which have a bracket instead). Pure transformation/formatting lives in
  * `src/bot/ui/bracketUI.ts`; this service only fetches and assembles the data.
  */
 export interface BracketReadModel {
@@ -50,17 +51,25 @@ export async function getBracketReadModel(
   const matchRows = await getTournamentMatches(tournamentId);
   const stats = await getMatchStats(tournamentId);
 
+  const standings = await getStandings(tournamentId, tournament.format);
+
   const playerIds = new Set<UUID>();
   for (const match of matchRows) {
     if (match.player1Id) playerIds.add(match.player1Id);
     if (match.player2Id) playerIds.add(match.player2Id);
   }
-
   const bracketSize = getNextPowerOfTwo(playerIds.size);
   const totalRounds =
     tournament.format === 'double_elimination'
       ? calculateRounds(bracketSize) + 1
       : calculateRounds(bracketSize);
+
+  // A standings row can name a participant who has no match row yet (round-robin
+  // lists every confirmed participant from the start) — they need a name too, but
+  // they must not inflate the bracket size above.
+  for (const group of standings) {
+    for (const row of group.rows) playerIds.add(row.userId);
+  }
 
   const playerMap = new Map<string, BracketPlayer>();
   if (playerIds.size > 0) {
@@ -76,11 +85,6 @@ export async function getBracketReadModel(
       });
     }
   }
-
-  const standings =
-    tournament.format === 'groups_playoff'
-      ? await getGroupStandings(tournamentId)
-      : [];
 
   return {
     tournament,
