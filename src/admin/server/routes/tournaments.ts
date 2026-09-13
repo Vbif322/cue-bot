@@ -50,6 +50,8 @@ import {
   notifyRegistrationRejected,
   notifyTournamentCancelled,
 } from '@/services/notificationService.js';
+import { announceRegistrationOpen } from '@/services/groupBroadcastService.js';
+import { errorMessage } from '@/utils/errors.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
 import { getMatchStats } from '@/services/matchService.js';
 import {
@@ -365,6 +367,14 @@ export function createTournamentsRouter(botApi: Api) {
         await notifyTournamentCancelled(botApi, id, tournament.name);
       } else if (status === 'registration_closed') {
         await closeRegistrationWithCount(id);
+      } else if (status === 'registration_open') {
+        await updateTournamentStatus(id, status);
+        // Fire-and-forget: выпадающий список статуса в SPA не должен ждать
+        // веерную рассылку по группам. Идемпотентность обеспечена проверкой
+        // перехода выше (повторный PATCH вернёт 400) и уникальным индексом лога.
+        void announceRegistrationOpen(botApi, id).catch((error: unknown) => {
+          console.error('Анонс регистрации не отправлен:', errorMessage(error));
+        });
       } else {
         await updateTournamentStatus(id, status);
       }

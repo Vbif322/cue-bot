@@ -29,7 +29,9 @@ import type { BotContext } from '../types.js';
 export const inviteCommands = new Composer<BotContext>();
 
 /** Persistent: telegram user id → tournament awaiting an @username to invite. */
-const inviteUsernameState = new PgSessionStore<{ tournamentId: UUID }>('invite');
+const inviteUsernameState = new PgSessionStore<{ tournamentId: UUID }>(
+  'invite',
+);
 
 registerWizard({
   name: 'приглашение игрока',
@@ -41,16 +43,39 @@ registerWizard({
 // Helpers
 // ============================================================================
 
-/** Parse a `/start` deep-link payload. Only the `join_<code>` form is known. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type StartPayload =
+  | { kind: 'join'; code: string }
+  | { kind: 'tournament'; tournamentId: UUID };
+
+/**
+ * Parse a `/start` deep-link payload. Two forms:
+ *  - `join_<code>`  — пригласительная ссылка (`inviteCode`);
+ *  - `t_<uuid>`     — карточка турнира; так устроена кнопка «Участвовать» под
+ *                     анонсом в групповом чате (`buildAnnouncementKeyboard`).
+ *
+ * UUID проверяется регуляркой НЕ для красоты: без неё `/start t_мусор` доехал
+ * бы до `getTournament`, и Postgres бросил бы `invalid input syntax for type
+ * uuid` — необработанный reject внутри `bot.command('start')`.
+ */
 export function parseStartPayload(
   payload: string | undefined,
-): { kind: 'join'; code: string } | null {
+): StartPayload | null {
   if (!payload) return null;
 
-  const prefix = 'join_';
-  if (payload.startsWith(prefix)) {
-    const code = payload.slice(prefix.length);
+  const joinPrefix = 'join_';
+  if (payload.startsWith(joinPrefix)) {
+    const code = payload.slice(joinPrefix.length);
     if (code.length > 0) return { kind: 'join', code };
+  }
+
+  const tournamentPrefix = 't_';
+  if (payload.startsWith(tournamentPrefix)) {
+    const id = payload.slice(tournamentPrefix.length);
+    if (UUID_RE.test(id))
+      return { kind: 'tournament', tournamentId: id as UUID };
   }
 
   return null;
