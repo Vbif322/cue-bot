@@ -15,6 +15,14 @@ const userCommands: BotCommand[] = [
 // В группе бот отвечает только на эти две команды — всё остальное отсекает
 // chatScopeMiddleware, поэтому рекламировать там userCommands значило бы
 // показывать меню из мёртвых пунктов.
+//
+// Показываем их ТОЛЬКО администраторам чата (scope all_chat_administrators):
+// распоряжаться анонсами всё равно может только админ, и незачем светить
+// рядовым участникам команды, на которые они получат отказ.
+//
+// ВАЖНО: scope — это только меню по «/», а не авторизация. Команду по-прежнему
+// может НАБРАТЬ кто угодно, поэтому проверка прав в groupCommands.ts
+// (canManageAnnouncements) остаётся обязательной.
 const groupCommands: BotCommand[] = [
   { command: 'start_announcements', description: 'Включить анонсы турниров' },
   { command: 'stop_announcements', description: 'Отключить анонсы турниров' },
@@ -44,9 +52,16 @@ export async function setupCommands(bot: Bot<BotContext>): Promise<void> {
       scope: { type: 'all_private_chats' },
     });
 
-    // Команды для групповых чатов
-    await bot.api.setMyCommands(groupCommands, {
+    // Рядовые участники групп не видят в меню ничего: все групповые команды
+    // админские. Пустой список здесь обязателен — иначе более широкий scope
+    // подставил бы их всем (Telegram берёт самый узкий ПОДХОДЯЩИЙ scope).
+    await bot.api.setMyCommands([], {
       scope: { type: 'all_group_chats' },
+    });
+
+    // Команды для администраторов групповых чатов
+    await bot.api.setMyCommands(groupCommands, {
+      scope: { type: 'all_chat_administrators' },
     });
   } catch (error) {
     console.error(error);
