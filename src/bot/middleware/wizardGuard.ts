@@ -7,6 +7,11 @@ export async function wizardGuardMiddleware(
   ctx: BotContext,
   next: NextFunction,
 ): Promise<void> {
+  // Страховка: групповые апдейты отсекает chatScopeMiddleware выше по цепочке,
+  // но guard не должен отвечать «Завершите wizard» в групповой чат, даже если
+  // порядок middleware когда-нибудь изменят.
+  if (ctx.chat?.type !== 'private') return next();
+
   const userId = ctx.from?.id;
   if (!userId) return next();
 

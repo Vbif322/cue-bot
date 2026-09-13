@@ -10,6 +10,12 @@ export function createMockBotApi() {
     sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
     editMessageText: vi.fn().mockResolvedValue(true),
     answerCallbackQuery: vi.fn().mockResolvedValue(true),
+    getMe: vi.fn().mockResolvedValue({
+      id: 42,
+      is_bot: true,
+      first_name: 'Cue',
+      username: 'cue_bot',
+    }),
   };
 }
 

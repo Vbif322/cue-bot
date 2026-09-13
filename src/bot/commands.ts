@@ -12,6 +12,14 @@ const userCommands: BotCommand[] = [
   { command: 'me', description: 'Профиль и статистика' },
 ];
 
+// В группе бот отвечает только на эти две команды — всё остальное отсекает
+// chatScopeMiddleware, поэтому рекламировать там userCommands значило бы
+// показывать меню из мёртвых пунктов.
+const groupCommands: BotCommand[] = [
+  { command: 'start_announcements', description: 'Включить анонсы турниров' },
+  { command: 'stop_announcements', description: 'Отключить анонсы турниров' },
+];
+
 const refereeCommands: BotCommand[] = [
   ...userCommands,
   { command: 'referee_matches', description: 'Матчи турниров, где я судья' },
@@ -37,7 +45,7 @@ export async function setupCommands(bot: Bot<BotContext>): Promise<void> {
     });
 
     // Команды для групповых чатов
-    await bot.api.setMyCommands(userCommands, {
+    await bot.api.setMyCommands(groupCommands, {
       scope: { type: 'all_group_chats' },
     });
   } catch (error) {
@@ -72,4 +80,4 @@ export async function setRefereeCommands(
   });
 }
 
-export { userCommands, refereeCommands, adminCommands };
+export { userCommands, groupCommands, refereeCommands, adminCommands };

@@ -7,3 +7,4 @@ export { adminParticipantCommands } from './adminParticipantCommands.js';
 export { helpCommands } from './helpCommand.js';
 export { profileCommands } from './profileCommand.js';
 export { menuHandlers } from './menuHandlers.js';
+export { groupCommands } from './groupCommands.js';

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import type { UUID } from 'crypto';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 import { db } from '@/db/db.js';
 import { tournamentParticipants } from '@/db/schema.js';
@@ -22,6 +23,7 @@ import {
   createVenue,
 } from '../../helpers/factories.js';
 import { truncateAll } from '../../helpers/truncate.js';
+import { registerGroupChat } from '@/services/groupChatService.js';
 
 const app = createAdminServer();
 
@@ -36,13 +38,24 @@ interface TournamentRow {
 
 describe('admin tournaments router', () => {
   let admin: Awaited<ReturnType<typeof createAdminUser>>;
+  let sendMessageSpy: MockInstance;
 
   beforeAll(() => {
     // Status changes / participant actions fan out Telegram notifications;
     // stub the transport so tests never touch the network.
-    vi.spyOn(bot.api, 'sendMessage').mockResolvedValue(
-      {} as Awaited<ReturnType<typeof bot.api.sendMessage>>,
-    );
+    sendMessageSpy = vi
+      .spyOn(bot.api, 'sendMessage')
+      .mockResolvedValue({ message_id: 1 } as Awaited<
+        ReturnType<typeof bot.api.sendMessage>
+      >);
+    // Анонс в группы читает имя бота для deep-link'а — без стаба getMe ушёл бы
+    // в сеть и рассылка молча свернулась бы.
+    vi.spyOn(bot.api, 'getMe').mockResolvedValue({
+      id: 42,
+      is_bot: true,
+      first_name: 'Cue',
+      username: 'cue_bot',
+    } as Awaited<ReturnType<typeof bot.api.getMe>>);
   });
 
   beforeEach(async () => {
@@ -234,6 +247,75 @@ describe('admin tournaments router', () => {
     );
     expect(status).toBe(200);
     expect(body.data.status).toBe('registration_open');
+  });
+
+  it('PATCH /:id/status announces the open registration to subscribed groups', async () => {
+    const sendMessage = sendMessageSpy;
+    sendMessage.mockClear();
+
+    await registerGroupChat({
+      chatId: '-1001',
+      type: 'supergroup',
+      title: 'Клуб',
+      addedBy: null,
+    });
+    const t = await createTournament({
+      status: 'draft',
+      visibility: 'public',
+    });
+
+    const { status } = await apiRequest(
+      app,
+      'PATCH',
+      `/api/tournaments/${t.id}/status`,
+      { user: admin, body: { status: 'registration_open' } },
+    );
+    expect(status).toBe(200);
+
+    // Рассылка идёт fire-and-forget уже после ответа роута — без waitFor тест
+    // был бы флакающим.
+    await vi.waitFor(() => {
+      expect(sendMessage.mock.calls.some((call) => call[0] === '-1001')).toBe(
+        true,
+      );
+    });
+  });
+
+  it('PATCH /:id/status does not announce a private tournament', async () => {
+    const sendMessage = sendMessageSpy;
+    sendMessage.mockClear();
+
+    await registerGroupChat({
+      chatId: '-1002',
+      type: 'supergroup',
+      title: 'Клуб',
+      addedBy: null,
+    });
+    const t = await createTournament({
+      status: 'draft',
+      visibility: 'private',
+    });
+
+    await apiRequest(app, 'PATCH', `/api/tournaments/${t.id}/status`, {
+      user: admin,
+      body: { status: 'registration_open' },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(sendMessage.mock.calls.some((call) => call[0] === '-1002')).toBe(
+      false,
+    );
+  });
+
+  it('PATCH /:id/status refuses to re-open an already open tournament', async () => {
+    const t = await createTournament({ status: 'registration_open' });
+    const { status } = await apiRequest(
+      app,
+      'PATCH',
+      `/api/tournaments/${t.id}/status`,
+      { user: admin, body: { status: 'registration_open' } },
+    );
+    expect(status).toBe(400);
   });
 
   it('PATCH /:id/status rejects rolling a completed tournament back to draft', async () => {

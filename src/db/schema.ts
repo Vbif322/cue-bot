@@ -14,3 +14,5 @@ export * from './schema/tournamentTables.js';
 export * from './schema/dialogSessions.js';
 export * from './schema/userIdentities.js';
 export * from './schema/emailLoginCodes.js';
+export * from './schema/groupChats.js';
+export * from './schema/groupAnnouncements.js';

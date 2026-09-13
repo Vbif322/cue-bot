@@ -19,8 +19,11 @@ import {
   cancelTournament,
   canCancelTournament,
   closeRegistrationWithCount,
+  canTransitionTournamentStatus,
 } from '@/services/tournamentService.js';
 import { notifyTournamentCancelled } from '@/services/notificationService.js';
+import { announceRegistrationOpen } from '@/services/groupBroadcastService.js';
+import { errorMessage } from '@/utils/errors.js';
 import type { TournamentStatus } from '@/bot/@types/tournament.js';
 
 import { adminOnly } from '../guards.js';
@@ -230,6 +233,25 @@ tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
 
   const tournamentId = ctx.match[1];
   if (!tournamentId) return;
+
+  // Без этой проверки повторный тап переоткрывал бы уже открытый турнир —
+  // раньше это было незаметно, а с анонсами означало бы второй залп по чатам.
+  const tournament = await getTournament(tournamentId as UUID);
+  if (!tournament) {
+    await ctx.answerCallbackQuery({
+      text: 'Турнир не найден',
+      show_alert: true,
+    });
+    return;
+  }
+  if (!canTransitionTournamentStatus(tournament.status, 'registration_open')) {
+    await ctx.answerCallbackQuery({
+      text: 'Регистрация уже открыта',
+      show_alert: true,
+    });
+    return;
+  }
+
   await updateTournamentStatus(tournamentId as UUID, 'registration_open');
 
   await ctx.answerCallbackQuery('Регистрация открыта');
@@ -238,6 +260,15 @@ tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
       (ctx.callbackQuery.message?.text ?? '') +
       `\n\n${getMatchStatusEmoji('completed')} Регистрация открыта!`,
   });
+
+  // Рассылка по группам — уже после ответа админу: это цикл по N чатам с
+  // паузами, держать на нём спиннер callback'а незачем, повлиять на сбой
+  // отправки в группу админ всё равно не может.
+  void announceRegistrationOpen(ctx.api, tournamentId as UUID).catch(
+    (error: unknown) => {
+      console.error('Анонс регистрации не отправлен:', errorMessage(error));
+    },
+  );
 });
 
 /**
@@ -782,9 +813,12 @@ tournamentCommands.on('message:text', async (ctx, next) => {
 // ============================================================================
 
 /**
- * Show tournament details (reusable for both command and callback)
+ * Show tournament details (reusable for both command and callback).
+ * Экспортируется ещё и для deep-link `/start t_<id>` (src/index.ts): она сама
+ * грузит турнир и уже закрывает утечку приватных — одинаковое «Турнир не
+ * найден.» и для отсутствующего, и для недоступного.
  */
-async function showTournamentDetails(
+export async function showTournamentDetails(
   ctx: BotContext,
   tournamentId: UUID,
   editMessage = false,
