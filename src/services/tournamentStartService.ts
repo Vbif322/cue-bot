@@ -54,11 +54,24 @@ async function kickoffReadyMatches(
   // date/time (and table) manually, so matches must not be auto-started here.
   if (tournament.scheduleMode !== 'per_match') {
     const tournamentTables = await getTournamentTables(tournamentId);
-    for (const table of tournamentTables) {
+    // getNextReadyMatch skips matches whose player is already mid-game, so it can
+    // run out before the tables do — that just means nobody else is free to play
+    // yet, and onTableFreed hands the table out on the next completion.
+    // A lost race must not burn the table either, so the index only advances on a
+    // successful assignment; the attempt cap stops a persistently losing retry.
+    let tableIndex = 0;
+    let attempts = 0;
+    const maxAttempts = tournamentTables.length * 3 + 5;
+    while (tableIndex < tournamentTables.length && attempts < maxAttempts) {
+      attempts += 1;
+      const table = tournamentTables[tableIndex];
+      if (!table) break;
       const next = await getNextReadyMatch(tournamentId);
       if (!next) break;
-      const ok = await assignTableAndStart(next.id, table.id, botApi);
-      if (ok) autoStartedMatchIds.add(next.id);
+      if (await assignTableAndStart(next.id, table.id, botApi)) {
+        autoStartedMatchIds.add(next.id);
+        tableIndex += 1;
+      }
     }
   }
 
