@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 import type { UUID } from 'crypto';
 
 import {
+  busyPlayersMessage,
   deriveFrameResult,
   loserTarget,
   parseFrameScoreLine,
+  pickNextReadyMatch,
+  playerSlotName,
   validateCorrectionScores,
   winScoreForMatch,
   type FrameInput,
@@ -224,5 +227,94 @@ describe('winScoreForMatch', () => {
 
   it('falls back to the tournament for pre-M2-11 and non-playoff rows', () => {
     expect(winScoreForMatch({ winScore: null }, { winScore: 3 })).toBe(3);
+  });
+});
+
+const P3 = '33333333-3333-3333-3333-333333333333' as UUID;
+const P4 = '44444444-4444-4444-4444-444444444444' as UUID;
+
+describe('playerSlotName', () => {
+  it('prefers the full name', () => {
+    expect(
+      playerSlotName({ name: 'Иван', surname: 'Петров', username: 'vanya' }),
+    ).toBe('Иван Петров');
+  });
+
+  it('falls back to the username, then to a generic label', () => {
+    expect(playerSlotName({ name: null, username: 'vanya' })).toBe('vanya');
+    expect(playerSlotName({})).toBe('Участник');
+    expect(playerSlotName({ name: '  ', surname: null, username: null })).toBe(
+      'Участник',
+    );
+  });
+
+  it('truncates so two names still fit a Telegram callback answer', () => {
+    const long = playerSlotName({ name: 'я'.repeat(50), surname: 'ю'.repeat(90) });
+    expect(long).toHaveLength(40);
+    expect(long.endsWith('…')).toBe(true);
+  });
+});
+
+describe('busyPlayersMessage', () => {
+  it('uses the singular form for one blocked player', () => {
+    expect(busyPlayersMessage(['Иван Петров'])).toBe(
+      'Игрок Иван Петров уже играет другой матч — сначала завершите его',
+    );
+  });
+
+  it('uses the plural form when both players are blocked', () => {
+    expect(busyPlayersMessage(['Иван', 'Пётр'])).toBe(
+      'Игроки Иван и Пётр уже играют другие матчи — сначала завершите их',
+    );
+  });
+
+  it('degrades to a generic name rather than printing undefined', () => {
+    expect(busyPlayersMessage([])).toContain('Участник');
+  });
+});
+
+describe('pickNextReadyMatch', () => {
+  const m = (id: string, a: UUID | null, b: UUID | null) => ({
+    id,
+    player1Id: a,
+    player2Id: b,
+  });
+
+  it('returns the first candidate when nobody is busy', () => {
+    const picked = pickNextReadyMatch(
+      [m('a', P1, P2), m('b', P3, P4)],
+      new Set(),
+    );
+    expect(picked?.id).toBe('a');
+  });
+
+  it('skips a candidate whose player is mid-game', () => {
+    const picked = pickNextReadyMatch(
+      [m('a', P1, P2), m('b', P3, P4)],
+      new Set([P1]),
+    );
+    expect(picked?.id).toBe('b');
+  });
+
+  it('blocks on either slot, not just player1', () => {
+    const picked = pickNextReadyMatch(
+      [m('a', P1, P2), m('b', P3, P4)],
+      new Set([P2]),
+    );
+    expect(picked?.id).toBe('b');
+  });
+
+  it('skips half-filled bracket slots', () => {
+    const picked = pickNextReadyMatch(
+      [m('a', P1, null), m('b', null, P2), m('c', P3, P4)],
+      new Set(),
+    );
+    expect(picked?.id).toBe('c');
+  });
+
+  it('returns null when every candidate is blocked', () => {
+    expect(
+      pickNextReadyMatch([m('a', P1, P2)], new Set([P1, P2])),
+    ).toBeNull();
   });
 });

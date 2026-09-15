@@ -2,7 +2,11 @@ import type { UUID } from 'crypto';
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { eq } from 'drizzle-orm';
+
 import type { Match } from '@/bot/@types/match.js';
+import { db } from '@/db/db.js';
+import { users } from '@/db/schema.js';
 import { getMatch } from '@/services/matchService.js';
 import {
   reportResult,
@@ -18,7 +22,9 @@ import type { FrameInput } from '@/services/matchService.js';
 
 import {
   createAdminUser,
+  createConfirmedParticipant,
   createMatchesForTournament,
+  createTournament,
   createTournamentWithParticipants,
   createUser,
   completeMatch,
@@ -383,6 +389,179 @@ describe('matchService lifecycle', () => {
       expect(after?.winnerId).toBe(before?.winnerId);
       expect(after?.player1Score).toBe(before?.player1Score);
       expect(after?.player2Score).toBe(before?.player2Score);
+    });
+  });
+
+  // One person plays at one table at a time, so a match must not start while
+  // either of its players is mid-game — in this or any other tournament.
+  describe('startMatch: one match per player at a time', () => {
+    /**
+     * 3-player round robin: every player meets both others, so any two matches
+     * of the set share exactly one player.
+     */
+    async function roundRobin(): Promise<{ all: Match[] }> {
+      const { tournament } = await createTournamentWithParticipants(
+        3,
+        'round_robin',
+      );
+      const all = await createMatchesForTournament(tournament.id, 'round_robin');
+      return { all };
+    }
+
+    /** Two matches sharing exactly one player, plus that shared player's id. */
+    function overlappingPair(all: Match[]): {
+      first: Match;
+      second: Match;
+      shared: UUID;
+    } {
+      const first = must(all[0], 'first match');
+      const firstPlayers = [first.player1Id, first.player2Id];
+      for (const candidate of all.slice(1)) {
+        const shared = [candidate.player1Id, candidate.player2Id].find(
+          (id) => id !== null && firstPlayers.includes(id),
+        );
+        if (shared) return { first, second: candidate, shared };
+      }
+      throw new Error('round robin produced no overlapping pair');
+    }
+
+    it('refuses to start a second match for a player already mid-game', async () => {
+      const { all } = await roundRobin();
+      const { first, second } = overlappingPair(all);
+
+      expect((await startMatch(first.id)).success).toBe(true);
+
+      const res = await startMatch(second.id);
+      expect(res.success).toBe(false);
+      expect(res.error).toMatch(/уже играет другой матч/);
+    });
+
+    it('leaves the refused match untouched', async () => {
+      const { all } = await roundRobin();
+      const { first, second } = overlappingPair(all);
+      await startMatch(first.id);
+
+      await startMatch(second.id);
+
+      const after = await getMatch(second.id);
+      expect(after?.status).toBe('scheduled');
+      expect(after?.startedAt).toBeNull();
+    });
+
+    it('names the blocked player in the error', async () => {
+      const { all } = await roundRobin();
+      const { first, second, shared } = overlappingPair(all);
+      await startMatch(first.id);
+
+      const res = await startMatch(second.id);
+      const blocked = await db.query.users.findFirst({
+        where: eq(users.id, shared),
+      });
+      expect(res.error).toContain(blocked?.name ?? '');
+    });
+
+    it('blocks on a match running in a DIFFERENT tournament', async () => {
+      const { all } = await roundRobin();
+      // Take the player from the match actually started — the round-robin
+      // generator's match order is not the seed order.
+      const live = must(all[0], 'match');
+      const shared = must(live.player1Id, 'shared player');
+      expect((await startMatch(live.id)).success).toBe(true);
+
+      // A second tournament the same person also plays in.
+      const other = await createTournament({
+        format: 'single_elimination',
+        status: 'registration_open',
+      });
+      await createConfirmedParticipant(other.id, { userId: shared, seed: 1 });
+      await createConfirmedParticipant(other.id, { seed: 2 });
+      const otherMatches = await createMatchesForTournament(
+        other.id,
+        'single_elimination',
+      );
+
+      const res = await startMatch(must(otherMatches[0], 'match').id);
+      expect(res.success).toBe(false);
+      expect(res.error).toMatch(/уже играет другой матч/);
+    });
+
+    it('does NOT block on a match awaiting score confirmation', async () => {
+      const { all } = await roundRobin();
+      const { first, second } = overlappingPair(all);
+      await startMatch(first.id);
+      // Report without confirming: the game is physically over, the player is free.
+      const reporter = must(first.player1Id, 'player1');
+      expect((await reportResult(first.id, reporter, 0, 3)).success).toBe(true);
+      expect((await getMatch(first.id))?.status).toBe('pending_confirmation');
+
+      expect((await startMatch(second.id)).success).toBe(true);
+    });
+
+    it('lets the blocked match start once the blocker completes', async () => {
+      const { all } = await roundRobin();
+      const { first, second } = overlappingPair(all);
+      await startMatch(first.id);
+      expect((await startMatch(second.id)).success).toBe(false);
+
+      await completeMatch(first.id, must(first.player1Id, 'player1'));
+
+      const res = await startMatch(second.id);
+      expect(res.success).toBe(true);
+      expect(res.match?.status).toBe('in_progress');
+    });
+
+    it('lets two matches with no player in common run at once', async () => {
+      const { tournament } = await createTournamentWithParticipants(
+        4,
+        'single_elimination',
+      );
+      const all = await createMatchesForTournament(
+        tournament.id,
+        'single_elimination',
+      );
+      const round1 = all.filter((m) => m.player1Id && m.player2Id);
+      expect(round1).toHaveLength(2);
+
+      for (const match of round1) {
+        expect((await startMatch(match.id)).success).toBe(true);
+      }
+    });
+
+    it('survives concurrent starts of two matches sharing a player', async () => {
+      const { all } = await roundRobin();
+      const { first, second } = overlappingPair(all);
+
+      const results = await Promise.all([
+        startMatch(first.id),
+        startMatch(second.id),
+      ]);
+
+      expect(results.filter((r) => r.success)).toHaveLength(1);
+      const statuses = await Promise.all([
+        getMatch(first.id),
+        getMatch(second.id),
+      ]);
+      expect(statuses.filter((m) => m?.status === 'in_progress')).toHaveLength(
+        1,
+      );
+    });
+
+    it('refuses to put a disputed match back into play against a live one', async () => {
+      const { all } = await roundRobin();
+      const { first, second } = overlappingPair(all);
+      await startMatch(first.id);
+      const reporter = must(first.player1Id, 'player1');
+      const opponent = must(first.player2Id, 'player2');
+      await reportResult(first.id, reporter, 0, 3);
+
+      // The shared player is free to start their next match meanwhile...
+      expect((await startMatch(second.id)).success).toBe(true);
+
+      // ...so re-opening the first one would double-book them.
+      const res = await disputeResult(first.id, opponent);
+      expect(res.success).toBe(false);
+      expect(res.error).toMatch(/Нельзя вернуть матч в игру/);
+      expect((await getMatch(first.id))?.status).toBe('pending_confirmation');
     });
   });
 });

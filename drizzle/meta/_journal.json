@@ -141,6 +141,13 @@
       "when": 1789206930846,
       "tag": "0019_chunky_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789282486747,
+      "tag": "0020_magical_turbo",
+      "breakpoints": true
     }
   ]
 }
