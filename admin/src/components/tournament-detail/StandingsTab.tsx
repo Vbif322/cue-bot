@@ -19,6 +19,8 @@ export default function StandingsTab({
 }) {
   const qualifiers = tournament.qualifiersPerGroup ?? 0;
   const isSnooker = sportOfDiscipline(tournament.discipline) === 'snooker';
+  // Round robin is a single table with no qualification out of it.
+  const isRoundRobin = tournament.format === 'round_robin';
 
   const { data: standings, isLoading } = useQuery({
     queryKey: ['tournament-standings', tournament.id],
@@ -32,21 +34,33 @@ export default function StandingsTab({
   if (!standings || standings.length === 0) {
     return (
       <div className="text-gray-500 text-sm">
-        Групповой этап ещё не сформирован.
+        {isRoundRobin
+          ? 'Нет подтверждённых участников.'
+          : 'Групповой этап ещё не сформирован.'}
       </div>
     );
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div
+      className={
+        standings.length > 1 ? 'grid gap-4 sm:grid-cols-2' : 'grid gap-4'
+      }
+    >
       {standings.map((group) => (
         <div
           key={group.groupIndex}
           className="rounded-lg border border-gray-200 overflow-hidden"
         >
           <div className="bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700">
-            Группа {groupLetter(group.groupIndex)}{' '}
-            <span className="text-gray-400">(выходят {qualifiers})</span>
+            {isRoundRobin ? (
+              'Таблица турнира'
+            ) : (
+              <>
+                Группа {groupLetter(group.groupIndex)}{' '}
+                <span className="text-gray-400">(выходят {qualifiers})</span>
+              </>
+            )}
           </div>
           <table className="w-full text-sm">
             <thead>

@@ -17,7 +17,7 @@ import {
 } from '@/services/tournamentService.js';
 import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 import { getBracketReadModel } from '@/services/bracketReadService.js';
-import { getGroupStandings } from '@/services/groupPhaseService.js';
+import { getStandings } from '@/services/groupPhaseService.js';
 import {
   APP_SESSION,
   requireUser,
@@ -177,7 +177,7 @@ export function createAppTournamentsRouter() {
     const loaded = await loadVisible(c, id);
     if (loaded.error) return loaded.error;
 
-    return c.json({ data: await getGroupStandings(id) });
+    return c.json({ data: await getStandings(id, loaded.tournament.format) });
   });
 
   router.post('/:id/register', requireUser, validateParam(paramId), async (c) => {

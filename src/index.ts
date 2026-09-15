@@ -1,6 +1,7 @@
 import { bot, useWebhook } from './bot/instance.js';
 import {
   authMiddleware,
+  chatScopeMiddleware,
   wizardGuardMiddleware,
   rateLimitMiddleware,
   botFloodLimiter,
@@ -16,11 +17,13 @@ import {
   helpCommands,
   profileCommands,
   menuHandlers,
+  groupCommands,
 } from './bot/handlers/index.js';
 import {
   joinViaInvite,
   parseStartPayload,
 } from './bot/handlers/inviteCommands.js';
+import { showTournamentDetails } from './bot/handlers/tournamentCommands.js';
 import { getTournamentByInviteCode } from './services/tournamentService.js';
 import { sendOnboarding } from './bot/handlers/helpCommand.js';
 import {
@@ -50,8 +53,12 @@ import { emailCodeLimiter } from './app/server/routes/auth.js';
 // Flood protection runs first so spam is dropped before authMiddleware's per-update
 // user upsert (a DB transaction) ever runs.
 bot.use(rateLimitMiddleware);
+// Отсекает групповые апдейты ДО upsert'а пользователя в authMiddleware.
+bot.use(chatScopeMiddleware);
 bot.use(authMiddleware);
 bot.use(wizardGuardMiddleware);
+// Группы обслуживаются здесь; всё, что ниже, рассчитано на личку.
+bot.use(groupCommands);
 bot.use(menuHandlers);
 bot.use(roleCommands);
 bot.use(inviteCommands);
@@ -91,6 +98,15 @@ bot.command('start', async (ctx) => {
       return;
     }
     await ctx.reply('Приглашение недействительно или турнир не найден.');
+    return;
+  }
+
+  // Deep-link из анонса в групповом чате: /start t_<tournamentId>.
+  // showTournamentDetails сама грузит турнир и проверяет доступ, а карточка,
+  // которую она рисует, уже несёт кнопку «Участвовать» (reg:join) — своего кода
+  // регистрации здесь не нужно.
+  if (payload?.kind === 'tournament') {
+    await showTournamentDetails(ctx, payload.tournamentId);
     return;
   }
 
@@ -159,6 +175,18 @@ const BOT_START_RETRY_DELAY_MS = 5000;
 // bot.start() резолвится только при bot.stop(), а его внутренний polling уже сам
 // ретраит транзиентные ошибки. Незакрытый зазор — начальная инициализация
 // (getMe / setMyCommands / setWebhook), поэтому ретраим именно её, а сам polling не ждём.
+// Полный набор типов апдейтов, которые потребляет бот. Сверено по всем
+// .on/.command/.callbackQuery/.hears в src/: больше ничего не слушается.
+// Задаём явно не потому, что что-то сломано (my_chat_member входит в дефолт
+// grammY), а потому что для вебхука Telegram помнит ПРОШЛУЮ настройку — любой
+// давний curl или staging-деплой мог её сузить незаметно.
+// Добавили слушателя нового типа — допишите его сюда.
+const ALLOWED_UPDATES = [
+  'message',
+  'callback_query',
+  'my_chat_member',
+] as const;
+
 async function startBot() {
   for (let attempt = 1; attempt <= MAX_BOT_START_RETRIES; attempt++) {
     try {
@@ -183,8 +211,11 @@ async function startBot() {
         await bot.api.setWebhook(webhookUrl, {
           secret_token: webhookSecret,
           drop_pending_updates: false,
+          allowed_updates: [...ALLOWED_UPDATES],
         });
-        console.log(`Бот @${bot.botInfo.username} запущен (webhook на ${publicBaseUrl})`);
+        console.log(
+          `Бот @${bot.botInfo.username} запущен (webhook на ${publicBaseUrl})`,
+        );
         return;
       }
 
@@ -192,6 +223,7 @@ async function startBot() {
       await bot.api.deleteWebhook();
       void bot
         .start({
+          allowed_updates: [...ALLOWED_UPDATES],
           onStart: (info) => {
             console.log(`Бот @${info.username} запущен`);
           },
@@ -257,7 +289,10 @@ async function start() {
     // Pick the admin or player middleware per request by Host header. Typed as
     // MiddlewareHandler so `c`/`next` line up with what serveStatic returns.
     const byHost =
-      (admin: MiddlewareHandler, player: MiddlewareHandler): MiddlewareHandler =>
+      (
+        admin: MiddlewareHandler,
+        player: MiddlewareHandler,
+      ): MiddlewareHandler =>
       (c, next) =>
         (c.req.header('host') === adminHost ? admin : player)(c, next);
 

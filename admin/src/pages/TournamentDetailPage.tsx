@@ -13,7 +13,7 @@ type Tab = 'info' | 'participants' | 'standings' | 'matches';
 const TAB_LABELS: Record<Tab, string> = {
   info: 'Информация',
   participants: 'Участники',
-  standings: 'Таблицы',
+  standings: 'Таблица',
   matches: 'Матчи',
 };
 
@@ -49,10 +49,13 @@ export default function TournamentDetailPage() {
     return <div className="text-gray-500 text-sm">Загрузка...</div>;
   }
 
-  const tabs: Tab[] =
-    tournament.format === 'groups_playoff'
-      ? ['info', 'participants', 'standings', 'matches']
-      : ['info', 'participants', 'matches'];
+  // Formats that rank players in a table rather than a bracket.
+  const hasStandings =
+    tournament.format === 'groups_playoff' ||
+    tournament.format === 'round_robin';
+  const tabs: Tab[] = hasStandings
+    ? ['info', 'participants', 'standings', 'matches']
+    : ['info', 'participants', 'matches'];
 
   const confirmedParticipants =
     participants?.filter((p) => p.status === 'confirmed') ?? [];
