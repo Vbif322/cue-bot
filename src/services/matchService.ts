@@ -1,4 +1,15 @@
-import { and, eq, inArray, isNull, ne, or, asc, desc } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  inArray,
+  isNull,
+  ne,
+  notExists,
+  or,
+  asc,
+  desc,
+  sql,
+} from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
@@ -49,6 +60,8 @@ import {
   placeIntoRandomFreeSlot,
 } from './randomBracketAdvancement.js';
 import { errorMessage } from '@/utils/errors.js';
+import { formatFullName } from '@/utils/messageHelpers.js';
+import { getTournamentTables } from './tableService.js';
 
 /**
  * Effective "race to N" for a match.
@@ -293,6 +306,122 @@ export async function getPlayerActiveMatches(
 }
 
 /**
+ * Which of `userIds` are currently mid-game, i.e. hold a match in `in_progress`.
+ *
+ * A person plays at exactly one table at a time, so a match must not start while
+ * either of its players is still playing another one — in this or any other
+ * tournament, hence no tournament scope here. `pending_confirmation` does NOT
+ * count: that game is physically over and only awaits the opponent's confirmation.
+ *
+ * Pass `excludeMatchId` to ignore the match being started itself.
+ */
+export async function findBusyPlayerIds(
+  userIds: (UUID | null)[],
+  excludeMatchId?: UUID,
+  executor: Executor = db,
+): Promise<Set<UUID>> {
+  const ids = [...new Set(userIds.filter((id): id is UUID => id !== null))];
+  if (ids.length === 0) return new Set();
+
+  const conditions = [
+    eq(matches.status, 'in_progress'),
+    or(inArray(matches.player1Id, ids), inArray(matches.player2Id, ids)),
+  ];
+  if (excludeMatchId) conditions.push(ne(matches.id, excludeMatchId));
+
+  const rows = await executor
+    .select({ player1Id: matches.player1Id, player2Id: matches.player2Id })
+    .from(matches)
+    .where(and(...conditions));
+
+  const wanted = new Set(ids);
+  const busy = new Set<UUID>();
+  for (const row of rows) {
+    if (row.player1Id && wanted.has(row.player1Id)) busy.add(row.player1Id);
+    if (row.player2Id && wanted.has(row.player2Id)) busy.add(row.player2Id);
+  }
+  return busy;
+}
+
+const busyMatchAlias = alias(matches, 'busy_match');
+
+/**
+ * SQL form of the same rule, for the conditional UPDATE: no OTHER match is
+ * `in_progress` for either player of the row being updated. Correlated on
+ * `matches`, so it is only valid inside a statement whose target table is
+ * `matches`. A NULL player slot never matches (`NULL = x` is NULL, not true).
+ *
+ * This is a backstop, not the primary guard — see `startMatch`, which holds a
+ * per-player advisory lock. It closes the window between a caller's read and
+ * its write when another start committed in between.
+ */
+function noOtherMatchInProgress(matchId: UUID) {
+  return notExists(
+    db
+      .select({ one: sql`1` })
+      .from(busyMatchAlias)
+      .where(
+        and(
+          eq(busyMatchAlias.status, 'in_progress'),
+          ne(busyMatchAlias.id, matchId),
+          or(
+            eq(busyMatchAlias.player1Id, matches.player1Id),
+            eq(busyMatchAlias.player2Id, matches.player1Id),
+            eq(busyMatchAlias.player1Id, matches.player2Id),
+            eq(busyMatchAlias.player2Id, matches.player2Id),
+          ),
+        ),
+      ),
+  );
+}
+
+/** Telegram caps `answerCallbackQuery` text at 200 chars; names are up to 150. */
+const MAX_NAME_LEN = 40;
+
+/**
+ * Plain-text display name for one match slot. Deliberately NOT
+ * `formatPlayerName` from `bot/ui`: that returns Markdown, and these strings
+ * also travel to the admin JSON API.
+ */
+export function playerSlotName(slot: {
+  name?: string | null | undefined;
+  surname?: string | null | undefined;
+  username?: string | null | undefined;
+}): string {
+  const full = formatFullName(slot.name, slot.surname) ?? slot.username ?? '';
+  const display = full.trim() === '' ? 'Участник' : full;
+  return display.length > MAX_NAME_LEN
+    ? `${display.slice(0, MAX_NAME_LEN - 1)}…`
+    : display;
+}
+
+/** User-facing refusal when a match can't start because a player is mid-game. */
+export function busyPlayersMessage(names: string[]): string {
+  if (names.length > 1) {
+    return `Игроки ${names.join(' и ')} уже играют другие матчи — сначала завершите их`;
+  }
+  return `Игрок ${names[0] ?? 'Участник'} уже играет другой матч — сначала завершите его`;
+}
+
+/**
+ * First candidate both of whose players are free. Pure so the auto-start
+ * ordering is unit-testable without a database.
+ */
+export function pickNextReadyMatch<
+  T extends { player1Id: UUID | null; player2Id: UUID | null },
+>(candidates: T[], busyIds: Set<UUID>): T | null {
+  return (
+    candidates.find(
+      (m) =>
+        m.player1Id !== null &&
+        m.player2Id !== null &&
+        !busyIds.has(m.player1Id) &&
+        !busyIds.has(m.player2Id),
+    ) ?? null
+  );
+}
+
+/**
  * Get a player's completed matches across all tournaments, newest first.
  * История матчей игрока для профиля (`/api/app/me/matches`).
  */
@@ -352,7 +481,11 @@ export async function getRoundMatches(
 }
 
 /**
- * Get the next scheduled match with both players assigned and no table yet
+ * Get the next scheduled match with both players assigned, no table yet, and
+ * neither player already mid-game. Skipping a blocked match rather than handing
+ * it the table is what keeps the auto-start path (`onTableFreed`,
+ * `kickoffReadyMatches`) from double-booking a player in round-robin and in the
+ * DE losers bracket, where one player has several `scheduled` matches at once.
  */
 export async function getNextReadyMatch(
   tournamentId: UUID,
@@ -366,8 +499,11 @@ export async function getNextReadyMatch(
     orderBy: [asc(matches.round), asc(matches.position)],
   });
 
-  // Return first match where both players are assigned
-  return result.find((m) => m.player1Id && m.player2Id) ?? null;
+  const busy = await findBusyPlayerIds(
+    result.flatMap((m) => [m.player1Id, m.player2Id]),
+  );
+
+  return pickNextReadyMatch(result, busy);
 }
 
 /**
@@ -392,6 +528,9 @@ export async function assignTableAndStart(
         eq(matches.id, matchId),
         eq(matches.status, 'scheduled'),
         isNull(matches.tableId),
+        // Same one-match-per-player rule as startMatch; here a violation just
+        // means "lost the race", which is already this function's false contract.
+        noOtherMatchInProgress(matchId),
       ),
     )
     .returning({ id: matches.id });
@@ -473,7 +612,13 @@ export async function setMatchTable(
 }
 
 /**
- * Called when a table is freed — assigns it to the next ready match.
+ * Called when a table is freed — hands out every table that is currently free,
+ * not just the one that was released.
+ *
+ * It drains rather than filling a single table because `getNextReadyMatch` skips
+ * matches whose player is mid-game: a table left idle because the head of the
+ * queue was blocked has to get another chance as soon as the blocker finishes,
+ * and a match completion is the only event that ever calls in here.
  *
  * No-op for per-match scheduling: there the organiser assigns each match's
  * table/time manually, so freed tables are not auto-handed to the next match.
@@ -486,9 +631,31 @@ export async function onTableFreed(
   const tournament = await getTournament(tournamentId);
   if (tournament?.scheduleMode === 'per_match') return;
 
-  const next = await getNextReadyMatch(tournamentId);
-  if (!next) return;
-  await assignTableAndStart(next.id, tableId, botApi);
+  const allTables = await getTournamentTables(tournamentId);
+
+  // A finished match keeps its `tableId` (advanceWinner never clears it), so a
+  // table counts as taken only while its match is still being played or is
+  // awaiting score confirmation — the players haven't left the table yet.
+  const occupied = await db
+    .select({ tableId: matches.tableId })
+    .from(matches)
+    .where(
+      and(
+        eq(matches.tournamentId, tournamentId),
+        inArray(matches.status, ['in_progress', 'pending_confirmation']),
+      ),
+    );
+  const taken = new Set(occupied.map((row) => row.tableId));
+
+  // The just-freed table is served first; the rest keep their configured order.
+  const free = allTables.filter((t) => !taken.has(t.id));
+  free.sort((a, b) => Number(b.id === tableId) - Number(a.id === tableId));
+
+  for (const table of free) {
+    const next = await getNextReadyMatch(tournamentId);
+    if (!next) break;
+    await assignTableAndStart(next.id, table.id, botApi);
+  }
 }
 
 /**
@@ -776,6 +943,33 @@ export async function disputeResult(
     return { success: false, error: 'Вы не являетесь участником этого матча' };
   }
 
+  // A dispute puts the match back into play, so it has to respect the same
+  // one-match-per-player rule as startMatch. Reachable without any concurrency:
+  // pending_confirmation doesn't count as busy, so a player may legitimately
+  // have started their next match before the opponent disputes this one.
+  const busy = await findBusyPlayerIds(
+    [match.player1Id, match.player2Id],
+    matchId,
+  );
+  if (busy.size > 0) {
+    const blocked =
+      match.player1Id && busy.has(match.player1Id)
+        ? playerSlotName({
+            name: match.player1Name,
+            surname: match.player1Surname,
+            username: match.player1Username,
+          })
+        : playerSlotName({
+            name: match.player2Name,
+            surname: match.player2Surname,
+            username: match.player2Username,
+          });
+    return {
+      success: false,
+      error: `Нельзя вернуть матч в игру: ${blocked} уже играет другой матч`,
+    };
+  }
+
   const updated = await db.transaction(async (tx) => {
     const rows = await tx
       .update(matches)
@@ -791,6 +985,7 @@ export async function disputeResult(
         and(
           eq(matches.id, matchId),
           eq(matches.status, 'pending_confirmation'),
+          noOtherMatchInProgress(matchId),
         ),
       )
       .returning();
@@ -1298,24 +1493,67 @@ export async function startMatch(
       };
     }
 
-    const updatedMatch = await db
-      .update(matches)
-      .set({
-        status: 'in_progress',
-        startedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(matches.id, matchId), eq(matches.status, 'scheduled')))
-      .returning();
+    // A person plays at one table at a time, so check + start must be atomic:
+    // under READ COMMITTED two concurrent starts of DIFFERENT matches sharing a
+    // player would both pass a plain read-side check and both commit. Lock each
+    // player id instead, sorted so two overlapping matches can't deadlock.
+    return await db.transaction(async (tx) => {
+      const playerIds = [match.player1Id, match.player2Id]
+        .filter((id): id is UUID => id !== null)
+        .sort();
+      for (const playerId of playerIds) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${playerId}))`);
+      }
 
-    if (!updatedMatch[0]) {
-      return {
-        success: false,
-        error: 'Статус матча изменился, обновите страницу',
-      };
-    }
+      const busy = await findBusyPlayerIds(playerIds, matchId, tx);
+      if (busy.size > 0) {
+        const names: string[] = [];
+        if (match.player1Id && busy.has(match.player1Id)) {
+          names.push(
+            playerSlotName({
+              name: match.player1Name,
+              surname: match.player1Surname,
+              username: match.player1Username,
+            }),
+          );
+        }
+        if (match.player2Id && busy.has(match.player2Id)) {
+          names.push(
+            playerSlotName({
+              name: match.player2Name,
+              surname: match.player2Surname,
+              username: match.player2Username,
+            }),
+          );
+        }
+        return { success: false, error: busyPlayersMessage(names) };
+      }
 
-    return { success: true, match: updatedMatch[0] };
+      const updatedMatch = await tx
+        .update(matches)
+        .set({
+          status: 'in_progress',
+          startedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(matches.id, matchId),
+            eq(matches.status, 'scheduled'),
+            noOtherMatchInProgress(matchId),
+          ),
+        )
+        .returning();
+
+      if (!updatedMatch[0]) {
+        return {
+          success: false,
+          error: 'Статус матча изменился, обновите страницу',
+        };
+      }
+
+      return { success: true, match: updatedMatch[0] };
+    });
   } catch (error) {
     return { success: false, error: errorMessage(error) };
   }
