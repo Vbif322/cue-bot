@@ -11,9 +11,14 @@ import {
   tables,
   tournamentParticipants,
   tournamentTables,
+  tournaments,
 } from '@/db/schema.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
-import { confirmResult, reportResult } from '@/services/matchService.js';
+import {
+  confirmResult,
+  onTableFreed,
+  reportResult,
+} from '@/services/matchService.js';
 
 import { createTournament, createUser, createVenue } from '../helpers/factories.js';
 import { createMockBotApi } from '../helpers/mockBotApi.js';
@@ -119,5 +124,27 @@ describe('auto-start never double-books a player', () => {
     expect(after).toHaveLength(1);
     expect(after[0]?.id).not.toBe(live.id);
     expect(after[0]?.tableId).not.toBeNull();
+  });
+
+  it('does not hand out tables once the tournament is finished', async () => {
+    // 3 players => 1 live match, 2 scheduled ones waiting on it.
+    const tournament = await setupRoundRobin(3, 3);
+    const botApi = (createMockBotApi() as unknown as Api);
+    await startTournamentFull(tournament.id, botApi);
+
+    const [first] = await liveMatches(tournament.id);
+    const live = must(first, 'first live match');
+    await db
+      .update(matches)
+      .set({ status: 'completed', winnerId: live.player1Id })
+      .where(eq(matches.id, live.id));
+    await db
+      .update(tournaments)
+      .set({ status: 'completed' })
+      .where(eq(tournaments.id, tournament.id));
+
+    await onTableFreed(tournament.id, must(live.tableId, 'table'), botApi);
+
+    expect(await liveMatches(tournament.id)).toHaveLength(0);
   });
 });
