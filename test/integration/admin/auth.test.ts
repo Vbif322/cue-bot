@@ -117,7 +117,26 @@ describe('admin auth router', () => {
         '/api/auth/me',
       );
       expect(status).toBe(200);
-      expect(body).toEqual({ user: null });
+      expect(body.user).toBeNull();
+    });
+
+    it('always returns playerUrl for the «Сайт игрока» link', async () => {
+      const admin = await createAdminUser();
+      const guest = await apiRequest<{ playerUrl: string }>(
+        app,
+        'GET',
+        '/api/auth/me',
+      );
+      const authed = await apiRequest<{ playerUrl: string }>(
+        app,
+        'GET',
+        '/api/auth/me',
+        { user: admin },
+      );
+      // Тесты идут не в production — всегда локальный Vite-сервер app/.
+      const expected = 'http://localhost:5174';
+      expect(guest.body.playerUrl).toBe(expected);
+      expect(authed.body.playerUrl).toBe(expected);
     });
 
     it('returns the admin user for a valid cookie', async () => {
@@ -140,7 +159,7 @@ describe('admin auth router', () => {
         '/api/auth/me',
         { cookie: 'admin_token=not-a-jwt' },
       );
-      expect(body).toEqual({ user: null });
+      expect(body.user).toBeNull();
     });
 
     it('returns user: null for an expired token', async () => {
@@ -151,7 +170,7 @@ describe('admin auth router', () => {
         '/api/auth/me',
         { cookie: expiredCookie(admin) },
       );
-      expect(body).toEqual({ user: null });
+      expect(body.user).toBeNull();
     });
 
     it('returns user: null when the role was revoked in the DB', async () => {
@@ -163,7 +182,7 @@ describe('admin auth router', () => {
         '/api/auth/me',
         { cookie: adminCookie({ ...user, role: 'admin' }) },
       );
-      expect(body).toEqual({ user: null });
+      expect(body.user).toBeNull();
     });
   });
 });

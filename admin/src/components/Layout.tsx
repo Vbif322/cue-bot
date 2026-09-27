@@ -79,6 +79,14 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <div className="p-3 border-t border-gray-200">
           <p className="text-xs text-gray-500 mb-2">@{data?.user?.username}</p>
+          {data?.playerUrl && (
+            <a
+              href={data.playerUrl}
+              className="block px-3 py-2 text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+            >
+              Сайт игрока
+            </a>
+          )}
           <button
             onClick={() => logout()}
             className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"

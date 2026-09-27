@@ -6,6 +6,7 @@ import { useMe } from '../lib/useAuth.ts';
 import { useIsDesktop } from '../lib/useMediaQuery.ts';
 import { notificationsApi } from '../lib/api.ts';
 import { displayName, initials, gradientFor } from '../lib/format.ts';
+import AdminSwitch from './AdminSwitch.tsx';
 
 interface NavEntry {
   to: string;
@@ -193,11 +194,12 @@ function DesktopSidebar({ unread }: { unread: number }) {
               {displayName(user)}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-              Игрок
+              {user.isAdmin ? 'Администратор' : 'Игрок'}
             </div>
           </div>
         </div>
       )}
+      {user?.isAdmin === true && <AdminSwitch block />}
     </aside>
   );
 }
@@ -351,6 +353,9 @@ export default function Layout() {
           C
         </span>
         <span style={{ fontSize: 16, fontWeight: 700 }}>{title}</span>
+        <span style={{ marginLeft: 'auto' }}>
+          <AdminSwitch />
+        </span>
       </header>
 
       <main style={{ flex: 1, paddingBottom: 84 }}>

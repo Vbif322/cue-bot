@@ -27,6 +27,13 @@ const COOKIE_OPTS = {
 const adminBaseUrl = process.env.ADMIN_BASE_URL;
 const adminHost = adminBaseUrl ? new URL(adminBaseUrl).host : undefined;
 
+// Адрес сайта игрока для ссылки «Сайт игрока» в админке. В dev — всегда Vite-сервер
+// app/ (:5174): PUBLIC_BASE_URL там указывает на HTTPS-туннель для вебхука/web_app.
+const playerUrl =
+  process.env.NODE_ENV === 'production' && process.env.PUBLIC_BASE_URL
+    ? process.env.PUBLIC_BASE_URL
+    : 'http://localhost:5174';
+
 export function createAuthRouter() {
   const auth = new Hono();
 
@@ -100,7 +107,7 @@ export function createAuthRouter() {
     const token = tokenMatch?.[1];
 
     if (!token) {
-      return c.json({ user: null });
+      return c.json({ user: null, playerUrl });
     }
     try {
       const payload = jwt.verify(token, JWT_SECRET) as AdminUser;
@@ -110,14 +117,15 @@ export function createAuthRouter() {
       });
 
       if (user?.role !== 'admin') {
-        return c.json({ user: null });
+        return c.json({ user: null, playerUrl });
       }
 
       return c.json({
         user: { id: user.id, username: user.username, role: user.role },
+        playerUrl,
       });
     } catch {
-      return c.json({ user: null });
+      return c.json({ user: null, playerUrl });
     }
   });
 
