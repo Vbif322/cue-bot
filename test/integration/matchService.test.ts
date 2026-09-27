@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 
 import type { Match } from '@/bot/@types/match.js';
 import { db } from '@/db/db.js';
-import { users } from '@/db/schema.js';
+import { matches, tournaments, users } from '@/db/schema.js';
 import { getMatch } from '@/services/matchService.js';
 import {
   reportResult,
@@ -18,6 +18,7 @@ import {
   startMatch,
   getTournamentMatches,
 } from '@/services/matchService.js';
+import { completeTournament } from '@/services/tournamentService.js';
 import type { FrameInput } from '@/services/matchService.js';
 
 import {
@@ -485,6 +486,37 @@ describe('matchService lifecycle', () => {
       expect(res.error).toMatch(/уже играет другой матч/);
     });
 
+    it.each(['completed', 'cancelled'] as const)(
+      'does NOT block on a match left open in a %s tournament',
+      async (finishedStatus) => {
+        const { all } = await roundRobin();
+        const stale = must(all[0], 'match');
+        const shared = must(stale.player1Id, 'shared player');
+        expect((await startMatch(stale.id)).success).toBe(true);
+        // The tournament ended with the match still in_progress — the player
+        // can't see or close it, so it must not lock them out.
+        await db
+          .update(tournaments)
+          .set({ status: finishedStatus })
+          .where(eq(tournaments.id, stale.tournamentId));
+
+        const other = await createTournament({
+          format: 'single_elimination',
+          status: 'registration_open',
+        });
+        await createConfirmedParticipant(other.id, { userId: shared, seed: 1 });
+        await createConfirmedParticipant(other.id, { seed: 2 });
+        const otherMatches = await createMatchesForTournament(
+          other.id,
+          'single_elimination',
+        );
+
+        const res = await startMatch(must(otherMatches[0], 'match').id);
+        expect(res.success).toBe(true);
+        expect(res.match?.status).toBe('in_progress');
+      },
+    );
+
     it('does NOT block on a match awaiting score confirmation', async () => {
       const { all } = await roundRobin();
       const { first, second } = overlappingPair(all);
@@ -563,6 +595,66 @@ describe('matchService lifecycle', () => {
       expect(res.error).toMatch(/Нельзя вернуть матч в игру/);
       expect((await getMatch(first.id))?.status).toBe('pending_confirmation');
     });
+  });
+});
+
+describe('completeTournament', () => {
+  beforeEach(async () => {
+    await truncateAll();
+  });
+
+  it('cancels matches still open when the tournament completes', async () => {
+    const { tournament } = await createTournamentWithParticipants(
+      4,
+      'single_elimination',
+    );
+    const all = await createMatchesForTournament(
+      tournament.id,
+      'single_elimination',
+    );
+    const [first, second] = all.filter((m) => m.player1Id && m.player2Id);
+    const done = must(first, 'first');
+    const live = must(second, 'second');
+    await completeMatch(done.id, must(done.player1Id, 'player1'));
+    expect((await startMatch(live.id)).success).toBe(true);
+
+    await completeTournament(tournament.id);
+
+    const after = await getTournamentMatches(tournament.id);
+    expect(after.find((m) => m.id === done.id)?.status).toBe('completed');
+    expect(
+      after.filter((m) => m.id !== done.id).every((m) => m.status === 'cancelled'),
+    ).toBe(true);
+    const row = await db.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournament.id),
+    });
+    expect(row?.status).toBe('completed');
+  });
+
+  it('is a no-op for a tournament that is not running', async () => {
+    const { tournament } = await createTournamentWithParticipants(
+      2,
+      'single_elimination',
+    );
+    const [match] = await createMatchesForTournament(
+      tournament.id,
+      'single_elimination',
+    );
+    await db
+      .update(tournaments)
+      .set({ status: 'cancelled' })
+      .where(eq(tournaments.id, tournament.id));
+
+    await completeTournament(tournament.id);
+
+    const row = await db.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournament.id),
+    });
+    expect(row?.status).toBe('cancelled');
+    const after = await db.query.matches.findFirst({
+      where: eq(matches.id, must(match, 'match').id),
+    });
+    expect(after?.status).toBe('scheduled');
   });
 });
 

@@ -310,8 +310,11 @@ export async function getPlayerActiveMatches(
  *
  * A person plays at exactly one table at a time, so a match must not start while
  * either of its players is still playing another one — in this or any other
- * tournament, hence no tournament scope here. `pending_confirmation` does NOT
- * count: that game is physically over and only awaits the opponent's confirmation.
+ * running tournament, hence no tournament scope here. Only tournaments that are
+ * themselves `in_progress` count: a match left open in a completed/cancelled
+ * tournament is invisible to the player (see getPlayerActiveMatches) and must
+ * not lock them out forever. `pending_confirmation` does NOT count: that game is
+ * physically over and only awaits the opponent's confirmation.
  *
  * Pass `excludeMatchId` to ignore the match being started itself.
  */
@@ -325,6 +328,7 @@ export async function findBusyPlayerIds(
 
   const conditions = [
     eq(matches.status, 'in_progress'),
+    eq(tournaments.status, 'in_progress'),
     or(inArray(matches.player1Id, ids), inArray(matches.player2Id, ids)),
   ];
   if (excludeMatchId) conditions.push(ne(matches.id, excludeMatchId));
@@ -332,6 +336,7 @@ export async function findBusyPlayerIds(
   const rows = await executor
     .select({ player1Id: matches.player1Id, player2Id: matches.player2Id })
     .from(matches)
+    .innerJoin(tournaments, eq(matches.tournamentId, tournaments.id))
     .where(and(...conditions));
 
   const wanted = new Set(ids);
@@ -346,8 +351,9 @@ export async function findBusyPlayerIds(
 const busyMatchAlias = alias(matches, 'busy_match');
 
 /**
- * SQL form of the same rule, for the conditional UPDATE: no OTHER match is
- * `in_progress` for either player of the row being updated. Correlated on
+ * SQL form of the same rule, for the conditional UPDATE: no OTHER match of a
+ * running tournament is `in_progress` for either player of the row being
+ * updated. Correlated on
  * `matches`, so it is only valid inside a statement whose target table is
  * `matches`. A NULL player slot never matches (`NULL = x` is NULL, not true).
  *
@@ -360,9 +366,11 @@ function noOtherMatchInProgress(matchId: UUID) {
     db
       .select({ one: sql`1` })
       .from(busyMatchAlias)
+      .innerJoin(tournaments, eq(busyMatchAlias.tournamentId, tournaments.id))
       .where(
         and(
           eq(busyMatchAlias.status, 'in_progress'),
+          eq(tournaments.status, 'in_progress'),
           ne(busyMatchAlias.id, matchId),
           or(
             eq(busyMatchAlias.player1Id, matches.player1Id),
@@ -622,6 +630,9 @@ export async function setMatchTable(
  *
  * No-op for per-match scheduling: there the organiser assigns each match's
  * table/time manually, so freed tables are not auto-handed to the next match.
+ * Also a no-op once the tournament is no longer running — the final's
+ * advancement calls in here right after completeTournament, and must not start
+ * a leftover match in a finished tournament.
  */
 export async function onTableFreed(
   tournamentId: UUID,
@@ -629,7 +640,8 @@ export async function onTableFreed(
   botApi: Api,
 ): Promise<void> {
   const tournament = await getTournament(tournamentId);
-  if (tournament?.scheduleMode === 'per_match') return;
+  if (tournament?.status !== 'in_progress') return;
+  if (tournament.scheduleMode === 'per_match') return;
 
   const allTables = await getTournamentTables(tournamentId);
 
