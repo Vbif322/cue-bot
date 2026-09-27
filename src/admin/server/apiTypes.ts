@@ -14,6 +14,7 @@ export type {
 } from '../../bot/@types/tournament.js';
 export {
   formats,
+  supportsRandomAdvancement,
   type ITournamentFormat,
 } from '../../shared/tournament/formats.js';
 export {

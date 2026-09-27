@@ -38,6 +38,7 @@ import {
   validateGroupConfig,
   validateDoubleEliminationSize,
 } from '@/shared/tournament/tournamentOptions.js';
+import { supportsRandomAdvancement } from '@/shared/tournament/formats.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
@@ -417,7 +418,9 @@ export async function createTournamentDraft(
         sport: input.sport,
         discipline: input.discipline,
         format: input.format,
-        randomAdvancement: input.randomAdvancement ?? false,
+        randomAdvancement:
+          supportsRandomAdvancement(input.format) &&
+          (input.randomAdvancement ?? false),
         visibility: input.visibility ?? 'public',
         scheduleMode: input.scheduleMode ?? 'single_day',
         status: 'draft',
@@ -524,7 +527,9 @@ export async function updateTournamentDraft(
         name: input.name,
         description: input.description ?? null,
         format: input.format,
-        randomAdvancement: input.randomAdvancement ?? false,
+        randomAdvancement:
+          supportsRandomAdvancement(input.format) &&
+          (input.randomAdvancement ?? false),
         visibility: input.visibility ?? 'public',
         scheduleMode: input.scheduleMode ?? 'single_day',
         startDate: input.startDate ?? null,

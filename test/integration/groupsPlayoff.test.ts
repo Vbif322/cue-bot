@@ -40,10 +40,12 @@ const GROUP_CONFIG = {
 async function makeGroupsTournament(
   count: number,
   status = 'registration_open',
+  randomAdvancement = false,
 ) {
   const tournament = await createTournament({
     format: 'groups_playoff',
     status: status as 'registration_open',
+    randomAdvancement,
     ...GROUP_CONFIG,
   });
   for (let seed = 1; seed <= count; seed++) {
@@ -123,6 +125,28 @@ describe('groups_playoff lifecycle', () => {
     await completePhase(t.id, 'playoff');
     expect((await getTournament(t.id))?.status).toBe('completed');
     expect(await checkTournamentCompletion(t.id)).toBe(true);
+  });
+
+  it('ignores a stale randomAdvancement flag: groups finish, playoff runs, then completes', async () => {
+    // The admin form used to keep the flag when switching to groups_playoff;
+    // advancement then routed group matches into the DE random pools.
+    const t = await makeGroupsTournament(8, 'registration_open', true);
+    await startGroupPhase(t.id);
+
+    await completePhase(t.id, 'group');
+    expect((await getTournament(t.id))?.status).toBe('in_progress');
+    const all = await getTournamentMatches(t.id);
+    expect(
+      all
+        .filter((m) => m.phase === 'group')
+        .every((m) => m.status === 'completed'),
+    ).toBe(true);
+    expect(all.filter((m) => m.phase === 'playoff')).toHaveLength(3);
+
+    await completePhase(t.id, 'playoff');
+    expect((await getTournament(t.id))?.status).toBe('completed');
+    const final = await getTournamentMatches(t.id);
+    expect(final.every((m) => m.status === 'completed')).toBe(true);
   });
 
   it('is idempotent: re-running the transition does not duplicate the playoff', async () => {

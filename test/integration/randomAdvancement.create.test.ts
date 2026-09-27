@@ -56,4 +56,34 @@ describe('randomAdvancement persistence (createTournamentDraft)', () => {
 
     expect((await getTournament(t.id))?.randomAdvancement).toBe(false);
   });
+
+  it.each(['round_robin', 'groups_playoff'] as const)(
+    'drops randomAdvancement for %s',
+    async (format) => {
+      const venue = await createVenue();
+      const admin = await createUser({ role: 'admin' });
+
+      const t = await createTournamentDraft({
+        venueId: venue.id,
+        name: 'no random here',
+        sport: 'snooker',
+        discipline: 'snooker_15_red',
+        format,
+        randomAdvancement: true,
+        maxParticipants: 8,
+        winScore: 3,
+        ...(format === 'groups_playoff'
+          ? {
+              groupsCount: 2,
+              participantsPerGroup: 4,
+              qualifiersPerGroup: 2,
+              groupDraw: 'snake' as const,
+            }
+          : {}),
+        createdBy: admin.id,
+      });
+
+      expect((await getTournament(t.id))?.randomAdvancement).toBe(false);
+    },
+  );
 });

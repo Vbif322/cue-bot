@@ -55,6 +55,7 @@ import {
   stageWinScoreForMatch,
 } from './bracketGenerator.js';
 import type { IStageWinScores } from '@/shared/tournament/tournamentOptions.js';
+import { supportsRandomAdvancement } from '@/shared/tournament/formats.js';
 import {
   getRandomTargetPool,
   placeIntoRandomFreeSlot,
@@ -1064,6 +1065,21 @@ export async function setTechnicalResult(
 }
 
 /**
+ * Whether advancement goes through random slot placement. The flag is ignored
+ * for formats without a pure elimination bracket: a stale `true` on a
+ * round-robin / groups_playoff tournament would otherwise route group matches
+ * into the DE pool map and complete the tournament mid-stage.
+ */
+function usesRandomAdvancement(tournament: {
+  format: ITournamentFormat;
+  randomAdvancement: boolean;
+}): boolean {
+  return (
+    tournament.randomAdvancement && supportsRandomAdvancement(tournament.format)
+  );
+}
+
+/**
  * Advance winner to next match and free the table
  */
 export async function advanceWinner(
@@ -1082,7 +1098,7 @@ export async function advanceWinner(
   const loserId =
     match.player1Id === match.winnerId ? match.player2Id : match.player1Id;
 
-  if (tournament.randomAdvancement) {
+  if (usesRandomAdvancement(tournament)) {
     await advanceWinnerRandom(match, loserId, tournament, botApi);
     return;
   }
@@ -1671,7 +1687,7 @@ async function walkDownstream(
     player: UUID;
   }[] = [];
 
-  if (tournament.randomAdvancement) {
+  if (usesRandomAdvancement(tournament)) {
     // Single elimination uses a plain next-round pool; double elimination uses
     // the merge-round-aware getRandomTargetPool.
     const winnerPool =
@@ -1910,7 +1926,7 @@ export async function previewCorrection(
     valid: true,
     winnerChanged,
     affectedCount,
-    willReshuffle: tournament.randomAdvancement && winnerChanged,
+    willReshuffle: usesRandomAdvancement(tournament) && winnerChanged,
     tournamentWillReopen:
       winnerChanged && tournament.status === 'completed' && hasCascade,
   };
