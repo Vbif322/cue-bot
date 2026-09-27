@@ -1,4 +1,7 @@
+import { useMe } from '../lib/useAuth.ts';
+
 export default function LoginPage() {
+  const { data } = useMe();
   const params = new URLSearchParams(window.location.search);
   const errorCode = params.get('error');
 
@@ -38,6 +41,19 @@ export default function LoginPage() {
         <p className="mt-6 text-xs text-gray-400 text-center">
           Ссылка действительна 5 минут и доступна только администраторам.
         </p>
+
+        {data?.playerUrl && (
+          <p className="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-600 text-center">
+            Или войдите на{' '}
+            <a
+              href={data.playerUrl}
+              className="text-blue-600 hover:text-blue-800 hover:underline"
+            >
+              сайте
+            </a>{' '}
+            и нажмите «Админка».
+          </p>
+        )}
       </div>
     </div>
   );

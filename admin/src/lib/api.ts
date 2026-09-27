@@ -101,14 +101,17 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 
+export interface MeResponse {
+  user: { id: string; username: string; role: string } | null;
+  /** Адрес сайта игрока — для ссылки «Сайт игрока». */
+  playerUrl: string;
+}
+
 export const auth = {
   logout: () =>
     apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 
-  me: () =>
-    apiFetch<{ user: { id: string; username: string; role: string } | null }>(
-      '/api/auth/me',
-    ),
+  me: () => apiFetch<MeResponse>('/api/auth/me'),
 };
 
 // ── Tournaments ──────────────────────────────────────────────────────────────

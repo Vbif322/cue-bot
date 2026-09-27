@@ -38,6 +38,7 @@ export interface AppUser {
   name: string | null;
   surname: string | null;
   email: string | null;
+  isAdmin: boolean;
 }
 
 /** Статус участия (prod.tournament_participants.status). */

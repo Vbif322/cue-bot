@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
-import { ApiError } from './lib/api.ts';
+import { ApiError, type MeResponse } from './lib/api.ts';
 import './index.css';
 
 // Глобальный перехват протухшей сессии: на 401 (кроме самого ['auth','me']) жёстко
@@ -17,7 +17,9 @@ import './index.css';
 let queryClient: QueryClient;
 const handle401 = (err: unknown, key?: readonly unknown[]): void => {
   if (err instanceof ApiError && err.status === 401 && key?.[0] !== 'auth') {
-    queryClient.setQueryData(['auth', 'me'], { user: null });
+    queryClient.setQueryData<MeResponse>(['auth', 'me'], (prev) =>
+      prev ? { ...prev, user: null } : prev,
+    );
   }
 };
 

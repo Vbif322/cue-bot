@@ -39,16 +39,18 @@ import { serve, type ServerType } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { MiddlewareHandler } from 'hono';
 import { InlineKeyboard } from 'grammy';
-import { randomBytes } from 'crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { db } from './db/db.js';
-import { loginTokens } from './db/schema.js';
 import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
 import { sweepExpiredEmailLoginCodes } from './services/emailLoginCodeService.js';
 import { assertMailConfigured } from './services/mailService.js';
-import { emailCodeLimiter } from './app/server/routes/auth.js';
+import {
+  adminLinkLimiter,
+  emailCodeLimiter,
+} from './app/server/routes/auth.js';
+import { createLoginToken } from './services/userService.js';
 
 // Flood protection runs first so spam is dropped before authMiddleware's per-update
 // user upsert (a DB transaction) ever runs.
@@ -145,12 +147,7 @@ bot.command('dashboard', async (ctx) => {
     return;
   }
 
-  const token = randomBytes(16).toString('hex');
-  await db.insert(loginTokens).values({
-    token,
-    userId: ctx.dbUser.id,
-    expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-  });
+  const token = await createLoginToken(ctx.dbUser.id, 5 * 60 * 1000);
 
   const url = `${adminBaseUrl}/api/auth/token?t=${token}`;
 
@@ -326,6 +323,7 @@ async function start() {
     botFloodLimiter.prune();
     dashboardLimiter.prune();
     emailCodeLimiter.prune();
+    adminLinkLimiter.prune();
   }, RATE_LIMIT_SWEEP_INTERVAL_MS);
   rateLimitSweep.unref();
 

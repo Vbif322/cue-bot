@@ -641,7 +641,7 @@ deep-link `/start join_<code>` (см. путь 1).
 - `GET /api/health`
 - `GET /api/auth/token?t={token}` — обмен одноразового токена на JWT-cookie (rate limit по IP)
 - `POST /api/auth/logout` — удаление cookie
-- `GET /api/auth/me` — проверка сессии без `requireAdmin`
+- `GET /api/auth/me` — проверка сессии без `requireAdmin`; всегда отдаёт `playerUrl` (ссылка «Сайт игрока»: `PUBLIC_BASE_URL` в production, `http://localhost:5174` в dev)
 
 #### Турниры
 
@@ -863,6 +863,15 @@ Race-safe случайное продвижение для турниров с �
 2. Бот создаёт запись в `login_tokens` (32-символьный hex, TTL 5 минут) и присылает WebApp-кнопку со ссылкой `…/api/auth/token?t={token}`
 3. `GET /api/auth/token` валидирует токен, удаляет его (одноразовый), перепроверяет роль `admin` и выдаёт JWT в HttpOnly-cookie `admin_token` (24 ч)
 4. Минтинг ограничен per-admin (`dashboardLimiter`, 1/30 с) и по IP на стороне HTTP (10/мин)
+
+Альтернативный вход — кнопка «Админка» на сайте игрока (видна при `isAdmin` в
+`/api/app/auth/me`). Сессии сайта (`app_token`) и админки (`admin_token`) раздельные —
+host-only cookie на разных хостах, — поэтому кнопка вызывает
+`POST /api/app/auth/admin-link` (`requireUser`, роль `admin`, лимит `adminLinkLimiter`
+3 шт. + 1/20 с), который выпускает тот же `login_tokens`-токен (TTL 60 с) и возвращает URL
+редима `${ADMIN_BASE_URL}/api/auth/token?t=…` (в dev — `http://localhost:5173`); фронт
+переходит по нему. Обратно — обычная
+ссылка «Сайт игрока» на `PUBLIC_BASE_URL` (в dev — `http://localhost:5174`).
 
 ### Основные страницы SPA
 
