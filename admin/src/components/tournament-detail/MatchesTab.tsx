@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { matchesApi } from '../../lib/api.ts';
 import type { ApiMatch } from '../../lib/api.ts';
@@ -119,6 +119,33 @@ function buildSections(matches: ApiMatch[]): Section[] {
   return sections;
 }
 
+const collapsedStorageKey = (tournamentId: string): string =>
+  `matches-collapsed:${tournamentId}`;
+
+function loadCollapsed(tournamentId: string): Set<string> | null {
+  try {
+    const raw = sessionStorage.getItem(collapsedStorageKey(tournamentId));
+    if (raw === null) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((k): k is string => typeof k === 'string'))
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCollapsed(tournamentId: string, collapsed: Set<string>): void {
+  try {
+    sessionStorage.setItem(
+      collapsedStorageKey(tournamentId),
+      JSON.stringify([...collapsed]),
+    );
+  } catch {
+    // Storage unavailable (private mode, blocked) — state just won't persist.
+  }
+}
+
 export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
   const { data: matches } = useQuery({
     queryKey: ['tournament-matches', tournamentId],
@@ -134,12 +161,17 @@ export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const seededFor = useRef<string | null>(null);
 
-  // Seed defaults once per tournament: completed rounds start collapsed. Guarded
-  // by a ref so React Query refetches (e.g. on window focus) don't clobber the
-  // user's manual toggles.
+  // Seed once per tournament: restore the toggles saved this session, otherwise
+  // completed rounds start collapsed. Guarded by a ref so React Query refetches
+  // (e.g. on window focus) don't clobber the user's manual toggles.
   useEffect(() => {
     if (!matches || seededFor.current === tournamentId) return;
     seededFor.current = tournamentId;
+    const saved = loadCollapsed(tournamentId);
+    if (saved) {
+      setCollapsed(saved);
+      return;
+    }
     const init = new Set<string>();
     for (const section of sections) {
       for (const round of section.rounds) {
@@ -149,13 +181,66 @@ export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
     setCollapsed(init);
   }, [matches, tournamentId, sections]);
 
-  const toggle = (key: string): void => {
+  // `?match=<id>` (the "Матчи" breadcrumb on the match page) brings that match
+  // back into view: expand its section and round, scroll to it, highlight it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusMatchId = searchParams.get('match');
+  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusMatchId || !matches) return;
+    const expand: string[] = [];
+    for (const section of sections) {
+      for (const round of section.rounds) {
+        if (round.matches.some((m) => m.id === focusMatchId)) {
+          expand.push(section.key, round.key);
+        }
+      }
+    }
     setCollapsed((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      for (const key of expand) next.delete(key);
       return next;
     });
+    setPendingFocus(focusMatchId);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('match');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [focusMatchId, matches, sections, setSearchParams]);
+
+  // Runs after the expanded round is rendered. Both the mobile card and the
+  // desktop row carry the id; only one of them is visible.
+  useEffect(() => {
+    if (!pendingFocus) return;
+    setPendingFocus(null);
+    const el = [
+      ...document.querySelectorAll<HTMLElement>(
+        `[data-match-id="${CSS.escape(pendingFocus)}"]`,
+      ),
+    ].find((e) => e.offsetParent !== null);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center' });
+    setHighlightId(pendingFocus);
+  }, [pendingFocus]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const timer = setTimeout(() => setHighlightId(null), 2000);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
+
+  const toggle = (key: string): void => {
+    const next = new Set(collapsed);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setCollapsed(next);
+    saveCollapsed(tournamentId, next);
   };
 
   return (
@@ -206,7 +291,10 @@ export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
                         round.matches.map((m) => (
                           <div
                             key={m.id}
-                            className="bg-white rounded-xl border border-gray-200 p-4"
+                            data-match-id={m.id}
+                            className={`bg-white rounded-xl border border-gray-200 p-4 transition-shadow duration-500 ${
+                              highlightId === m.id ? 'ring-2 ring-blue-400' : ''
+                            }`}
                           >
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
@@ -335,7 +423,15 @@ export default function MatchesTab({ tournamentId }: { tournamentId: string }) {
                           </tr>
                           {!roundCollapsed &&
                             round.matches.map((m) => (
-                              <tr key={m.id} className="hover:bg-gray-50">
+                              <tr
+                                key={m.id}
+                                data-match-id={m.id}
+                                className={`transition-colors duration-500 ${
+                                  highlightId === m.id
+                                    ? 'bg-blue-50'
+                                    : 'hover:bg-gray-50'
+                                }`}
+                              >
                                 <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                                   {round.label}
                                   {m.bracketType === 'losers' && (

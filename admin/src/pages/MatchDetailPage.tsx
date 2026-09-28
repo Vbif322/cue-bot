@@ -239,9 +239,16 @@ export default function MatchDetailPage() {
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
         <Link
           to={`/tournaments/${match.tournamentId}`}
-          className="hover:text-gray-700"
+          className="-my-1 py-1 hover:text-gray-700"
         >
           Турнир
+        </Link>
+        <span>/</span>
+        <Link
+          to={`/tournaments/${match.tournamentId}?tab=matches&match=${match.id}`}
+          className="-my-1 py-1 hover:text-gray-700"
+        >
+          Матчи
         </Link>
         <span>/</span>
         <span>
