@@ -11,6 +11,8 @@ import { getMatch } from '@/services/matchService.js';
 import {
   reportResult,
   reportResultFromFrames,
+  saveMatchFrame,
+  deleteLastMatchFrame,
   getMatchFrames,
   confirmResult,
   disputeResult,
@@ -19,6 +21,7 @@ import {
   getTournamentMatches,
 } from '@/services/matchService.js';
 import { completeTournament } from '@/services/tournamentService.js';
+import { getGroupMaxBreaks } from '@/services/groupPhaseService.js';
 import type { FrameInput } from '@/services/matchService.js';
 
 import {
@@ -347,6 +350,178 @@ describe('matchService lifecycle', () => {
       expect(frames[1]?.player1Break).toBe(54);
       expect(frames[0]?.player2Break).toBeNull();
       expect(frames[2]?.player1Break).toBeNull();
+    });
+  });
+
+  describe('frame draft (saveMatchFrame / deleteLastMatchFrame)', () => {
+    async function startedMatch() {
+      const m = await freshMatch();
+      await startMatch(m.match.id);
+      return m;
+    }
+
+    const points = async (matchId: UUID) =>
+      (await getMatchFrames(matchId)).map((f) => [
+        f.frameNumber,
+        f.player1Points,
+        f.player2Points,
+      ]);
+
+    it('appends and overwrites frames without touching the match row', async () => {
+      const { match } = await startedMatch();
+      expect(
+        (
+          await saveMatchFrame(match.id, 1, {
+            player1Points: 70,
+            player2Points: 10,
+          })
+        ).success,
+      ).toBe(true);
+      const res = await saveMatchFrame(match.id, 2, {
+        player1Points: 5,
+        player2Points: 60,
+        player2Break: 41,
+      });
+      expect(res.success && res.frames).toHaveLength(2);
+
+      // Overwrite frame 1 by number.
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 71,
+        player2Points: 10,
+      });
+      expect(await points(match.id)).toEqual([
+        [1, 71, 10],
+        [2, 5, 60],
+      ]);
+
+      const after = await getMatch(match.id);
+      expect(after?.status).toBe('in_progress');
+      expect(after?.player1Score).toBeNull();
+      expect(after?.winnerId).toBeNull();
+    });
+
+    it('rejects a gap in frame numbers and an invalid frame', async () => {
+      const { match } = await startedMatch();
+      const gap = await saveMatchFrame(match.id, 2, {
+        player1Points: 70,
+        player2Points: 10,
+      });
+      expect(gap.success).toBe(false);
+      const tie = await saveMatchFrame(match.id, 1, {
+        player1Points: 40,
+        player2Points: 40,
+      });
+      expect(tie).toEqual({
+        success: false,
+        error: 'Фрейм 1: ничья недопустима',
+      });
+      expect(await getMatchFrames(match.id)).toHaveLength(0);
+    });
+
+    it('rejects a frame after the deciding one (winScore 3)', async () => {
+      const { match } = await startedMatch();
+      for (const n of [1, 2, 3]) {
+        await saveMatchFrame(match.id, n, {
+          player1Points: 60,
+          player2Points: 1,
+        });
+      }
+      const res = await saveMatchFrame(match.id, 4, {
+        player1Points: 1,
+        player2Points: 60,
+      });
+      expect(res).toEqual({ success: false, error: 'Фрейм 4: матч уже решён' });
+    });
+
+    it('deleteLastMatchFrame removes only the last frame', async () => {
+      const { match } = await startedMatch();
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 60,
+        player2Points: 1,
+      });
+      await saveMatchFrame(match.id, 2, {
+        player1Points: 1,
+        player2Points: 60,
+      });
+      const res = await deleteLastMatchFrame(match.id);
+      expect(res.success).toBe(true);
+      expect(await points(match.id)).toEqual([[1, 60, 1]]);
+
+      await deleteLastMatchFrame(match.id);
+      expect(await deleteLastMatchFrame(match.id)).toEqual({
+        success: false,
+        error: 'Нет сохранённых фреймов',
+      });
+    });
+
+    it('refuses draft edits once the result is reported', async () => {
+      const { match, p1 } = await startedMatch();
+      await reportResultFromFrames(match.id, p1, [
+        { player1Points: 80, player2Points: 1 },
+        { player1Points: 70, player2Points: 2 },
+        { player1Points: 60, player2Points: 3 },
+      ]);
+      const res = await saveMatchFrame(match.id, 1, {
+        player1Points: 1,
+        player2Points: 60,
+      });
+      expect(res.success).toBe(false);
+      expect((await deleteLastMatchFrame(match.id)).success).toBe(false);
+      expect(await getMatchFrames(match.id)).toHaveLength(3);
+    });
+
+    it('the final report replaces the draft', async () => {
+      const { match, p1 } = await startedMatch();
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 10,
+        player2Points: 90,
+      });
+      await saveMatchFrame(match.id, 2, {
+        player1Points: 10,
+        player2Points: 90,
+      });
+      await reportResultFromFrames(match.id, p1, [
+        { player1Points: 80, player2Points: 1 },
+        { player1Points: 70, player2Points: 2 },
+        { player1Points: 60, player2Points: 3 },
+      ]);
+      expect(await points(match.id)).toEqual([
+        [1, 80, 1],
+        [2, 70, 2],
+        [3, 60, 3],
+      ]);
+    });
+
+    it('setTechnicalResult drops the draft frames', async () => {
+      const { match, p1 } = await startedMatch();
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 60,
+        player2Points: 1,
+      });
+      const admin = await createAdminUser();
+      const res = await setTechnicalResult(match.id, p1, 'неявка', admin.id);
+      expect(res.success).toBe(true);
+      expect(await getMatchFrames(match.id)).toHaveLength(0);
+    });
+
+    it('getGroupMaxBreaks ignores breaks of a match still in play', async () => {
+      const { match, p1, p2 } = await startedMatch();
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 100,
+        player2Points: 1,
+        player1Break: 100,
+      });
+      expect((await getGroupMaxBreaks(match.tournamentId, null)).size).toBe(0);
+
+      await reportResultFromFrames(match.id, p1, [
+        { player1Points: 100, player2Points: 1, player1Break: 100 },
+        { player1Points: 70, player2Points: 2 },
+        { player1Points: 60, player2Points: 3 },
+      ]);
+      await confirmResult(match.id, p2);
+      expect((await getGroupMaxBreaks(match.tournamentId, null)).get(p1)).toBe(
+        100,
+      );
     });
   });
 

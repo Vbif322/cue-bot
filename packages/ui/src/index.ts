@@ -12,3 +12,9 @@ export { Chevron } from './Chevron.tsx';
 export { Button, type ButtonVariant, type ButtonSize } from './Button.tsx';
 export { Input, Select } from './Input.tsx';
 export { Modal } from './Modal.tsx';
+export {
+  useFrameDraft,
+  type DraftFrame,
+  type FramePayload,
+  type FrameRow,
+} from './useFrameDraft.ts';

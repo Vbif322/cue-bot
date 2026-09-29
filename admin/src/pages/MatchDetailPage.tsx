@@ -327,8 +327,9 @@ export default function MatchDetailPage() {
         )}
       </div>
 
-      {/* Per-frame breakdown (snooker) */}
-      {frames && frames.length > 0 && (
+      {/* Per-frame breakdown (snooker). Gated on status, not just data: the
+          frame-entry form shares the query cache and loads in-play drafts. */}
+      {hasResult && frames && frames.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
           <h3 className="font-semibold text-gray-900 mb-3">По фреймам</h3>
           <table className="w-full text-sm">

@@ -1,5 +1,5 @@
 import type { UUID } from 'crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, notInArray, sql } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
 import { matches, matchFrames } from '@/db/schema.js';
@@ -145,7 +145,7 @@ function phaseScope(tournamentId: UUID, phase: MatchPhase | null) {
  * report, walkover/technical, or an admin correction, which deletes the frames).
  *
  * No status filter: `computeGroupStanding` only counts completed matches, so rows
- * for a still-pending match are inert.
+ * for a still-pending match (or frames saved mid-match) are inert.
  */
 export async function getGroupFramePoints(
   tournamentId: UUID,
@@ -192,7 +192,13 @@ export async function getGroupMaxBreaks(
     })
     .from(matchFrames)
     .innerJoin(matches, eq(matchFrames.matchId, matches.id))
-    .where(phaseScope(tournamentId, phase));
+    .where(
+      and(
+        phaseScope(tournamentId, phase),
+        // Frames saved mid-match are a draft; only a reported result counts.
+        notInArray(matches.status, ['scheduled', 'in_progress']),
+      ),
+    );
 
   const maxBreakById = new Map<UUID, number>();
   const record = (userId: UUID | null, value: number | null): void => {
