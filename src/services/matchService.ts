@@ -881,9 +881,166 @@ export async function getMatchFrames(matchId: UUID): Promise<MatchFrame[]> {
   });
 }
 
-/** Delete all frame rows of a match. Shared by dispute / reset / correct. */
+/** Delete all frame rows of a match. Shared by dispute / reset / correct / technical. */
 async function deleteMatchFrames(exec: Executor, matchId: UUID): Promise<void> {
   await exec.delete(matchFrames).where(eq(matchFrames.matchId, matchId));
+}
+
+/**
+ * Pure validation of a (possibly incomplete) frame list saved while the match
+ * is still being played. Unlike `deriveFrameResult` it does not require a
+ * decided match — only that the frames so far are consistent: no tie, breaks
+ * within the player's points, nobody past `winScore`, and no frame after the
+ * deciding one. Returns a Russian error message or null.
+ */
+export function validateFrameDraft(
+  frames: FrameInput[],
+  winScore: number,
+): string | null {
+  let player1Score = 0;
+  let player2Score = 0;
+  for (const [i, frame] of frames.entries()) {
+    const n = String(i + 1);
+    if (player1Score >= winScore || player2Score >= winScore) {
+      return `Фрейм ${n}: матч уже решён`;
+    }
+    if (frame.player1Points < 0 || frame.player2Points < 0) {
+      return `Фрейм ${n}: очки не могут быть отрицательными`;
+    }
+    if (frame.player1Points === frame.player2Points) {
+      return `Фрейм ${n}: ничья недопустима`;
+    }
+    if (
+      frame.player1Break != null &&
+      frame.player1Break > frame.player1Points
+    ) {
+      return `Фрейм ${n}: брейк 1 больше очков игрока`;
+    }
+    if (
+      frame.player2Break != null &&
+      frame.player2Break > frame.player2Points
+    ) {
+      return `Фрейм ${n}: брейк 2 больше очков игрока`;
+    }
+    if (frame.player1Points > frame.player2Points) player1Score++;
+    else player2Score++;
+  }
+  return null;
+}
+
+type FrameDraftResult =
+  | { success: true; frames: MatchFrame[] }
+  | { success: false; error: string };
+
+/**
+ * Shared shell of the in-play frame edits: loads the match, locks its row in a
+ * transaction guarded on scheduled/in_progress (so a draft edit can't race the
+ * final report, confirmation or a technical result), runs `mutate`, and returns
+ * the resulting frame list. The `matches` row itself is never touched — score,
+ * winner and status stay empty until the final `reportResultFromFrames`.
+ */
+async function editFrameDraft(
+  matchId: UUID,
+  mutate: (
+    tx: Executor,
+    current: MatchFrame[],
+    winScore: number,
+  ) => Promise<string | null>,
+): Promise<FrameDraftResult> {
+  const match = await getMatch(matchId);
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (!match.player1Id || !match.player2Id) {
+    return { success: false, error: 'У матча нет обоих игроков' };
+  }
+
+  const tournament = await getTournament(match.tournamentId);
+  if (!tournament) return { success: false, error: 'Турнир не найден' };
+  const winScore = winScoreForMatch(match, tournament);
+
+  const STALE = 'Статус матча изменился. Попробуйте обновить страницу.';
+  try {
+    const frames = await db.transaction(async (tx) => {
+      const locked = await tx
+        .select({ id: matches.id })
+        .from(matches)
+        .where(
+          and(
+            eq(matches.id, matchId),
+            inArray(matches.status, ['scheduled', 'in_progress']),
+          ),
+        )
+        .for('update');
+      if (!locked.length) throw new Error(STALE);
+
+      const current = await tx
+        .select()
+        .from(matchFrames)
+        .where(eq(matchFrames.matchId, matchId))
+        .orderBy(asc(matchFrames.frameNumber));
+
+      const error = await mutate(tx, current, winScore);
+      if (error) throw new Error(error);
+
+      return tx
+        .select()
+        .from(matchFrames)
+        .where(eq(matchFrames.matchId, matchId))
+        .orderBy(asc(matchFrames.frameNumber));
+    });
+    return { success: true, frames };
+  } catch (error) {
+    return { success: false, error: errorMessage(error) };
+  }
+}
+
+/**
+ * Save one frame of a match in play (snooker) — appends frame `frameNumber`
+ * (= count + 1) or overwrites an already saved one. Validates the resulting
+ * list with `validateFrameDraft`. Per-frame (not replace-all) so two open forms
+ * — both players, or a player and an admin — don't wipe each other's frames.
+ */
+export async function saveMatchFrame(
+  matchId: UUID,
+  frameNumber: number,
+  frame: FrameInput,
+): Promise<FrameDraftResult> {
+  return editFrameDraft(matchId, async (tx, current, winScore) => {
+    if (frameNumber < 1 || frameNumber > current.length + 1) {
+      return 'Некорректный номер фрейма. Обновите страницу.';
+    }
+
+    const next: FrameInput[] = current.map((f) => ({ ...f }));
+    next[frameNumber - 1] = frame;
+    const error = validateFrameDraft(next, winScore);
+    if (error) return error;
+
+    const values = {
+      player1Points: frame.player1Points,
+      player2Points: frame.player2Points,
+      player1Break: frame.player1Break ?? null,
+      player2Break: frame.player2Break ?? null,
+    };
+    await tx
+      .insert(matchFrames)
+      .values({ matchId, frameNumber, ...values })
+      .onConflictDoUpdate({
+        target: [matchFrames.matchId, matchFrames.frameNumber],
+        set: values,
+      });
+    return null;
+  });
+}
+
+/** Remove the last saved frame of a match in play (snooker), like the bot's undo. */
+export async function deleteLastMatchFrame(
+  matchId: UUID,
+): Promise<FrameDraftResult> {
+  return editFrameDraft(matchId, async (tx, current) => {
+    const last = current.at(-1);
+    if (!last) return 'Нет сохранённых фреймов';
+    await tx.delete(matchFrames).where(eq(matchFrames.id, last.id));
+    return null;
+  });
 }
 
 /**
@@ -1044,20 +1201,25 @@ export async function setTechnicalResult(
   const player1Score = match.player1Id === winnerId ? winScore : 0;
   const player2Score = match.player2Id === winnerId ? winScore : 0;
 
-  await db
-    .update(matches)
-    .set({
-      player1Score,
-      player2Score,
-      winnerId,
-      status: 'completed',
-      isTechnicalResult: true,
-      technicalReason: reason,
-      confirmedBy: setById,
-      completedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(matches.id, matchId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(matches)
+      .set({
+        player1Score,
+        player2Score,
+        winnerId,
+        status: 'completed',
+        isTechnicalResult: true,
+        technicalReason: reason,
+        confirmedBy: setById,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(matches.id, matchId));
+    // Frames saved while the match was in play don't describe a technical
+    // result — drop them so they never reach frame points / max breaks.
+    await deleteMatchFrames(tx, matchId);
+  });
 
   await advanceWinner(matchId, botApi);
 

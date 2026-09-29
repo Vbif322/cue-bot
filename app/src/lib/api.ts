@@ -228,6 +228,27 @@ export const matchesApi = {
   frames: (id: string) =>
     apiFetch<AppMatchFrame[]>(`/api/app/matches/${id}/frames`),
 
+  /** Сохранить один фрейм по ходу матча (черновик); возвращает все сохранённые фреймы. */
+  saveFrame: (
+    id: string,
+    frameNumber: number,
+    frame: {
+      player1Points: number;
+      player2Points: number;
+      player1Break?: number | null;
+      player2Break?: number | null;
+    },
+  ) =>
+    apiFetch<AppMatchFrame[]>(`/api/app/matches/${id}/frames/${frameNumber}`, {
+      method: 'PUT',
+      ...jsonBody(frame),
+    }),
+
+  deleteLastFrame: (id: string) =>
+    apiFetch<AppMatchFrame[]>(`/api/app/matches/${id}/frames/last`, {
+      method: 'DELETE',
+    }),
+
   reportFrames: (
     id: string,
     frames: Array<{

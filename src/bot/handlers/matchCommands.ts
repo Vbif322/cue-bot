@@ -679,9 +679,17 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   if (isSnooker(tournament)) {
     const msg = ctx.callbackQuery.message;
     if (!msg) return;
+    // Start from frames already saved from the web forms, so finishing here
+    // doesn't wipe them (the final report replaces the whole frame list).
+    const savedFrames = await getMatchFrames(matchIdUUID);
     const state: FrameReportState = {
       matchId: matchIdUUID,
-      frames: [],
+      frames: savedFrames.map((f) => ({
+        player1Points: f.player1Points,
+        player2Points: f.player2Points,
+        player1Break: f.player1Break,
+        player2Break: f.player2Break,
+      })),
       promptChatId: msg.chat.id,
       promptMessageId: msg.message_id,
     };

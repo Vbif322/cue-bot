@@ -255,6 +255,27 @@ export const matchesApi = {
   frames: (id: string) =>
     apiFetch<ApiMatchFrame[]>(`/api/matches/${id}/frames`),
 
+  /** Save one frame while the match is in play (draft); returns all saved frames. */
+  saveFrame: (
+    id: string,
+    frameNumber: number,
+    frame: {
+      player1Points: number;
+      player2Points: number;
+      player1Break?: number | null;
+      player2Break?: number | null;
+    },
+  ) =>
+    apiFetch<ApiMatchFrame[]>(`/api/matches/${id}/frames/${frameNumber}`, {
+      method: 'PUT',
+      body: JSON.stringify(frame),
+    }),
+
+  deleteLastFrame: (id: string) =>
+    apiFetch<ApiMatchFrame[]>(`/api/matches/${id}/frames/last`, {
+      method: 'DELETE',
+    }),
+
   start: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/start`, { method: 'POST' }),
 

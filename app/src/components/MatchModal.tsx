@@ -322,7 +322,9 @@ export default function MatchModal({
             </>
           )}
 
-          {frames && frames.length > 0 && (
+          {/* Разбивка только для внесённого результата: форма ввода делит кэш
+              ['match-frames'] и грузит черновик матча в игре. */}
+          {hasScore0 && frames && frames.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div
                 style={{
