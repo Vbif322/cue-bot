@@ -1,5 +1,7 @@
 import type { UUID } from 'crypto';
 
+import type { Api } from 'grammy';
+
 import { db } from '@/db/db.js';
 import {
   loginTokens,
@@ -134,10 +136,12 @@ export async function createMatchesForTournament(
  * Report + confirm a match so `winnerId` wins `winScore`-0. Reported by the
  * loser and confirmed by the winner (any two distinct participants work). Throws
  * with the service error string if either step fails, so tests fail loudly.
+ * Pass `botApi` to exercise table hand-off: `onTableFreed` only runs with one.
  */
 export async function completeMatch(
   matchId: UUID,
   winnerId: UUID,
+  botApi?: Api,
 ): Promise<void> {
   const match = await getMatch(matchId);
   if (!match) throw new Error(`completeMatch: match ${matchId} not found`);
@@ -166,7 +170,7 @@ export async function completeMatch(
   if (!reported.success) {
     throw new Error(`completeMatch report failed: ${reported.error ?? ''}`);
   }
-  const confirmed = await confirmResult(matchId, winnerId);
+  const confirmed = await confirmResult(matchId, winnerId, botApi);
   if (!confirmed.success) {
     throw new Error(`completeMatch confirm failed: ${confirmed.error ?? ''}`);
   }
