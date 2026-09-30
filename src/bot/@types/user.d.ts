@@ -7,7 +7,17 @@ export type ApiUser = typeof users.$inferSelect;
 
 /** Aggregated statistics for a single user, shown on the admin user page. */
 export interface ApiUserStats {
-  matches: { played: number; wins: number; losses: number };
+  matches: {
+    played: number;
+    wins: number;
+    losses: number;
+    /** Frames (racks) from match scores; technical results excluded. */
+    framesWon: number;
+    framesLost: number;
+    /** Snooker points from frame-by-frame reports; null when there are none. */
+    points: { won: number; lost: number } | null;
+    maxBreak: number | null;
+  };
   tournamentHistory: {
     id: string;
     name: string;

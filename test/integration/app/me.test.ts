@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createAdminServer } from '@/admin/server/index.js';
+import type { UserMatchStats } from '@/services/userStatsService.js';
 
 import { apiRequest, appCookie } from '../../helpers/auth.js';
 import { createUser } from '../../helpers/factories.js';
@@ -63,11 +64,19 @@ describe('app me router', () => {
   it('GET /stats отдаёт статистику матчей и историю турниров', async () => {
     const user = await createUser();
     const { status, body } = await apiRequest<{
-      data: { matches: { played: number }; tournamentHistory: unknown[] };
+      data: { matches: UserMatchStats; tournamentHistory: unknown[] };
     }>(app, 'GET', '/api/app/me/stats', { cookie: appCookie(user.id) });
 
     expect(status).toBe(200);
-    expect(body.data.matches.played).toBe(0);
+    expect(body.data.matches).toEqual({
+      played: 0,
+      wins: 0,
+      losses: 0,
+      framesWon: 0,
+      framesLost: 0,
+      points: null,
+      maxBreak: null,
+    });
     expect(Array.isArray(body.data.tournamentHistory)).toBe(true);
   });
 
