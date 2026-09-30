@@ -647,15 +647,20 @@ export async function onTableFreed(
   const allTables = await getTournamentTables(tournamentId);
 
   // A finished match keeps its `tableId` (advanceWinner never clears it), so a
-  // table counts as taken only while its match is still being played or is
-  // awaiting score confirmation — the players haven't left the table yet.
+  // table counts as taken only while its match is unfinished: being played,
+  // awaiting score confirmation, or `scheduled` with a table the admin reserved
+  // via setMatchTable (auto-start never leaves a scheduled match seated).
   const occupied = await db
     .select({ tableId: matches.tableId })
     .from(matches)
     .where(
       and(
         eq(matches.tournamentId, tournamentId),
-        inArray(matches.status, ['in_progress', 'pending_confirmation']),
+        inArray(matches.status, [
+          'scheduled',
+          'in_progress',
+          'pending_confirmation',
+        ]),
       ),
     );
   const taken = new Set(occupied.map((row) => row.tableId));
