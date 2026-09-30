@@ -252,6 +252,12 @@ export interface UserMatchStats {
   played: number;
   wins: number;
   losses: number;
+  /** Фреймы (партии) по счёту матчей; техрезультаты не учитываются. */
+  framesWon: number;
+  framesLost: number;
+  /** Очки снукера по по-фреймовому вводу; null, если таких матчей нет. */
+  points: { won: number; lost: number } | null;
+  maxBreak: number | null;
 }
 
 export interface UserTournamentHistoryItem {

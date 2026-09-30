@@ -3,9 +3,9 @@ import { Composer, InlineKeyboard } from 'grammy';
 import {
   getUserCompletedTournaments,
   getUserMatchStats,
-  type UserMatchStats,
   type UserTournamentHistoryItem,
 } from '@/services/userStatsService.js';
+import { formatStats } from '../ui/profileUI.js';
 import { getUserRefereeTournaments } from '../permissions.js';
 import type { BotContext } from '../types.js';
 import { formatFullName } from '@/utils/messageHelpers.js';
@@ -37,20 +37,6 @@ function formatProfileHeader(ctx: BotContext, refereeCount: number): string {
   }
 
   return `👤 *${displayName}*${usernameLine}\n🎭 Роль: ${role}`;
-}
-
-function formatStats(stats: UserMatchStats): string {
-  if (stats.played === 0) {
-    return '📊 *Статистика*\nЕщё не сыграно ни одного матча.';
-  }
-  const winRate = Math.round((stats.wins / stats.played) * 100);
-  return (
-    '📊 *Статистика*\n' +
-    `Сыграно матчей: ${String(stats.played)}\n` +
-    `Победы: ${String(stats.wins)}\n` +
-    `Поражения: ${String(stats.losses)}\n` +
-    `Win-rate: ${String(winRate)}%`
-  );
 }
 
 function formatHistory(history: UserTournamentHistoryItem[]): string {
