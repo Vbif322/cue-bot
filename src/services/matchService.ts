@@ -505,7 +505,12 @@ export async function getNextReadyMatch(
       eq(matches.status, 'scheduled'),
       isNull(matches.tableId),
     ),
-    orderBy: [asc(matches.round), asc(matches.position)],
+    // Admin-set queue first (NULLs sort last in ASC), then bracket order.
+    orderBy: [
+      asc(matches.queueOrder),
+      asc(matches.round),
+      asc(matches.position),
+    ],
   });
 
   const busy = await findBusyPlayerIds(
@@ -621,6 +626,125 @@ export async function setMatchTable(
 }
 
 /**
+ * Players of this tournament's waiting matches who are at a table in ANOTHER
+ * running tournament — the cross-tournament reason getNextReadyMatch skips a
+ * match, which the admin queue can't see from this tournament's matches alone.
+ */
+export async function getQueuePlayersBusyElsewhere(
+  tournamentId: UUID,
+): Promise<{ userId: UUID; tournamentId: UUID; tournamentName: string }[]> {
+  const waiting = await db
+    .select({ player1Id: matches.player1Id, player2Id: matches.player2Id })
+    .from(matches)
+    .where(
+      and(
+        eq(matches.tournamentId, tournamentId),
+        eq(matches.status, 'scheduled'),
+        isNull(matches.tableId),
+      ),
+    );
+  const ids = [
+    ...new Set(
+      waiting
+        .flatMap((m) => [m.player1Id, m.player2Id])
+        .filter((id): id is UUID => id !== null),
+    ),
+  ];
+  if (ids.length === 0) return [];
+
+  const rows = await db
+    .select({
+      player1Id: matches.player1Id,
+      player2Id: matches.player2Id,
+      tournamentId: matches.tournamentId,
+      tournamentName: tournaments.name,
+    })
+    .from(matches)
+    .innerJoin(tournaments, eq(matches.tournamentId, tournaments.id))
+    .where(
+      and(
+        ne(matches.tournamentId, tournamentId),
+        eq(matches.status, 'in_progress'),
+        eq(tournaments.status, 'in_progress'),
+        or(inArray(matches.player1Id, ids), inArray(matches.player2Id, ids)),
+      ),
+    );
+
+  const wanted = new Set(ids);
+  return rows.flatMap((row) =>
+    [row.player1Id, row.player2Id]
+      .filter((id): id is UUID => id !== null && wanted.has(id))
+      .map((userId) => ({
+        userId,
+        tournamentId: row.tournamentId,
+        tournamentName: row.tournamentName,
+      })),
+  );
+}
+
+/**
+ * Admin: reorder the table queue — the waiting matches (`scheduled`, no table)
+ * that getNextReadyMatch hands free tables to. `matchIds` must list exactly the
+ * current waiting set, so a stale list (a match started meanwhile) is rejected
+ * instead of half-applied. Reordering never makes a match ready, so no table
+ * assignment is re-run here.
+ */
+export async function setMatchQueue(
+  tournamentId: UUID,
+  matchIds: UUID[],
+): Promise<{ success: true } | { success: false; error: string }> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return { success: false, error: 'Турнир не найден' };
+  if (tournament.status !== 'in_progress') {
+    return {
+      success: false,
+      error: 'Очередь можно менять только в идущем турнире',
+    };
+  }
+  if (tournament.scheduleMode === 'per_match') {
+    return {
+      success: false,
+      error: 'В режиме расписания по матчам столы назначаются вручную',
+    };
+  }
+
+  const waiting = await db
+    .select({ id: matches.id })
+    .from(matches)
+    .where(
+      and(
+        eq(matches.tournamentId, tournamentId),
+        eq(matches.status, 'scheduled'),
+        isNull(matches.tableId),
+      ),
+    );
+  const waitingIds = new Set(waiting.map((m) => m.id));
+  const requested = new Set(matchIds);
+  if (
+    requested.size !== matchIds.length ||
+    requested.size !== waitingIds.size ||
+    matchIds.some((id) => !waitingIds.has(id))
+  ) {
+    return {
+      success: false,
+      error: 'Очередь изменилась — обновите страницу',
+    };
+  }
+
+  await db.transaction(async (tx) => {
+    const now = new Date();
+    for (const [index, id] of matchIds.entries()) {
+      await tx
+        .update(matches)
+        .set({ queueOrder: index, updatedAt: now })
+        .where(eq(matches.id, id));
+    }
+  });
+
+  return { success: true };
+}
+
+/**
  * Called when a table is freed — hands out every table that is currently free,
  * not just the one that was released.
  *
@@ -639,6 +763,18 @@ export async function onTableFreed(
   tournamentId: UUID,
   tableId: UUID,
   botApi: Api,
+): Promise<void> {
+  await fillFreeTables(tournamentId, botApi, tableId);
+}
+
+/**
+ * Seat the next ready matches at every free table of the tournament, serving
+ * `preferTableId` (the table just released) first. See onTableFreed.
+ */
+async function fillFreeTables(
+  tournamentId: UUID,
+  botApi: Api,
+  preferTableId?: UUID,
 ): Promise<void> {
   const tournament = await getTournament(tournamentId);
   if (tournament?.status !== 'in_progress') return;
@@ -667,12 +803,60 @@ export async function onTableFreed(
 
   // The just-freed table is served first; the rest keep their configured order.
   const free = allTables.filter((t) => !taken.has(t.id));
-  free.sort((a, b) => Number(b.id === tableId) - Number(a.id === tableId));
+  free.sort(
+    (a, b) => Number(b.id === preferTableId) - Number(a.id === preferTableId),
+  );
 
   for (const table of free) {
     const next = await getNextReadyMatch(tournamentId);
     if (!next) break;
     await assignTableAndStart(next.id, table.id, botApi);
+  }
+}
+
+/**
+ * A finished match also frees its players for OTHER running tournaments: a
+ * waiting match there may have been skipped only because one of these players
+ * was at this table (findBusyPlayerIds is not tournament-scoped). Nothing in
+ * those tournaments completes, so their onTableFreed never fires — re-fill
+ * their free tables here instead.
+ */
+async function fillTablesForFreedPlayers(
+  match: Pick<Match, 'tournamentId' | 'player1Id' | 'player2Id'>,
+  botApi: Api,
+): Promise<void> {
+  const playerIds = [match.player1Id, match.player2Id].filter(
+    (id): id is UUID => id !== null,
+  );
+  if (playerIds.length === 0) return;
+
+  const waiting = await db
+    .selectDistinct({ tournamentId: matches.tournamentId })
+    .from(matches)
+    .innerJoin(tournaments, eq(matches.tournamentId, tournaments.id))
+    .where(
+      and(
+        ne(matches.tournamentId, match.tournamentId),
+        eq(tournaments.status, 'in_progress'),
+        ne(tournaments.scheduleMode, 'per_match'),
+        eq(matches.status, 'scheduled'),
+        isNull(matches.tableId),
+        or(
+          inArray(matches.player1Id, playerIds),
+          inArray(matches.player2Id, playerIds),
+        ),
+      ),
+    );
+
+  for (const { tournamentId } of waiting) {
+    try {
+      await fillFreeTables(tournamentId, botApi);
+    } catch (e) {
+      // Another tournament's seating must not fail this match's advancement.
+      console.error(
+        `fillTablesForFreedPlayers(${tournamentId}): ${errorMessage(e)}`,
+      );
+    }
   }
 }
 
@@ -1259,6 +1443,15 @@ export async function advanceWinner(
 
   if (!match?.winnerId) return;
 
+  await advanceCompletedMatch({ ...match, winnerId: match.winnerId }, botApi);
+  if (botApi) await fillTablesForFreedPlayers(match, botApi);
+}
+
+/** advanceWinner's routing: place the winner (and DE loser), free the table. */
+async function advanceCompletedMatch(
+  match: Match & { winnerId: UUID },
+  botApi?: Api,
+): Promise<void> {
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return;
 
@@ -1697,7 +1890,9 @@ export async function startMatch(
         .filter((id): id is UUID => id !== null)
         .sort();
       for (const playerId of playerIds) {
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${playerId}))`);
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${playerId}))`,
+        );
       }
 
       const busy = await findBusyPlayerIds(playerIds, matchId, tx);

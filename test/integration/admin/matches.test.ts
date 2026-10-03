@@ -117,6 +117,31 @@ describe('admin matches router (HTTP layer)', () => {
     expect(status).toBe(400);
   });
 
+  it('PUT /tournament/:id/queue rejects an empty or non-uuid list (400)', async () => {
+    const t = await createTournament();
+    for (const matchIds of [[], ['nope'], undefined]) {
+      const { status } = await apiRequest(
+        app,
+        'PUT',
+        `/api/matches/tournament/${t.id}/queue`,
+        { user: admin, body: { matchIds } },
+      );
+      expect(status).toBe(400);
+    }
+  });
+
+  it('PUT /tournament/:id/queue surfaces the service error (400)', async () => {
+    const t = await createTournament({ status: 'registration_closed' });
+    const { status, body } = await apiRequest<{ error: string }>(
+      app,
+      'PUT',
+      `/api/matches/tournament/${t.id}/queue`,
+      { user: admin, body: { matchIds: [validId] } },
+    );
+    expect(status).toBe(400);
+    expect(body.error).toBe('Очередь можно менять только в идущем турнире');
+  });
+
   it('POST /:id/start returns 400 for an unknown match', async () => {
     const { status } = await apiRequest(
       app,

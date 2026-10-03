@@ -94,6 +94,10 @@ export const matches = prodSchema.table(
       .references(() => tables.id, {
         onDelete: 'set null',
       }),
+    // Admin-set play order of waiting matches (the table auto-assignment
+    // queue). Null = not set: such matches follow the ordered ones by
+    // (round, position). Independent of `position`, which routes the bracket.
+    queueOrder: integer('queue_order'),
     createdAt,
     updatedAt,
   },
@@ -111,5 +115,6 @@ export const matches = prodSchema.table(
       'matches_losers_next_position_nonneg',
       table.losersNextMatchPosition,
     ),
+    nonNegativeCheck('matches_queue_order_nonneg', table.queueOrder),
   ],
 );

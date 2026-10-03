@@ -54,6 +54,7 @@ export type {
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
+  ApiBusyElsewhere,
 } from '../../bot/@types/match.js';
 export type {
   ApiError,
