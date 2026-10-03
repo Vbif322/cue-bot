@@ -1,9 +1,19 @@
+import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createAdminServer } from '@/admin/server/index.js';
+import { db } from '@/db/db.js';
+import { matches, tables } from '@/db/schema.js';
+import { getMatch } from '@/services/matchService.js';
 
 import { apiRequest } from '../../helpers/auth.js';
-import { createAdminUser, createTournament } from '../../helpers/factories.js';
+import {
+  createAdminUser,
+  createMatchesForTournament,
+  createTournament,
+  createTournamentWithParticipants,
+} from '../../helpers/factories.js';
+import { must } from '../../helpers/must.js';
 import { truncateAll } from '../../helpers/truncate.js';
 
 const app = createAdminServer();
@@ -148,6 +158,58 @@ describe('admin matches router (HTTP layer)', () => {
       'POST',
       `/api/matches/${validId}/start`,
       { user: admin },
+    );
+    expect(status).toBe(400);
+  });
+
+  it('POST /:id/ready marks players present for them; the second starts the match', async () => {
+    const { tournament } = await createTournamentWithParticipants(
+      2,
+      'single_elimination',
+    );
+    const [created] = await createMatchesForTournament(
+      tournament.id,
+      'single_elimination',
+    );
+    const match = must(created, 'match');
+    const [table] = await db
+      .insert(tables)
+      .values({ name: 'Стол 1', venueId: tournament.venueId })
+      .returning();
+    const now = new Date();
+    await db
+      .update(matches)
+      .set({
+        tableId: must(table, 'table').id,
+        calledAt: now,
+        callDeadlineAt: new Date(now.getTime() + 10 * 60_000),
+      })
+      .where(eq(matches.id, match.id));
+
+    const ready = (userId: string | null) =>
+      apiRequest<{ data: { started: boolean } }>(
+        app,
+        'POST',
+        `/api/matches/${match.id}/ready`,
+        { user: admin, body: { userId } },
+      );
+
+    const first = await ready(match.player1Id);
+    expect(first.status).toBe(200);
+    expect(first.body.data.started).toBe(false);
+
+    const second = await ready(match.player2Id);
+    expect(second.status).toBe(200);
+    expect(second.body.data.started).toBe(true);
+    expect((await getMatch(match.id))?.status).toBe('in_progress');
+  });
+
+  it('POST /:id/ready rejects a missing userId (400)', async () => {
+    const { status } = await apiRequest(
+      app,
+      'POST',
+      `/api/matches/${validId}/ready`,
+      { user: admin, body: {} },
     );
     expect(status).toBe(400);
   });

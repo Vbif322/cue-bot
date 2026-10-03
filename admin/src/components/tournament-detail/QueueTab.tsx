@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { matchesApi } from '../../lib/api.ts';
+import { matchesApi, tournamentsApi } from '../../lib/api.ts';
 import type { ApiMatch } from '../../lib/api.ts';
 import { Button, MatchStatusBadge } from '@cue-bot/ui';
 import { groupLetter, playoffRoundName } from '../../lib/tournamentLabels.ts';
@@ -40,6 +40,28 @@ const byTableName = (a: ApiMatch, b: ApiMatch): number =>
     numeric: true,
   });
 
+/** Players called to the table who haven't confirmed presence (see assignTableAndCall). */
+const isCalled = (m: ApiMatch): boolean =>
+  m.status === 'scheduled' && m.tableId !== null && m.calledAt !== null;
+
+function callNote(m: ApiMatch, now: number): string {
+  const waiting = [
+    m.player1ReadyAt === null
+      ? playerName(m.player1Name, m.player1Username)
+      : null,
+    m.player2ReadyAt === null
+      ? playerName(m.player2Name, m.player2Username)
+      : null,
+  ].filter((n): n is string => n !== null);
+  const left =
+    m.callDeadlineAt === null
+      ? null
+      : Math.ceil((new Date(m.callDeadlineAt).getTime() - now) / 60_000);
+  const time =
+    left === null ? '' : left > 0 ? ` · ещё ${left} мин` : ' · время вышло';
+  return `ждём: ${waiting.join(', ')}${time}`;
+}
+
 function Players({ m }: { m: ApiMatch }) {
   return (
     <div className="text-sm text-gray-900 truncate">
@@ -53,20 +75,35 @@ function Players({ m }: { m: ApiMatch }) {
 /**
  * «Очередь» tab: the matches holding a table, then the waiting matches
  * (`scheduled`, no table yet) in table queue order. A freed table goes to the
- * first waiting match whose players are both known and free — not at a table
- * here or in another running tournament; the admin reorders it with
- * ↑ / ↓ / «Первым».
+ * first waiting match whose players are both known, present and free — not at
+ * (or called to) a table here or in another running tournament; the admin
+ * reorders it with ↑ / ↓ / «Первым». A called match whose players don't show
+ * up is postponed or given more time here; players marked absent after a
+ * postpone are listed with «На месте».
  */
 export default function QueueTab({ tournamentId }: { tournamentId: string }) {
   const qc = useQueryClient();
   const [error, setError] = useState('');
 
   // Shares the cache with MatchesTab, so switching tabs doesn't refetch.
-  const { data, isLoading } = useQuery({
+  // Polled so call countdowns and players confirming presence show up live.
+  const { data, isLoading, dataUpdatedAt } = useQuery({
     queryKey: ['tournament-matches', tournamentId],
     queryFn: () => matchesApi.byTournament(tournamentId),
+    refetchInterval: 30_000,
   });
   const matches = useMemo(() => data ?? [], [data]);
+
+  const { data: participants } = useQuery({
+    queryKey: ['tournament-participants', tournamentId],
+    queryFn: () => tournamentsApi.participants(tournamentId),
+    refetchInterval: 30_000,
+  });
+  const absent = useMemo(
+    () => (participants ?? []).filter((p) => p.absentSince !== null),
+    [participants],
+  );
+  const absentIds = new Set(absent.map((p) => p.userId));
 
   const queue = useMemo(
     () =>
@@ -100,6 +137,9 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
       .filter((m) => m.status === 'in_progress')
       .flatMap((m) => [m.player1Id, m.player2Id]),
   );
+  const calledHere = new Set(
+    matches.filter(isCalled).flatMap((m) => [m.player1Id, m.player2Id]),
+  );
   const elsewhere = new Map(
     (busyElsewhere ?? []).map((b) => [b.userId, b.tournamentName]),
   );
@@ -111,7 +151,9 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
       { id: m.player2Id, name: playerName(m.player2Name, m.player2Username) },
     ].flatMap(({ id, name }) => {
       if (id === null) return [];
+      if (absentIds.has(id)) return [`${name} отсутствует`];
       if (playingHere.has(id)) return [`${name} играет`];
+      if (calledHere.has(id)) return [`${name} вызван к столу`];
       const other = elsewhere.get(id);
       return other === undefined ? [] : [`${name} играет в «${other}»`];
     });
@@ -122,7 +164,34 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
       qc.invalidateQueries({
         queryKey: ['tournament-busy-elsewhere', tournamentId],
       }),
+      qc.invalidateQueries({
+        queryKey: ['tournament-participants', tournamentId],
+      }),
     ]);
+
+  /** Referee actions on a called match and on absent players. */
+  const callAction = useMutation({
+    mutationFn: (
+      a:
+        | { kind: 'postpone' | 'extend'; matchId: string }
+        | { kind: 'present'; userId: string },
+    ) => {
+      if (a.kind === 'present') {
+        return tournamentsApi.markParticipantPresent(tournamentId, a.userId);
+      }
+      return a.kind === 'postpone'
+        ? matchesApi.postpone(a.matchId)
+        : matchesApi.extendCall(a.matchId);
+    },
+    onSuccess: () => {
+      setError('');
+      return invalidate();
+    },
+    onError: (e: Error) => {
+      setError(e.message);
+      return invalidate();
+    },
+  });
 
   const reorder = useMutation({
     mutationFn: (matchIds: string[]) =>
@@ -151,6 +220,12 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">
+          {error}
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-gray-200">
         <div className="px-4 py-3 border-b border-gray-200 text-sm font-semibold text-gray-800">
           За столами ({seated.length})
@@ -173,6 +248,11 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
                 <Players m={m} />
                 <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
                   <span>{roundLabel(m, playoffMaxRound, isGroups)}</span>
+                  {isCalled(m) && (
+                    <span className="text-amber-600">
+                      {callNote(m, dataUpdatedAt)}
+                    </span>
+                  )}
                   <Link
                     to={`/matches/${m.id}`}
                     className="text-blue-500 hover:text-blue-700"
@@ -181,11 +261,77 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
                   </Link>
                 </div>
               </div>
-              <MatchStatusBadge status={m.status} />
+              {isCalled(m) ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full whitespace-nowrap">
+                    Вызов к столу
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    title="Дать игрокам ещё 5 минут"
+                    disabled={callAction.isPending}
+                    onClick={() =>
+                      callAction.mutate({ kind: 'extend', matchId: m.id })
+                    }
+                  >
+                    +5 мин
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    title="Освободить стол для следующего матча, неявившихся отметить отсутствующими"
+                    disabled={callAction.isPending}
+                    onClick={() =>
+                      callAction.mutate({ kind: 'postpone', matchId: m.id })
+                    }
+                  >
+                    Отложить
+                  </Button>
+                </div>
+              ) : (
+                <MatchStatusBadge status={m.status} />
+              )}
             </li>
           ))}
         </ul>
       </div>
+
+      {absent.length > 0 && (
+        <div className="bg-white rounded-xl border border-amber-200">
+          <div className="px-4 py-3 border-b border-amber-200">
+            <div className="text-sm font-semibold text-gray-800">
+              Отсутствуют ({absent.length})
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              Не пришли по вызову. Их матчи не получают стол, пока игрок не
+              нажмёт «Я на месте» в боте или вы не отметите его здесь.
+            </div>
+          </div>
+          <ul className="divide-y divide-gray-100">
+            {absent.map((p) => (
+              <li
+                key={p.userId}
+                className="flex items-center gap-3 px-4 py-2.5"
+              >
+                <div className="min-w-0 flex-1 text-sm text-gray-900 truncate">
+                  {playerName(p.name, p.username)}
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={callAction.isPending}
+                  onClick={() =>
+                    callAction.mutate({ kind: 'present', userId: p.userId })
+                  }
+                >
+                  На месте
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-gray-200">
         <div className="px-4 py-3 border-b border-gray-200">
@@ -193,20 +339,16 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
             Очередь на столы ({queue.length})
           </div>
           <div className="text-xs text-gray-500 mt-0.5">
-            Свободный стол получает первый матч, в котором оба игрока известны и
-            не играют за другим столом — в том числе в другом турнире.
+            Свободный стол получает первый матч, в котором оба игрока известны,
+            на месте и не заняты за другим столом — в том числе в другом
+            турнире. Игроков вызывают к столу; матч начинается, когда оба
+            подтвердят явку.
           </div>
         </div>
 
         {queue.length === 0 && (
           <div className="text-center text-gray-400 py-8 text-sm">
             Нет матчей, ожидающих стол
-          </div>
-        )}
-
-        {error && (
-          <div className="mx-4 mt-3 p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">
-            {error}
           </div>
         )}
 

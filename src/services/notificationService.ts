@@ -18,9 +18,12 @@ import {
   formatPlayerName,
   getResultConfirmKeyboard,
   getMatchNotificationKeyboard,
+  getNoShowAlertKeyboard,
+  getMarkedAbsentKeyboard,
 } from '@/bot/ui/matchUI.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
+import { MATCH_CALL_TIMEOUT_MS } from './matchCall.const.js';
 
 type NotificationType = (typeof notifications.$inferInsert)['type'];
 
@@ -191,14 +194,19 @@ export async function createAndSendNotification(
 }
 
 /**
- * Notify about match assignment
+ * Notify about match assignment. With `awaitCall` (auto-seating) the players
+ * are told to wait for the call to a table instead of getting a start button.
  */
 export async function notifyMatchAssigned(
   api: Api,
   match: MatchWithPlayers,
   tournamentName: string,
+  options: { awaitCall?: boolean } = {},
 ): Promise<void> {
   const safeName = escapeMarkdown(tournamentName);
+  const hint = options.awaitCall
+    ? `\n\nКогда освободится стол, бот вызовет вас к нему.`
+    : '';
 
   await notifyBothPlayers(
     api,
@@ -206,10 +214,196 @@ export async function notifyMatchAssigned(
     ({ opponentName }) => ({
       type: 'bracket_formed',
       title: 'Назначен матч',
-      message: `Турнир: ${safeName}\n` + `Ваш соперник: ${opponentName}`,
+      message: `Турнир: ${safeName}\n` + `Ваш соперник: ${opponentName}` + hint,
     }),
-    { keyboard: getMatchNotificationKeyboard(match, { action: 'start' }) },
+    {
+      keyboard: getMatchNotificationKeyboard(
+        match,
+        options.awaitCall ? {} : { action: 'start' },
+      ),
+    },
   );
+}
+
+/** Markdown-safe table name for player-facing texts. */
+function tableLabel(match: MatchWithPlayers): string {
+  return escapeMarkdown(match.tableName ?? 'свободный стол');
+}
+
+/**
+ * Call both players to the match's table (assignTableAndCall). The match
+ * starts once both press «Я у стола» or the referee starts it.
+ */
+export async function notifyMatchCalled(
+  api: Api,
+  match: MatchWithPlayers,
+  tournamentName: string,
+): Promise<void> {
+  const safeName = escapeMarkdown(tournamentName);
+  const minutes = Math.round(MATCH_CALL_TIMEOUT_MS / 60_000);
+
+  await notifyBothPlayers(
+    api,
+    match,
+    ({ opponentName }) => ({
+      type: 'match_reminder',
+      title: 'Вас вызывают к столу',
+      message:
+        `Турнир: ${safeName}\n` +
+        `Стол: *${tableLabel(match)}*\n` +
+        `Ваш соперник: ${opponentName}\n\n` +
+        `Подойдите к столу и нажмите «Я у стола» в течение ${String(minutes)} мин. ` +
+        `Матч начнётся, когда подтвердят оба игрока.`,
+    }),
+    { keyboard: getMatchNotificationKeyboard(match, { action: 'ready' }) },
+  );
+}
+
+/**
+ * Tell the player who hasn't confirmed presence yet that the opponent is
+ * already at the table.
+ */
+export async function notifyOpponentAtTable(
+  api: Api,
+  match: MatchWithPlayers,
+  readyUserId: UUID,
+): Promise<void> {
+  const waitingId =
+    match.player1Id === readyUserId ? match.player2Id : match.player1Id;
+  if (!waitingId) return;
+  const { player1Name, player2Name } = playerNamesOf(match);
+  const readyName = match.player1Id === readyUserId ? player1Name : player2Name;
+
+  await createAndSendNotification(
+    api,
+    {
+      userId: waitingId,
+      type: 'match_reminder',
+      title: 'Соперник уже у стола',
+      message:
+        `${readyName} ждёт вас за столом *${tableLabel(match)}*.\n` +
+        `Подойдите и нажмите «Я у стола».`,
+      tournamentId: match.tournamentId,
+      matchId: match.id,
+    },
+    getMatchNotificationKeyboard(match, { action: 'ready' }),
+  );
+}
+
+/**
+ * Presence deadline missed: alert the tournament's referees (or its creator)
+ * and let them decide — technical loss, postpone, or wait longer.
+ * `recipientIds` is resolved by the caller (matchCallService).
+ */
+export async function notifyNoShowAlert(
+  api: Api,
+  match: MatchWithPlayers,
+  tournamentName: string,
+  recipientIds: UUID[],
+): Promise<void> {
+  const { player1Name, player2Name } = playerNamesOf(match);
+  const missing = [
+    match.player1ReadyAt ? null : player1Name,
+    match.player2ReadyAt ? null : player2Name,
+  ].filter((n): n is string => n !== null);
+  const who =
+    missing.length > 1
+      ? `Оба игрока (${missing.join(', ')}) не подтвердили явку.`
+      : `${missing[0] ?? 'Игрок'} не подтвердил явку.`;
+
+  for (const userId of recipientIds) {
+    await createAndSendNotification(
+      api,
+      {
+        userId,
+        type: 'match_no_show',
+        title: 'Неявка на матч',
+        message:
+          `Турнир: ${escapeMarkdown(tournamentName)}\n` +
+          `Стол: *${tableLabel(match)}*\n` +
+          `Матч: ${player1Name} vs ${player2Name}\n\n` +
+          `${who}\n\n` +
+          `«Отложить» освободит стол для следующего матча, а неявившийся ` +
+          `вернётся в очередь, когда отметится «Я на месте».`,
+        tournamentId: match.tournamentId,
+        matchId: match.id,
+      },
+      getNoShowAlertKeyboard(match),
+    );
+  }
+}
+
+/** Second ping to a called player who still hasn't confirmed presence. */
+export async function notifyCallReminder(
+  api: Api,
+  match: MatchWithPlayers,
+  userId: UUID,
+): Promise<void> {
+  await createAndSendNotification(
+    api,
+    {
+      userId,
+      type: 'match_reminder',
+      title: 'Вас ждут за столом',
+      message:
+        `Время на явку истекло, судья уведомлён.\n` +
+        `Если вы на месте — подойдите к столу *${tableLabel(match)}* ` +
+        `и нажмите «Я у стола».`,
+      tournamentId: match.tournamentId,
+      matchId: match.id,
+    },
+    getMatchNotificationKeyboard(match, { action: 'ready' }),
+  );
+}
+
+/**
+ * The referee postponed a called match because this player didn't show up:
+ * their matches are skipped by the table queue until they report back.
+ */
+export async function notifyMarkedAbsent(
+  api: Api,
+  userId: UUID,
+  tournamentId: UUID,
+  tournamentName: string,
+): Promise<void> {
+  await createAndSendNotification(
+    api,
+    {
+      userId,
+      type: 'match_reminder',
+      title: 'Вы отмечены отсутствующим',
+      message:
+        `Турнир: ${escapeMarkdown(tournamentName)}\n\n` +
+        `Вы не подошли к столу, и матч отложен. Пока вы отсутствуете, ` +
+        `ваши матчи не получат стол.\n` +
+        `Когда будете готовы играть, нажмите «Я на месте».`,
+      tournamentId,
+    },
+    getMarkedAbsentKeyboard(tournamentId),
+  );
+}
+
+/** Both players learn about a technical result (no-show, walkover, ...). */
+export async function notifyTechnicalResult(
+  api: Api,
+  match: MatchWithPlayers,
+): Promise<void> {
+  const winnerName = formatPlayerName({
+    username: match.winnerUsername ?? null,
+    name: match.winnerName,
+    surname: match.winnerSurname,
+    telegramId: match.winnerTelegramId,
+  });
+  const reason = escapeMarkdown(match.technicalReason ?? 'не указана');
+
+  await notifyBothPlayers(api, match, () => ({
+    type: 'result_confirmed',
+    title: 'Технический результат',
+    message:
+      `Матч завершён техническим результатом.\n\n` +
+      `Причина: ${reason}\n` +
+      `Победитель: ${winnerName}`,
+  }));
 }
 
 /**
@@ -260,6 +454,7 @@ export async function notifyMatchStart(
       title: 'Матч!',
       message:
         `Турнир: ${safeName}\n` +
+        (match.tableName ? `Стол: *${tableLabel(match)}*\n` : '') +
         `Ваш соперник: ${opponentName}\n\n` +
         `Начался матч!`,
     }),

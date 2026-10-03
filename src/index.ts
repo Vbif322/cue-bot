@@ -45,6 +45,9 @@ import { dirname, join, resolve } from 'node:path';
 import { db } from './db/db.js';
 import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
 import { sweepExpiredEmailLoginCodes } from './services/emailLoginCodeService.js';
+import { processOverdueCalls } from './services/matchCallService.js';
+import { MATCH_CALL_SWEEP_INTERVAL_MS } from './services/matchCall.const.js';
+import { errorMessage } from './utils/errors.js';
 import { assertMailConfigured } from './services/mailService.js';
 import {
   adminLinkLimiter,
@@ -248,6 +251,7 @@ async function startBot() {
 let server: ServerType | undefined;
 let dialogSessionSweep: ReturnType<typeof setInterval> | undefined;
 let rateLimitSweep: ReturnType<typeof setInterval> | undefined;
+let matchCallSweep: ReturnType<typeof setInterval> | undefined;
 
 const DIALOG_SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // раз в час
 const RATE_LIMIT_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // раз в 5 минут
@@ -327,6 +331,15 @@ async function start() {
   }, RATE_LIMIT_SWEEP_INTERVAL_MS);
   rateLimitSweep.unref();
 
+  // Неявка к столу: по истечении времени на подтверждение явки уведомляем судью.
+  // Состояние в БД (noShowAlertedAt), так что рестарт не теряет и не дублирует алерты.
+  matchCallSweep = setInterval(() => {
+    processOverdueCalls(bot.api).catch((err: unknown) => {
+      console.error('Ошибка проверки неявок:', errorMessage(err));
+    });
+  }, MATCH_CALL_SWEEP_INTERVAL_MS);
+  matchCallSweep.unref();
+
   await startBot();
 }
 
@@ -353,6 +366,7 @@ async function shutdown(signal: string) {
   // 0. Останавливаем периодические задачи очистки.
   if (dialogSessionSweep) clearInterval(dialogSessionSweep);
   if (rateLimitSweep) clearInterval(rateLimitSweep);
+  if (matchCallSweep) clearInterval(matchCallSweep);
 
   // 1. Останавливаем приём новых апдейтов от Telegram. При вебхуке останавливать нечего
   //    (polling-цикла нет), а сам вебхук намеренно не снимаем — так Telegram доставит

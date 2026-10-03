@@ -19,7 +19,7 @@ import {
   createMatches,
   getRoundMatches,
   getMatch,
-  assignTableAndStart,
+  assignTableAndCall,
   getNextReadyMatch,
 } from './matchService.js';
 import { getGroupStandings } from './groupPhaseService.js';
@@ -34,8 +34,9 @@ export interface StartTournamentFullResult {
 }
 
 /**
- * Assign tables to the first N ready matches (auto-start with notification) and
- * notify the remaining participants of `notifyRound` who weren't auto-started.
+ * Assign tables to the first N ready matches (calling their players to the
+ * table) and notify the remaining participants of `notifyRound` who weren't
+ * called yet.
  *
  * Shared by the initial tournament start and the groups_playoff playoff kickoff.
  * `phase` scopes the notify pass so the playoff kickoff doesn't re-notify the
@@ -48,7 +49,7 @@ async function kickoffReadyMatches(
   botApi: Api,
   phase?: 'group' | 'playoff',
 ): Promise<void> {
-  const autoStartedMatchIds = new Set<string>();
+  const calledMatchIds = new Set<string>();
 
   // Skipped for per-match scheduling: there the organiser assigns each match's
   // date/time (and table) manually, so matches must not be auto-started here.
@@ -68,8 +69,8 @@ async function kickoffReadyMatches(
       if (!table) break;
       const next = await getNextReadyMatch(tournamentId);
       if (!next) break;
-      if (await assignTableAndStart(next.id, table.id, botApi)) {
-        autoStartedMatchIds.add(next.id);
+      if (await assignTableAndCall(next.id, table.id, botApi)) {
+        calledMatchIds.add(next.id);
         tableIndex += 1;
       }
     }
@@ -78,12 +79,16 @@ async function kickoffReadyMatches(
   const roundMatches = await getRoundMatches(tournamentId, notifyRound);
   for (const match of roundMatches) {
     if (phase && match.phase !== phase) continue;
-    if (autoStartedMatchIds.has(match.id)) continue;
+    if (calledMatchIds.has(match.id)) continue;
     if (match.status === 'completed') continue;
     try {
       const matchWithPlayers = await getMatch(match.id);
       if (matchWithPlayers) {
-        await notifyMatchAssigned(botApi, matchWithPlayers, tournament.name);
+        await notifyMatchAssigned(botApi, matchWithPlayers, tournament.name, {
+          // With auto-seating the table queue starts the match; a self-start
+          // button would let players jump it.
+          awaitCall: tournament.scheduleMode !== 'per_match',
+        });
       }
     } catch (error) {
       console.error(

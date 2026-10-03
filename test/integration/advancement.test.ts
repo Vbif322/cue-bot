@@ -200,7 +200,9 @@ describe('advanceWinner propagation (S7-2)', () => {
       pos = await positionLookup(tournament.id);
       // pos 2 is the next ready match — it should inherit the freed table.
       expect(pos(2).tableId).toBe(tableId);
-      expect(pos(2).status).toBe('in_progress');
+      // Called to the table: it starts once both players confirm presence.
+      expect(pos(2).status).toBe('scheduled');
+      expect(pos(2).calledAt).not.toBeNull();
     });
   });
 

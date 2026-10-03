@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatMatchCard, formatPlayerName } from '@/bot/ui/matchUI.js';
+import {
+  formatCallDeadline,
+  formatMatchCard,
+  formatPlayerName,
+} from '@/bot/ui/matchUI.js';
 import type { MatchFrame } from '@/services/matchService.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
 import type { Tournament } from '@/bot/@types/tournament.js';
@@ -78,6 +82,43 @@ describe('formatMatchCard frame breakdown', () => {
     ]);
     expect(text).toContain('Макс. брейк');
     expect(text).toContain('80');
+  });
+});
+
+describe('formatMatchCard call to the table', () => {
+  const called = {
+    ...pendingMatch,
+    status: 'scheduled',
+    player1Score: null,
+    player2Score: null,
+    tableId: 'tb1',
+    tableName: 'Стол 2',
+    calledAt: new Date(),
+    callDeadlineAt: new Date(Date.now() + 5 * 60_000),
+    player1ReadyAt: new Date(),
+    player2ReadyAt: null,
+  } as unknown as MatchWithPlayers;
+
+  it('shows the table and who has confirmed presence', () => {
+    const text = formatMatchCard(called, tournament);
+    expect(text).toContain('Игроки вызваны к столу');
+    expect(text).toContain('Стол: Стол 2');
+    expect(text).toContain('Иван: ✅ у стола');
+    expect(text).toContain('Пётр: ⏳ ещё не подтвердил');
+    expect(text).toContain('осталось');
+  });
+});
+
+describe('formatCallDeadline', () => {
+  const now = new Date('2026-10-03T12:00:00Z');
+
+  it('counts whole minutes left, rounding up', () => {
+    const deadline = new Date('2026-10-03T12:04:10Z');
+    expect(formatCallDeadline(deadline, now)).toContain('осталось 5 мин');
+  });
+
+  it('says the time is up once the deadline has passed', () => {
+    expect(formatCallDeadline(now, now)).toContain('истекло');
   });
 });
 

@@ -2,7 +2,7 @@ import type { UUID } from 'crypto';
 
 import type { Api } from 'grammy';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { db } from '@/db/db.js';
@@ -20,7 +20,12 @@ import {
   reportResult,
 } from '@/services/matchService.js';
 
-import { createTournament, createUser, createVenue } from '../helpers/factories.js';
+import {
+  createTournament,
+  createUser,
+  createVenue,
+  seatedMatches,
+} from '../helpers/factories.js';
 import { createMockBotApi } from '../helpers/mockBotApi.js';
 import { must } from '../helpers/must.js';
 import { truncateAll } from '../helpers/truncate.js';
@@ -65,14 +70,8 @@ async function setupRoundRobin(players: number, tableCount: number) {
   return tournament;
 }
 
-async function liveMatches(tournamentId: UUID) {
-  return db.query.matches.findMany({
-    where: and(
-      eq(matches.tournamentId, tournamentId),
-      inArray(matches.status, ['in_progress']),
-    ),
-  });
-}
+/** Seated = called to a table or being played; both occupy the players. */
+const liveMatches = seatedMatches;
 
 describe('auto-start never double-books a player', () => {
   beforeEach(async () => {

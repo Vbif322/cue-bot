@@ -498,6 +498,40 @@ deep-link `/start join_<code>` (см. путь 1).
     -> статус возвращается в in_progress
 ```
 
+`match:start` игрок может нажать только в режиме `per_match`; в `single_day` матчи стартуют
+через вызов к столу (ниже), а вручную их начинает лишь админ или судья.
+
+### 6a. Вызов к столу и неявка (`single_day`)
+
+Свободный стол не стартует матч, а **вызывает** игроков (`assignTableAndCall`): матч остаётся
+`scheduled`, получает `tableId`, `calledAt` и `callDeadlineAt` (`MATCH_CALL_TIMEOUT_MS`,
+10 мин, `src/services/matchCall.const.ts`). Вызванный матч держит стол и занимает обоих игроков,
+как идущий (`findBusyPlayerIds`): их не вызовут за другой стол ни в этом, ни в другом турнире.
+Ручная бронь стола админом (`setMatchTable`) идёт без вызова (`calledAt` = null) и ждёт
+ручного старта.
+
+```text
+стол освободился -> assignTableAndCall -> «Вас вызывают к столу» обоим
+  -> match:ready:{id} («Я у стола», markPlayerReady) от обоих -> status = in_progress
+  -> или судья: match:start:{id}
+дедлайн прошёл -> processOverdueCalls (таймер раз в минуту, src/index.ts)
+  -> алерт судьям турнира (нет судей -> создателю турнира), повторный пинг неявившимся
+  -> судья выбирает:
+     match:noshow:{id}:{1|2}  -> тех. поражение «Неявка соперника» (noShowTechnicalLoss)
+     match:postpone:{id}      -> стол уходит следующему матчу, матч возвращается в очередь
+                                 со своим queueOrder, неявившиеся помечаются отсутствующими
+     match:extend:{id}        -> +5 мин к дедлайну, алерт перевзводится
+```
+
+Состояние вызова хранится в БД (`player1ReadyAt` / `player2ReadyAt`, `noShowAlertedAt`):
+алерт уходит ровно один раз, в том числе через рестарт. Автоматически ничего не засчитывается.
+
+**Отсутствующие.** `tournamentParticipants.absentSince` ставят «Отложить» и тех. поражение за
+неявку (если у игрока ещё есть матчи). Пока отметка стоит, `getNextReadyMatch` пропускает матчи
+игрока. Снимает её `participant:present:{tournamentId}` («Я на месте»), подтверждение явки
+или админ (`POST /api/tournaments/:id/participants/:userId/present`). После снятия свободные
+столы сразу заполняются.
+
 ### 7. Технический результат
 
 Администратор или назначенный судья может установить технический результат:
@@ -507,6 +541,8 @@ deep-link `/start join_<code>` (см. путь 1).
 - победителю засчитывается счёт `winScore:0`, где `winScore` — длина **этого** матча
   (`matches.winScore ?? tournaments.winScore`, см. `winScoreForMatch`)
 - матч завершается без двухфазного подтверждения, далее вызывается `advanceWinner()`
+- если передан `botApi`, оба игрока получают уведомление «Технический результат»
+- для неявки к столу — `match:noshow:{id}:{absentSlot}` / `noShowTechnicalLoss()` (см. 6a)
 
 ### 8. Завершение турнира
 
@@ -661,6 +697,7 @@ deep-link `/start join_<code>` (см. путь 1).
 - `DELETE /api/tournaments/:id/participants/:userId`
 - `PATCH /api/tournaments/:id/participants/:userId/seed`
 - `POST /api/tournaments/:id/participants/seeds/randomize`
+- `POST /api/tournaments/:id/participants/:userId/present` (снять отметку «отсутствует»)
 - `GET /api/tournaments/:id/stats`
 
 #### Матчи
@@ -675,6 +712,9 @@ deep-link `/start join_<code>` (см. путь 1).
 - `POST /api/matches/:id/confirm`
 - `POST /api/matches/:id/dispute`
 - `POST /api/matches/:id/technical`
+- `POST /api/matches/:id/postpone` (вызванный матч: отдать стол следующему, неявившихся отметить отсутствующими)
+- `POST /api/matches/:id/extend-call` (+5 мин к дедлайну явки)
+- `POST /api/matches/:id/no-show` (тех. поражение за неявку, body `{ absentSlot: 1 | 2 }`)
 - `POST /api/matches/:id/correct/preview` (dry-run корректировки)
 - `POST /api/matches/:id/correct` (корректировка результата с откатом сетки)
 - `POST /api/matches/:id/advance` (повторное продвижение победителя)
@@ -762,11 +802,20 @@ deep-link `/start join_<code>` (см. путь 1).
 - `startMatch(id)` / `reportResult(id, reporterId, p1, p2)` / `confirmResult(id, confirmerId)` / `disputeResult(id, userId)` — двухфазный поток результата
 - `setTechnicalResult(...)` — техническая победа
 - `advanceWinner()` — продвижение победителя по сетке; на финале вызывает `completeTournament()`
-- управление столами: `onTableFreed()`, `assignTableAndStart()`, `setMatchTable()`
-- очередь на столы: `getNextReadyMatch()` выбирает первый готовый ожидающий матч (оба игрока известны и свободны) в порядке `queueOrder, round, position`; `setMatchQueue(tournamentId, matchIds)` — админ задаёт порядок всех ожидающих матчей (`scheduled` без стола), только в идущем турнире не в режиме `per_match`
+- управление столами: `onTableFreed()` / `fillFreeTables()`, `assignTableAndCall()` (вызов к столу, см. «Вызов к столу и неявка»), `setMatchTable()`
+- очередь на столы: `getNextReadyMatch()` выбирает первый готовый ожидающий матч (оба игрока известны, на месте и не заняты — не играют и не вызваны к другому столу) в порядке `queueOrder, round, position`; `setMatchQueue(tournamentId, matchIds)` — админ задаёт порядок всех ожидающих матчей (`scheduled` без стола), только в идущем турнире не в режиме `per_match`
 - завершение матча освобождает игроков и для других идущих турниров: `advanceWinner()` после своего `onTableFreed()` заполняет свободные столы турниров, где эти игроки ждут в очереди; `getQueuePlayersBusyElsewhere(tournamentId)` — кто из ожидающих сейчас играет в другом турнире (для вкладки «Очередь»)
 - `previewCorrection(id, p1, p2)` — dry-run корректировки; `correctMatchResult(...)` — исправление завершённого матча с откатом зависимых матчей в `scheduled` и пере-продвижением нового победителя (запись в `matchCorrections`); `resyncAdvancement(id)` — идемпотентное восстановление продвижения
 - `getMatchStats(tournamentId)` — агрегаты для UI
+
+### matchCallService
+
+Вызов к столу и неявка (`single_day`), см. «Вызов к столу и неявка».
+
+- `markPlayerReady(matchId, userId)` — «Я у стола»; второй подтвердивший стартует матч (условный UPDATE, ровно один переход)
+- `processOverdueCalls(api)` — таймер: алерт судье по просроченным вызовам, идемпотентно через `noShowAlertedAt`
+- `postponeCalledMatch(matchId)`, `extendCall(matchId)`, `noShowTechnicalLoss(matchId, absentSlot, byId)` — решения судьи
+- `markParticipantPresent(tournamentId, userId)` — снять отметку «отсутствует» и заполнить свободные столы
 
 ### randomBracketAdvancement
 

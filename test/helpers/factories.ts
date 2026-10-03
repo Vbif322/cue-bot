@@ -1,10 +1,12 @@
 import type { UUID } from 'crypto';
 
 import type { Api } from 'grammy';
+import { and, asc, eq, isNotNull, or } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
 import {
   loginTokens,
+  matches,
   tournamentParticipants,
   tournaments,
   users,
@@ -21,6 +23,7 @@ import {
   confirmResult,
   winScoreForMatch,
 } from '@/services/matchService.js';
+import { markPlayerReady } from '@/services/matchCallService.js';
 import {
   getConfirmedParticipantsBySeed,
   getTournament,
@@ -265,4 +268,40 @@ export async function createTournament(
     .returning();
   if (!row) throw new Error('insert returned no rows');
   return row;
+}
+
+/**
+ * Matches holding a table for their players, in bracket order: being played
+ * (`in_progress`) or called to the table and awaiting presence
+ * (`scheduled` + `calledAt`, see assignTableAndCall).
+ */
+export async function seatedMatches(tournamentId: UUID): Promise<Match[]> {
+  return db.query.matches.findMany({
+    where: and(
+      eq(matches.tournamentId, tournamentId),
+      or(
+        eq(matches.status, 'in_progress'),
+        and(eq(matches.status, 'scheduled'), isNotNull(matches.calledAt)),
+      ),
+    ),
+    orderBy: [asc(matches.round), asc(matches.position)],
+  });
+}
+
+/** Both players of a called match press «Я у стола», which starts it. */
+export async function confirmPresence(
+  matchId: UUID,
+  botApi?: Api,
+): Promise<void> {
+  const match = must(await getMatch(matchId), 'called match');
+  for (const playerId of [match.player1Id, match.player2Id]) {
+    const result = await markPlayerReady(
+      matchId,
+      must(playerId, 'player id'),
+      botApi,
+    );
+    if (!result.success) {
+      throw new Error(`confirmPresence failed: ${result.error}`);
+    }
+  }
 }

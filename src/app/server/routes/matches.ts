@@ -14,6 +14,7 @@ import {
   confirmResult,
   disputeResult,
 } from '@/services/matchService.js';
+import { markPlayerReady } from '@/services/matchCallService.js';
 import {
   getTournament,
   getUserParticipation,
@@ -188,6 +189,24 @@ export function createAppMatchesRouter(botApi: Api) {
     const result = await deleteLastMatchFrame(id);
     if (!result.success) return c.json({ error: result.error }, 400);
     return c.json({ data: result.frames.map(toFrameDto) });
+  });
+
+  // «Я у стола» — участник вызванного к столу матча подтверждает явку; второй
+  // подтвердивший начинает матч. Состояние вызова проверяет сервис.
+  router.post('/:id/ready', validateParam(paramId), async (c) => {
+    const { id } = c.req.valid('param') as { id: UUID };
+    const userId = c.get('appUser').id;
+
+    const match = await getMatch(id);
+    if (!match) return c.json({ error: 'Матч не найден' }, 404);
+    if (!isPlayer(match, userId)) {
+      return c.json({ error: 'Вы не являетесь участником этого матча' }, 403);
+    }
+
+    const result = await markPlayerReady(id, userId, botApi);
+    if (!result.success) return c.json({ error: result.error }, 400);
+
+    return c.json({ data: { started: result.started } });
   });
 
   // Внести результат по фреймам (снукер) — только участник матча.

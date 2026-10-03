@@ -54,6 +54,7 @@ import { announceRegistrationOpen } from '@/services/groupBroadcastService.js';
 import { errorMessage } from '@/utils/errors.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
 import { getMatchStats } from '@/services/matchService.js';
+import { markParticipantPresent } from '@/services/matchCallService.js';
 import {
   getStandings,
   getGroupMaxBreaks,
@@ -428,6 +429,7 @@ export function createTournamentsRouter(botApi: Api) {
         userId: tournamentParticipants.userId,
         status: tournamentParticipants.status,
         seed: tournamentParticipants.seed,
+        absentSince: tournamentParticipants.absentSince,
         username: users.username,
         name: users.name,
       })
@@ -560,6 +562,19 @@ export function createTournamentsRouter(botApi: Api) {
 
       await deleteParticipant(tournamentId, userId);
 
+      return c.json({ ok: true });
+    },
+  );
+
+  // Clear a participant's absent mark (no-show postponed by the referee); the
+  // table queue picks their matches up again right away.
+  router.post(
+    '/:id/participants/:userId/present',
+    validateParam(idUserIdParam),
+    async (c) => {
+      const { id: tournamentId, userId } = c.req.valid('param');
+      const result = await markParticipantPresent(tournamentId, userId, botApi);
+      if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },
   );
