@@ -10,6 +10,7 @@ import {
   pickNextReadyMatch,
   playerSlotName,
   validateCorrectionScores,
+  validateFrameDraft,
   winScoreForMatch,
   type FrameInput,
 } from '@/services/matchService.js';
@@ -316,5 +317,43 @@ describe('pickNextReadyMatch', () => {
     expect(
       pickNextReadyMatch([m('a', P1, P2)], new Set([P1, P2])),
     ).toBeNull();
+  });
+});
+
+describe('validateFrameDraft (snooker frames saved mid-match)', () => {
+  const win = (p1: number): FrameInput => ({
+    player1Points: p1,
+    player2Points: 0,
+  });
+  const loss: FrameInput = { player1Points: 0, player2Points: 60 };
+
+  it('accepts an empty and an undecided partial list', () => {
+    expect(validateFrameDraft([], 3)).toBeNull();
+    expect(validateFrameDraft([win(60), loss, win(50)], 3)).toBeNull();
+  });
+
+  it('accepts the deciding frame itself', () => {
+    expect(validateFrameDraft([win(60), win(50), win(40)], 3)).toBeNull();
+  });
+
+  it('rejects a frame after the match is decided', () => {
+    expect(validateFrameDraft([win(60), win(50), win(40), loss], 3)).toBe(
+      'Фрейм 4: матч уже решён',
+    );
+  });
+
+  it('rejects a tied frame', () => {
+    expect(
+      validateFrameDraft([{ player1Points: 30, player2Points: 30 }], 3),
+    ).toBe('Фрейм 1: ничья недопустима');
+  });
+
+  it('rejects a break above the player points', () => {
+    expect(
+      validateFrameDraft(
+        [{ player1Points: 60, player2Points: 10, player2Break: 11 }],
+        3,
+      ),
+    ).toBe('Фрейм 1: брейк 2 больше очков игрока');
   });
 });

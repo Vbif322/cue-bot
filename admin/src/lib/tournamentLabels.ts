@@ -61,6 +61,24 @@ export function groupLetter(index: number): string {
     : `#${index + 1}`;
 }
 
+/** Playoff round name counted back from the final. */
+export function playoffRoundName(round: number, maxRound: number): string {
+  switch (maxRound - round) {
+    case 0:
+      return 'Финал';
+    case 1:
+      return 'Полуфинал';
+    case 2:
+      return 'Четвертьфинал';
+    case 3:
+      return '1/8 финала';
+    case 4:
+      return '1/16 финала';
+    default:
+      return `Раунд ${round}`;
+  }
+}
+
 export const VISIBILITY_LABELS: Record<TournamentVisibility, string> = {
   public: 'Открытый',
   private: 'Закрытый (по приглашению)',

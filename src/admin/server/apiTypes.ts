@@ -14,6 +14,7 @@ export type {
 } from '../../bot/@types/tournament.js';
 export {
   formats,
+  supportsRandomAdvancement,
   type ITournamentFormat,
 } from '../../shared/tournament/formats.js';
 export {
@@ -53,6 +54,7 @@ export type {
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
+  ApiBusyElsewhere,
 } from '../../bot/@types/match.js';
 export type {
   ApiError,

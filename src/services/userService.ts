@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
-import type { UUID } from 'crypto';
+import { randomBytes, type UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import {
@@ -49,12 +49,13 @@ export interface AppUser {
   name: string | null;
   surname: string | null;
   email: string | null;
+  isAdmin: boolean;
 }
 
 /**
  * Проекция строки `users` на публичный вид для приложения игрока. В отличие от
  * {@link toApiUser} не отдаёт `role`/`telegram_id`/`deletedAt` — приложение игрока
- * этих полей не показывает.
+ * этих полей не показывает; от роли остаётся только флаг `isAdmin` (кнопка «Админка»).
  */
 export function toAppUser(u: DbUser): AppUser {
   return {
@@ -63,7 +64,25 @@ export function toAppUser(u: DbUser): AppUser {
     name: u.name,
     surname: u.surname,
     email: u.email,
+    isAdmin: u.role === 'admin',
   };
+}
+
+/**
+ * Выпускает одноразовый токен входа в админку (`loginTokens`), который гасится в
+ * `GET /api/auth/token?t=`. Роль здесь не проверяется — её перепроверяет редим.
+ */
+export async function createLoginToken(
+  userId: UUID,
+  ttlMs: number,
+): Promise<string> {
+  const token = randomBytes(16).toString('hex');
+  await db.insert(loginTokens).values({
+    token,
+    userId,
+    expiresAt: new Date(Date.now() + ttlMs),
+  });
+  return token;
 }
 
 /**
@@ -128,6 +147,30 @@ export async function findOrCreateEmailUser(
 
     return created;
   });
+}
+
+/**
+ * Ищет активный аккаунт по подтверждённой email-identity, НЕ создавая новый (вход
+ * в админку: туда пускаем только уже существующих пользователей). `users.email` не
+ * учитывается — он неуникален и не подтверждён. `null` — identity нет, адрес не
+ * подтверждён или аккаунт soft-deleted. `email` должен быть нормализован.
+ */
+export async function findActiveEmailUser(
+  email: string,
+): Promise<DbUser | null> {
+  const identity = await db.query.userIdentities.findFirst({
+    where: and(
+      eq(userIdentities.provider, 'email'),
+      eq(userIdentities.providerId, email),
+    ),
+  });
+  if (!identity?.emailVerifiedAt) return null;
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, identity.userId),
+  });
+  if (user?.deletedAt !== null) return null;
+  return user;
 }
 
 /**

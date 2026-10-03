@@ -33,6 +33,13 @@ export interface ApiMatchFrame {
   player2Break: number | null;
 }
 
+/** A queued player who is at a table in another running tournament. */
+export interface ApiBusyElsewhere {
+  userId: string;
+  tournamentId: string;
+  tournamentName: string;
+}
+
 export interface ApiMatchStats {
   total: number;
   completed: number;

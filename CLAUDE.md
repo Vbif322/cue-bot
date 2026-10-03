@@ -80,10 +80,12 @@ Multi-step bot flows live in `src/bot/wizards/`. The tournament-creation wizard 
 ### Admin web API + auth bridge
 `src/admin/server/` is the Hono app (`index.ts` = `createAdminServer()`), routes under
 `routes/`, all protected by `requireAdmin` (`middleware.ts`) which validates the JWT cookie **and
-re-checks the user's role in the DB on every request**. Login bridges Telegram → web:
-`POST /api/auth/request-code` sends a 6-digit code (`loginCodes` table) through the bot, and
-`POST /api/auth/verify-code` issues a JWT in an HttpOnly `admin_token` cookie. The bot's
-`/dashboard` command instead issues a one-click `loginTokens` link.
+re-checks the user's role in the DB on every request**. Login mirrors the player site:
+`POST /api/auth/request-code` emails a 6-digit code (`email_login_codes`, shared with
+`/api/app/auth`), and `POST /api/auth/verify-code` checks it, requires an existing admin with a
+verified email identity, and issues a JWT in an HttpOnly `admin_token` cookie (admin host only
+in production). Fallbacks: the bot's `/dashboard` command and the player site's «Админка» button
+issue a one-click `loginTokens` link redeemed at `GET /api/auth/token`.
 
 The admin SPA (`admin/`) is a **separate Vite/React project with its own package.json**. It calls
 `/api/*` with `credentials: include` (client in `admin/src/lib/api.ts`). API read-model types live

@@ -27,6 +27,7 @@ import {
   mergeAccountIntoTelegram,
   MergeError,
   linkEmailToUser,
+  createLoginToken,
 } from '@/services/userService.js';
 import {
   issueLoginCode,
@@ -106,6 +107,18 @@ export const emailCodeLimiter = new RateLimiter({
   capacity: 3,
   refillPerSec: 3 / (15 * 60),
 });
+
+/**
+ * Лимит выпуска ссылок «Админка» (мост в админку через `loginTokens`) — по userId,
+ * чтобы таблицу токенов нельзя было заспамить. Экспортируется для очистки в index.ts.
+ */
+export const adminLinkLimiter = new RateLimiter({
+  capacity: 3,
+  refillPerSec: 1 / 20,
+});
+
+/** TTL мост-токена: ссылка открывается сразу же редиректом, запас нужен только на сеть. */
+const ADMIN_LINK_TTL_MS = 60 * 1000;
 
 const AUTH_FIELD_MESSAGES = {
   email: 'Некорректный email',
@@ -619,6 +632,28 @@ export function createAppAuthRouter() {
   auth.get('/me', requireUser, (c) =>
     c.json({ data: { user: toAppUser(c.get('appUser')) } }),
   );
+
+  // Переход «сайт игрока → админка». Сессии раздельные (admin_token живёт только на
+  // admin-хосте), поэтому выпускаем одноразовый loginTokens-токен — как /dashboard в
+  // боте — и отдаём URL его редима; фронт делает на него window.location. POST (не
+  // GET-ссылка): JSON-запрос с другого сайта упрётся в CORS-preflight, так что
+  // выпустить токен чужой страницей нельзя. Роль перепроверяет и сам редим.
+  auth.post('/admin-link', requireUser, async (c) => {
+    const user = c.get('appUser');
+    if (user.role !== 'admin') {
+      return c.json({ error: 'Недостаточно прав' }, 403);
+    }
+    if (!adminLinkLimiter.hit(user.id).allowed) {
+      return c.json({ error: 'Слишком часто. Попробуйте через минуту.' }, 429);
+    }
+    // В dev — всегда Vite-сервер admin/ (:5173), даже если ADMIN_BASE_URL задан (туннель).
+    const base =
+      process.env.NODE_ENV === 'production' && process.env.ADMIN_BASE_URL
+        ? process.env.ADMIN_BASE_URL
+        : 'http://localhost:5173';
+    const token = await createLoginToken(user.id, ADMIN_LINK_TTL_MS);
+    return c.json({ data: { url: `${base}/api/auth/token?t=${token}` } });
+  });
 
   return auth;
 }

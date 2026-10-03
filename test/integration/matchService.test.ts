@@ -6,11 +6,13 @@ import { eq } from 'drizzle-orm';
 
 import type { Match } from '@/bot/@types/match.js';
 import { db } from '@/db/db.js';
-import { users } from '@/db/schema.js';
+import { matches, tournaments, users } from '@/db/schema.js';
 import { getMatch } from '@/services/matchService.js';
 import {
   reportResult,
   reportResultFromFrames,
+  saveMatchFrame,
+  deleteLastMatchFrame,
   getMatchFrames,
   confirmResult,
   disputeResult,
@@ -18,6 +20,8 @@ import {
   startMatch,
   getTournamentMatches,
 } from '@/services/matchService.js';
+import { completeTournament } from '@/services/tournamentService.js';
+import { getGroupMaxBreaks } from '@/services/groupPhaseService.js';
 import type { FrameInput } from '@/services/matchService.js';
 
 import {
@@ -349,6 +353,178 @@ describe('matchService lifecycle', () => {
     });
   });
 
+  describe('frame draft (saveMatchFrame / deleteLastMatchFrame)', () => {
+    async function startedMatch() {
+      const m = await freshMatch();
+      await startMatch(m.match.id);
+      return m;
+    }
+
+    const points = async (matchId: UUID) =>
+      (await getMatchFrames(matchId)).map((f) => [
+        f.frameNumber,
+        f.player1Points,
+        f.player2Points,
+      ]);
+
+    it('appends and overwrites frames without touching the match row', async () => {
+      const { match } = await startedMatch();
+      expect(
+        (
+          await saveMatchFrame(match.id, 1, {
+            player1Points: 70,
+            player2Points: 10,
+          })
+        ).success,
+      ).toBe(true);
+      const res = await saveMatchFrame(match.id, 2, {
+        player1Points: 5,
+        player2Points: 60,
+        player2Break: 41,
+      });
+      expect(res.success && res.frames).toHaveLength(2);
+
+      // Overwrite frame 1 by number.
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 71,
+        player2Points: 10,
+      });
+      expect(await points(match.id)).toEqual([
+        [1, 71, 10],
+        [2, 5, 60],
+      ]);
+
+      const after = await getMatch(match.id);
+      expect(after?.status).toBe('in_progress');
+      expect(after?.player1Score).toBeNull();
+      expect(after?.winnerId).toBeNull();
+    });
+
+    it('rejects a gap in frame numbers and an invalid frame', async () => {
+      const { match } = await startedMatch();
+      const gap = await saveMatchFrame(match.id, 2, {
+        player1Points: 70,
+        player2Points: 10,
+      });
+      expect(gap.success).toBe(false);
+      const tie = await saveMatchFrame(match.id, 1, {
+        player1Points: 40,
+        player2Points: 40,
+      });
+      expect(tie).toEqual({
+        success: false,
+        error: 'Фрейм 1: ничья недопустима',
+      });
+      expect(await getMatchFrames(match.id)).toHaveLength(0);
+    });
+
+    it('rejects a frame after the deciding one (winScore 3)', async () => {
+      const { match } = await startedMatch();
+      for (const n of [1, 2, 3]) {
+        await saveMatchFrame(match.id, n, {
+          player1Points: 60,
+          player2Points: 1,
+        });
+      }
+      const res = await saveMatchFrame(match.id, 4, {
+        player1Points: 1,
+        player2Points: 60,
+      });
+      expect(res).toEqual({ success: false, error: 'Фрейм 4: матч уже решён' });
+    });
+
+    it('deleteLastMatchFrame removes only the last frame', async () => {
+      const { match } = await startedMatch();
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 60,
+        player2Points: 1,
+      });
+      await saveMatchFrame(match.id, 2, {
+        player1Points: 1,
+        player2Points: 60,
+      });
+      const res = await deleteLastMatchFrame(match.id);
+      expect(res.success).toBe(true);
+      expect(await points(match.id)).toEqual([[1, 60, 1]]);
+
+      await deleteLastMatchFrame(match.id);
+      expect(await deleteLastMatchFrame(match.id)).toEqual({
+        success: false,
+        error: 'Нет сохранённых фреймов',
+      });
+    });
+
+    it('refuses draft edits once the result is reported', async () => {
+      const { match, p1 } = await startedMatch();
+      await reportResultFromFrames(match.id, p1, [
+        { player1Points: 80, player2Points: 1 },
+        { player1Points: 70, player2Points: 2 },
+        { player1Points: 60, player2Points: 3 },
+      ]);
+      const res = await saveMatchFrame(match.id, 1, {
+        player1Points: 1,
+        player2Points: 60,
+      });
+      expect(res.success).toBe(false);
+      expect((await deleteLastMatchFrame(match.id)).success).toBe(false);
+      expect(await getMatchFrames(match.id)).toHaveLength(3);
+    });
+
+    it('the final report replaces the draft', async () => {
+      const { match, p1 } = await startedMatch();
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 10,
+        player2Points: 90,
+      });
+      await saveMatchFrame(match.id, 2, {
+        player1Points: 10,
+        player2Points: 90,
+      });
+      await reportResultFromFrames(match.id, p1, [
+        { player1Points: 80, player2Points: 1 },
+        { player1Points: 70, player2Points: 2 },
+        { player1Points: 60, player2Points: 3 },
+      ]);
+      expect(await points(match.id)).toEqual([
+        [1, 80, 1],
+        [2, 70, 2],
+        [3, 60, 3],
+      ]);
+    });
+
+    it('setTechnicalResult drops the draft frames', async () => {
+      const { match, p1 } = await startedMatch();
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 60,
+        player2Points: 1,
+      });
+      const admin = await createAdminUser();
+      const res = await setTechnicalResult(match.id, p1, 'неявка', admin.id);
+      expect(res.success).toBe(true);
+      expect(await getMatchFrames(match.id)).toHaveLength(0);
+    });
+
+    it('getGroupMaxBreaks ignores breaks of a match still in play', async () => {
+      const { match, p1, p2 } = await startedMatch();
+      await saveMatchFrame(match.id, 1, {
+        player1Points: 100,
+        player2Points: 1,
+        player1Break: 100,
+      });
+      expect((await getGroupMaxBreaks(match.tournamentId, null)).size).toBe(0);
+
+      await reportResultFromFrames(match.id, p1, [
+        { player1Points: 100, player2Points: 1, player1Break: 100 },
+        { player1Points: 70, player2Points: 2 },
+        { player1Points: 60, player2Points: 3 },
+      ]);
+      await confirmResult(match.id, p2);
+      expect((await getGroupMaxBreaks(match.tournamentId, null)).get(p1)).toBe(
+        100,
+      );
+    });
+  });
+
   describe('startMatch', () => {
     it('moves a scheduled match to in_progress', async () => {
       const { match } = await freshMatch();
@@ -485,6 +661,37 @@ describe('matchService lifecycle', () => {
       expect(res.error).toMatch(/уже играет другой матч/);
     });
 
+    it.each(['completed', 'cancelled'] as const)(
+      'does NOT block on a match left open in a %s tournament',
+      async (finishedStatus) => {
+        const { all } = await roundRobin();
+        const stale = must(all[0], 'match');
+        const shared = must(stale.player1Id, 'shared player');
+        expect((await startMatch(stale.id)).success).toBe(true);
+        // The tournament ended with the match still in_progress — the player
+        // can't see or close it, so it must not lock them out.
+        await db
+          .update(tournaments)
+          .set({ status: finishedStatus })
+          .where(eq(tournaments.id, stale.tournamentId));
+
+        const other = await createTournament({
+          format: 'single_elimination',
+          status: 'registration_open',
+        });
+        await createConfirmedParticipant(other.id, { userId: shared, seed: 1 });
+        await createConfirmedParticipant(other.id, { seed: 2 });
+        const otherMatches = await createMatchesForTournament(
+          other.id,
+          'single_elimination',
+        );
+
+        const res = await startMatch(must(otherMatches[0], 'match').id);
+        expect(res.success).toBe(true);
+        expect(res.match?.status).toBe('in_progress');
+      },
+    );
+
     it('does NOT block on a match awaiting score confirmation', async () => {
       const { all } = await roundRobin();
       const { first, second } = overlappingPair(all);
@@ -563,6 +770,66 @@ describe('matchService lifecycle', () => {
       expect(res.error).toMatch(/Нельзя вернуть матч в игру/);
       expect((await getMatch(first.id))?.status).toBe('pending_confirmation');
     });
+  });
+});
+
+describe('completeTournament', () => {
+  beforeEach(async () => {
+    await truncateAll();
+  });
+
+  it('cancels matches still open when the tournament completes', async () => {
+    const { tournament } = await createTournamentWithParticipants(
+      4,
+      'single_elimination',
+    );
+    const all = await createMatchesForTournament(
+      tournament.id,
+      'single_elimination',
+    );
+    const [first, second] = all.filter((m) => m.player1Id && m.player2Id);
+    const done = must(first, 'first');
+    const live = must(second, 'second');
+    await completeMatch(done.id, must(done.player1Id, 'player1'));
+    expect((await startMatch(live.id)).success).toBe(true);
+
+    await completeTournament(tournament.id);
+
+    const after = await getTournamentMatches(tournament.id);
+    expect(after.find((m) => m.id === done.id)?.status).toBe('completed');
+    expect(
+      after.filter((m) => m.id !== done.id).every((m) => m.status === 'cancelled'),
+    ).toBe(true);
+    const row = await db.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournament.id),
+    });
+    expect(row?.status).toBe('completed');
+  });
+
+  it('is a no-op for a tournament that is not running', async () => {
+    const { tournament } = await createTournamentWithParticipants(
+      2,
+      'single_elimination',
+    );
+    const [match] = await createMatchesForTournament(
+      tournament.id,
+      'single_elimination',
+    );
+    await db
+      .update(tournaments)
+      .set({ status: 'cancelled' })
+      .where(eq(tournaments.id, tournament.id));
+
+    await completeTournament(tournament.id);
+
+    const row = await db.query.tournaments.findFirst({
+      where: eq(tournaments.id, tournament.id),
+    });
+    expect(row?.status).toBe('cancelled');
+    const after = await db.query.matches.findFirst({
+      where: eq(matches.id, must(match, 'match').id),
+    });
+    expect(after?.status).toBe('scheduled');
   });
 });
 

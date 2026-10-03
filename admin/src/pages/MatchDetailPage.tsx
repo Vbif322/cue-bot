@@ -176,6 +176,32 @@ export default function MatchDetailPage() {
     onError: (e: Error) => setError(e.message),
   });
 
+  /** Referee actions on a match whose players are called to its table. */
+  const callMutation = useMutation({
+    mutationFn: (
+      a:
+        | { kind: 'postpone' }
+        | { kind: 'extend' }
+        | { kind: 'ready'; userId: string }
+        | { kind: 'noShow'; slot: 1 | 2 },
+    ): Promise<unknown> => {
+      if (a.kind === 'noShow') return matchesApi.noShow(id!, a.slot);
+      if (a.kind === 'ready') return matchesApi.markReady(id!, a.userId);
+      return a.kind === 'postpone'
+        ? matchesApi.postpone(id!)
+        : matchesApi.extendCall(id!);
+    },
+    onSuccess: () => {
+      invalidate();
+      if (match?.tournamentId) {
+        qc.invalidateQueries({
+          queryKey: ['tournament-participants', match.tournamentId],
+        });
+      }
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   const setTableMutation = useMutation({
     mutationFn: () => matchesApi.setTable(id!, selectedTableId),
     onSuccess: invalidate,
@@ -239,9 +265,16 @@ export default function MatchDetailPage() {
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
         <Link
           to={`/tournaments/${match.tournamentId}`}
-          className="hover:text-gray-700"
+          className="-my-1 py-1 hover:text-gray-700"
         >
           Турнир
+        </Link>
+        <span>/</span>
+        <Link
+          to={`/tournaments/${match.tournamentId}?tab=matches&match=${match.id}`}
+          className="-my-1 py-1 hover:text-gray-700"
+        >
+          Матчи
         </Link>
         <span>/</span>
         <span>
@@ -320,8 +353,9 @@ export default function MatchDetailPage() {
         )}
       </div>
 
-      {/* Per-frame breakdown (snooker) */}
-      {frames && frames.length > 0 && (
+      {/* Per-frame breakdown (snooker). Gated on status, not just data: the
+          frame-entry form shares the query cache and loads in-play drafts. */}
+      {hasResult && frames && frames.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
           <h3 className="font-semibold text-gray-900 mb-3">По фреймам</h3>
           <table className="w-full text-sm">
@@ -377,6 +411,98 @@ export default function MatchDetailPage() {
 
       {/* Actions */}
       <div className="space-y-4">
+        {/* Called to the table: presence, deadline, no-show decisions */}
+        {match.status === 'scheduled' &&
+          match.tableId &&
+          match.calledAt &&
+          match.player1Id &&
+          match.player2Id && (
+            <ActionCard title="Вызов к столу">
+              <div className="space-y-3 text-sm">
+                {(
+                  [
+                    [
+                      1,
+                      match.player1Id,
+                      match.player1Name ?? match.player1Username,
+                      match.player1ReadyAt,
+                    ],
+                    [
+                      2,
+                      match.player2Id,
+                      match.player2Name ?? match.player2Username,
+                      match.player2ReadyAt,
+                    ],
+                  ] as const
+                ).map(([slot, playerId, name, readyAt]) => (
+                  <div key={slot} className="flex items-center gap-3">
+                    <span className="flex-1 text-gray-900">
+                      {name ?? 'Участник'}
+                    </span>
+                    {readyAt ? (
+                      <span className="text-green-600">у стола</span>
+                    ) : (
+                      <>
+                        <span className="text-amber-600">не подтвердил</span>
+                        <button
+                          onClick={() =>
+                            callMutation.mutate({
+                              kind: 'ready',
+                              userId: playerId,
+                            })
+                          }
+                          disabled={callMutation.isPending}
+                          title="Отметить явку за игрока"
+                          className="px-3 py-1 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 disabled:opacity-50"
+                        >
+                          У стола
+                        </button>
+                        <button
+                          onClick={() =>
+                            callMutation.mutate({ kind: 'noShow', slot })
+                          }
+                          disabled={callMutation.isPending}
+                          className="px-3 py-1 bg-orange-600 text-white text-xs rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                        >
+                          Тех. поражение
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+                {match.callDeadlineAt && (
+                  <p className="text-gray-500">
+                    {new Date(match.callDeadlineAt).getTime() > Date.now()
+                      ? `Подтвердить явку до ${new Date(
+                          match.callDeadlineAt,
+                        ).toLocaleTimeString('ru-RU', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}`
+                      : 'Время на явку истекло'}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => callMutation.mutate({ kind: 'extend' })}
+                    disabled={callMutation.isPending}
+                    className="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Ждать ещё 5 мин
+                  </button>
+                  <button
+                    onClick={() => callMutation.mutate({ kind: 'postpone' })}
+                    disabled={callMutation.isPending}
+                    title="Стол уйдёт следующему матчу, неявившиеся будут отмечены отсутствующими"
+                    className="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Отложить
+                  </button>
+                </div>
+              </div>
+            </ActionCard>
+          )}
+
         {/* Start match */}
         {match.status === 'scheduled' && match.player1Id && match.player2Id && (
           <ActionCard title="Начать матч">
@@ -512,7 +638,7 @@ export default function MatchDetailPage() {
                 <input
                   value={techReason}
                   onChange={(e) => setTechReason(e.target.value)}
-                  placeholder="Причина (no_show, walkover, forfeit...)"
+                  placeholder="Причина (неявка соперника, отказ от игры...)"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
                 <button

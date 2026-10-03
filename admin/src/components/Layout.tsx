@@ -28,11 +28,11 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-56 bg-white border-r border-gray-200 flex flex-col transition-transform duration-200 md:static md:translate-x-0 md:z-auto ${
+        className={`fixed inset-y-0 left-0 z-30 w-56 bg-white border-r border-gray-200 flex flex-col transition-transform duration-200 md:sticky md:top-0 md:h-screen md:translate-x-0 md:z-auto ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="shrink-0 p-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h1 className="font-semibold text-gray-900">Cue Bot</h1>
             <p className="text-xs text-gray-500 mt-0.5">Панель управления</p>
@@ -58,7 +58,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -77,8 +77,16 @@ export default function Layout({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="p-3 border-t border-gray-200">
+        <div className="shrink-0 p-3 border-t border-gray-200">
           <p className="text-xs text-gray-500 mb-2">@{data?.user?.username}</p>
+          {data?.playerUrl && (
+            <a
+              href={data.playerUrl}
+              className="block px-3 py-2 text-sm text-gray-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+            >
+              Сайт игрока
+            </a>
+          )}
           <button
             onClick={() => logout()}
             className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"

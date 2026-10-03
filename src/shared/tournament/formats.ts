@@ -11,3 +11,12 @@ export const formats = [
 ] as const;
 
 export type ITournamentFormat = (typeof formats)[number];
+
+/**
+ * Random pairing after each round only exists for pure elimination brackets.
+ * Round-robin and groups_playoff advance by standings, and the random
+ * advancement path would treat their matches as bracket rounds.
+ */
+export function supportsRandomAdvancement(format: ITournamentFormat): boolean {
+  return format === 'single_elimination' || format === 'double_elimination';
+}

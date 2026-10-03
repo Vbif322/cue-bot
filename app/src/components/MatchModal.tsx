@@ -42,6 +42,23 @@ function playerName(m: AppMatch, slot: 1 | 2): string {
   });
 }
 
+/** Игроки вызваны к столу, но ещё не оба подтвердили явку (assignTableAndCall). */
+function isCalled(m: AppMatch): boolean {
+  return m.status === 'scheduled' && m.tableId != null && m.calledAt != null;
+}
+
+/** Сколько осталось на явку — относительно: абсолютное время показалось бы в UTC. */
+function deadlineText(deadline: string | null): string | null {
+  if (!deadline) return null;
+  const minutes = Math.ceil(
+    (new Date(deadline).getTime() - Date.now()) / 60_000,
+  );
+  if (Number.isNaN(minutes)) return null;
+  return minutes > 0
+    ? `Подтвердите явку: осталось ${minutes} мин`
+    : 'Время на явку истекло — решение за судьёй';
+}
+
 function ScoreRow({ side }: { side: Side }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -96,6 +113,9 @@ export default function MatchModal({
   const { data: match, isLoading } = useQuery({
     queryKey: ['match', matchId],
     queryFn: () => matchesApi.get(matchId),
+    // Пока идёт вызов к столу, подтягиваем явку соперника и старт матча.
+    refetchInterval: (query) =>
+      query.state.data && isCalled(query.state.data) ? 15_000 : false,
   });
 
   const { data: tournamentDetail } = useQuery({
@@ -150,6 +170,10 @@ export default function MatchModal({
   });
   const confirmMut = useMutation({
     mutationFn: () => matchesApi.confirm(matchId),
+    onSuccess: invalidate,
+  });
+  const readyMut = useMutation({
+    mutationFn: () => matchesApi.ready(matchId),
     onSuccess: invalidate,
   });
   const disputeMut = useMutation({
@@ -209,9 +233,20 @@ export default function MatchModal({
     }),
   };
 
+  const called = isCalled(match);
+  const myReadyAt =
+    match.player1Id === myId
+      ? match.player1ReadyAt
+      : match.player2Id === myId
+        ? match.player2ReadyAt
+        : null;
+  const opponentReadyAt =
+    match.player1Id === myId ? match.player2ReadyAt : match.player1ReadyAt;
+  // Вызванный матч ещё не начат: сначала явка, потом результат.
   const canReport =
     isPlayer &&
-    (match.status === 'scheduled' || match.status === 'in_progress');
+    ((match.status === 'scheduled' && !called) ||
+      match.status === 'in_progress');
   const isPending = match.status === 'pending_confirmation';
   const iReported = match.reportedBy != null && match.reportedBy === myId;
   const canConfirm = isPlayer && isPending && !iReported;
@@ -220,11 +255,15 @@ export default function MatchModal({
   const isCancelled = match.status === 'cancelled';
 
   const busy =
-    reportMut.isPending || confirmMut.isPending || disputeMut.isPending;
+    reportMut.isPending ||
+    confirmMut.isPending ||
+    disputeMut.isPending ||
+    readyMut.isPending;
   const actionError =
     reportMut.error?.message ||
     confirmMut.error?.message ||
-    disputeMut.error?.message;
+    disputeMut.error?.message ||
+    readyMut.error?.message;
 
   return (
     <>
@@ -260,6 +299,56 @@ export default function MatchModal({
           }}
         >
           {actionError && <ErrorBox message={actionError} />}
+
+          {called && isPlayer && (
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  background: 'var(--color-tone-warning-bg)',
+                  border: '1px solid var(--color-tone-warning-fg)',
+                  borderRadius: 14,
+                  padding: 16,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: 'var(--color-tone-warning-fg)',
+                  }}
+                >
+                  {myReadyAt
+                    ? 'Вы у стола — ждём соперника'
+                    : `Вас вызывают к столу${match.tableName ? ` «${match.tableName}»` : ''}`}
+                </span>
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: 'var(--text-secondary)',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {opponentReadyAt
+                    ? 'Соперник уже у стола. '
+                    : 'Соперник ещё не подтвердил явку. '}
+                  Матч начнётся, когда подтвердят оба.
+                </span>
+                {deadlineText(match.callDeadlineAt) && (
+                  <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+                    {deadlineText(match.callDeadlineAt)}
+                  </span>
+                )}
+              </div>
+              {!myReadyAt && (
+                <Btn block disabled={busy} onClick={() => readyMut.mutate()}>
+                  {readyMut.isPending ? 'Отправка…' : 'Я у стола'}
+                </Btn>
+              )}
+            </>
+          )}
 
           {canReport && isSnooker && tournament && (
             <FramesReport
@@ -322,7 +411,9 @@ export default function MatchModal({
             </>
           )}
 
-          {frames && frames.length > 0 && (
+          {/* Разбивка только для внесённого результата: форма ввода делит кэш
+              ['match-frames'] и грузит черновик матча в игре. */}
+          {hasScore0 && frames && frames.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div
                 style={{
@@ -510,7 +601,11 @@ export default function MatchModal({
 
           {!isPlayer && !isCompleted && !isCancelled && (
             <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>
-              {hasScore ? 'Матч идёт.' : 'Матч ещё не начался.'}
+              {called
+                ? 'Игроки вызваны к столу.'
+                : hasScore
+                  ? 'Матч идёт.'
+                  : 'Матч ещё не начался.'}
             </div>
           )}
         </div>

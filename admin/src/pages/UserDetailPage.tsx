@@ -25,6 +25,13 @@ function StatBox({ label, value }: { label: string; value: ReactNode }) {
 
 const card = 'bg-white rounded-xl border border-gray-200 p-5';
 
+/** Won–lost pair with a signed difference: `20–11 (+9)`. */
+function wonLost(won: number, lost: number): string {
+  const diff = won - lost;
+  const sign = diff > 0 ? `+${diff}` : diff < 0 ? `−${-diff}` : '0';
+  return `${won}–${lost} (${sign})`;
+}
+
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -124,7 +131,9 @@ export default function UserDetailPage() {
       ? Math.round((stats.matches.wins / stats.matches.played) * 100)
       : 0;
 
-  const refereeIds = new Set((stats?.refereeTournaments ?? []).map((t) => t.id));
+  const refereeIds = new Set(
+    (stats?.refereeTournaments ?? []).map((t) => t.id),
+  );
   const availableTournaments = (tournaments ?? []).filter(
     (t) =>
       !refereeIds.has(t.id) &&
@@ -305,6 +314,27 @@ export default function UserDetailPage() {
             <StatBox label="Победы" value={stats.matches.wins} />
             <StatBox label="Поражения" value={stats.matches.losses} />
             <StatBox label="Win-rate" value={`${winRate}%`} />
+            {stats.matches.framesWon + stats.matches.framesLost > 0 && (
+              <StatBox
+                label="Фреймы"
+                value={wonLost(
+                  stats.matches.framesWon,
+                  stats.matches.framesLost,
+                )}
+              />
+            )}
+            {stats.matches.points && (
+              <StatBox
+                label="Очки"
+                value={wonLost(
+                  stats.matches.points.won,
+                  stats.matches.points.lost,
+                )}
+              />
+            )}
+            {stats.matches.maxBreak != null && (
+              <StatBox label="Макс. брейк" value={stats.matches.maxBreak} />
+            )}
           </div>
         ) : (
           <p className="text-sm text-gray-500">
