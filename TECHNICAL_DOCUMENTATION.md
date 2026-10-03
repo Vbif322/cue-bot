@@ -334,6 +334,7 @@ erDiagram
 - `nextMatchId` / `nextMatchPosition`: ссылка на следующий матч и слот (`player1` / `player2`)
 - `losersNextMatchPosition` / `losersNextMatchSlot`: маршрут проигравшего в нижнюю сетку (double elimination)
 - `tableId`: стол, на котором идёт матч (`on delete set null`)
+- `queueOrder` (`queue_order`): порядок в очереди на столы, задаётся админом; `null` = не задан (такие матчи идут после упорядоченных, по `round, position`)
 - `reportedBy` / `confirmedBy`: участники двухфазного подтверждения результата
 - `isTechnicalResult` / `technicalReason`: признак и причина технического исхода
 - `isCorrected` / `correctionReason`: признак и причина ручной корректировки результата
@@ -665,6 +666,8 @@ deep-link `/start join_<code>` (см. путь 1).
 #### Матчи
 
 - `GET /api/matches/tournament/:tournamentId`
+- `PUT /api/matches/tournament/:tournamentId/queue` (порядок очереди на столы, body `{ matchIds }`)
+- `GET /api/matches/tournament/:tournamentId/busy-elsewhere` (игроки очереди, занятые в другом турнире)
 - `GET /api/matches/tournament/:tournamentId/stats`
 - `GET /api/matches/:id`
 - `POST /api/matches/:id/start`
@@ -760,6 +763,8 @@ deep-link `/start join_<code>` (см. путь 1).
 - `setTechnicalResult(...)` — техническая победа
 - `advanceWinner()` — продвижение победителя по сетке; на финале вызывает `completeTournament()`
 - управление столами: `onTableFreed()`, `assignTableAndStart()`, `setMatchTable()`
+- очередь на столы: `getNextReadyMatch()` выбирает первый готовый ожидающий матч (оба игрока известны и свободны) в порядке `queueOrder, round, position`; `setMatchQueue(tournamentId, matchIds)` — админ задаёт порядок всех ожидающих матчей (`scheduled` без стола), только в идущем турнире не в режиме `per_match`
+- завершение матча освобождает игроков и для других идущих турниров: `advanceWinner()` после своего `onTableFreed()` заполняет свободные столы турниров, где эти игроки ждут в очереди; `getQueuePlayersBusyElsewhere(tournamentId)` — кто из ожидающих сейчас играет в другом турнире (для вкладки «Очередь»)
 - `previewCorrection(id, p1, p2)` — dry-run корректировки; `correctMatchResult(...)` — исправление завершённого матча с откатом зависимых матчей в `scheduled` и пере-продвижением нового победителя (запись в `matchCorrections`); `resyncAdvancement(id)` — идемпотентное восстановление продвижения
 - `getMatchStats(tournamentId)` — агрегаты для UI
 

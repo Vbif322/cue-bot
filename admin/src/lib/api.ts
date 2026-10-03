@@ -7,6 +7,7 @@ import type {
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
+  ApiBusyElsewhere,
   ApiUser,
   ApiUserStats,
   ApiTable,
@@ -30,6 +31,7 @@ export type {
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
+  ApiBusyElsewhere,
   ApiUser,
   ApiUserStats,
   ApiTable,
@@ -327,6 +329,17 @@ export const matchesApi = {
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/table`, {
       method: 'PUT',
       body: JSON.stringify({ tableId }),
+    }),
+
+  busyElsewhere: (tournamentId: string) =>
+    apiFetch<ApiBusyElsewhere[]>(
+      `/api/matches/tournament/${tournamentId}/busy-elsewhere`,
+    ),
+
+  setQueue: (tournamentId: string, matchIds: string[]) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/tournament/${tournamentId}/queue`, {
+      method: 'PUT',
+      body: JSON.stringify({ matchIds }),
     }),
 
   setSchedule: (id: string, scheduledAt: string | null) =>

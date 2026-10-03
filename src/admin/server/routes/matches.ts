@@ -19,6 +19,8 @@ import {
   disputeResult,
   setTechnicalResult,
   setMatchTable,
+  setMatchQueue,
+  getQueuePlayersBusyElsewhere,
   setMatchSchedule,
   previewCorrection,
   correctMatchResult,
@@ -81,6 +83,31 @@ export function createMatchesRouter(botApi: Api) {
       const { tournamentId } = c.req.valid('param');
       const stats = await getMatchStats(tournamentId);
       return c.json({ data: stats });
+    },
+  );
+
+  // Queued players who are at a table in another running tournament
+  router.get(
+    '/tournament/:tournamentId/busy-elsewhere',
+    validateParam(tournamentIdParam),
+    async (c) => {
+      const { tournamentId } = c.req.valid('param');
+      const data = await getQueuePlayersBusyElsewhere(tournamentId);
+      return c.json({ data });
+    },
+  );
+
+  // Reorder the table queue: the full ordered list of waiting matches
+  router.put(
+    '/tournament/:tournamentId/queue',
+    validateParam(tournamentIdParam),
+    zValidator('json', z.object({ matchIds: z.array(z.uuid()).min(1) })),
+    async (c) => {
+      const { tournamentId } = c.req.valid('param');
+      const { matchIds } = c.req.valid('json');
+      const result = await setMatchQueue(tournamentId, matchIds as UUID[]);
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ ok: true });
     },
   );
 
@@ -364,10 +391,7 @@ export function createMatchesRouter(botApi: Api) {
   router.put(
     '/:id/schedule',
     validateParam(idParam),
-    zValidator(
-      'json',
-      z.object({ scheduledAt: z.iso.datetime().nullable() }),
-    ),
+    zValidator('json', z.object({ scheduledAt: z.iso.datetime().nullable() })),
     async (c) => {
       const { id } = c.req.valid('param');
       const { scheduledAt } = c.req.valid('json');

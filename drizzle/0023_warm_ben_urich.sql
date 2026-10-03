@@ -1,0 +1,2 @@
+ALTER TABLE "prod"."matches" ADD COLUMN "queue_order" integer;--> statement-breakpoint
+ALTER TABLE "prod"."matches" ADD CONSTRAINT "matches_queue_order_nonneg" CHECK ("prod"."matches"."queue_order" >= 0);

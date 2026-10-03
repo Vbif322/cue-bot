@@ -5,24 +5,7 @@ import { matchesApi } from '../../lib/api.ts';
 import type { ApiMatch } from '../../lib/api.ts';
 import { MatchStatusBadge, Chevron } from '@cue-bot/ui';
 import { formatUtc } from '../../lib/datetime.ts';
-import { groupLetter } from '../../lib/tournamentLabels.ts';
-
-function playoffRoundName(round: number, maxRound: number): string {
-  switch (maxRound - round) {
-    case 0:
-      return 'Финал';
-    case 1:
-      return 'Полуфинал';
-    case 2:
-      return 'Четвертьфинал';
-    case 3:
-      return '1/8 финала';
-    case 4:
-      return '1/16 финала';
-    default:
-      return `Раунд ${round}`;
-  }
-}
+import { groupLetter, playoffRoundName } from '../../lib/tournamentLabels.ts';
 
 interface Round {
   key: string; // уникален глобально: `${section.key}:r${round}`
