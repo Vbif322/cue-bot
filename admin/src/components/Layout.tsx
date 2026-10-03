@@ -7,6 +7,7 @@ const navItems = [
   { to: '/tournaments', label: 'Турниры' },
   { to: '/venues', label: 'Площадки' },
   { to: '/users', label: 'Пользователи' },
+  { to: '/leaderboard', label: 'Лидеры' },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {

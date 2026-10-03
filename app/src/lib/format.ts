@@ -76,6 +76,21 @@ export function formatDate(iso: string | null | undefined): string {
   return DATE_ONLY_FMT.format(d);
 }
 
+const DATE_YEAR_FMT = new Intl.DateTimeFormat('ru-RU', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+/** Дата с годом: «12 апреля 2025». */
+export function formatDateWithYear(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return DATE_YEAR_FMT.format(d).replace(/ г\.?$/, '');
+}
+
 export const DISCIPLINE_LABELS: Record<Discipline, string> = {
   snooker: 'Снукер',
 };

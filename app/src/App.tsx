@@ -11,6 +11,7 @@ import MyMatchesPage from './pages/MyMatchesPage.tsx';
 import ProfilePage from './pages/ProfilePage.tsx';
 import NotificationsPage from './pages/NotificationsPage.tsx';
 import InvitePage from './pages/InvitePage.tsx';
+import LeaderboardPage from './pages/LeaderboardPage.tsx';
 
 export default function App() {
   useThemeSync();
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/tournaments/:id" element={<TournamentPage />} />
         <Route path="/tournaments/:id/bracket" element={<BracketPage />} />
         <Route path="/invite/:code" element={<InvitePage />} />
+        <Route path="/leaderboard" element={<LeaderboardPage />} />
 
         {/* Приватные (гость → /login). */}
         <Route

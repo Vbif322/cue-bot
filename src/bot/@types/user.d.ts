@@ -26,3 +26,18 @@ export interface ApiUserStats {
   }[];
   refereeTournaments: { id: string; name: string; status: string }[];
 }
+
+/** One row of the max-break leaderboard (each player's best break of 20+). */
+export interface ApiMaxBreakLeaderboardEntry {
+  /** Competition rank: equal breaks share a place (1, 1, 3). */
+  rank: number;
+  userId: string;
+  name: string | null;
+  surname: string | null;
+  username: string;
+  maxBreak: number;
+  /** When the match with the break was completed (ISO). */
+  achievedAt: string | null;
+  /** null on the player API when the tournament is private. */
+  tournament: { id: string; name: string } | null;
+}

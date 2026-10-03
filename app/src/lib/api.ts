@@ -12,6 +12,7 @@ import type {
   AppNotification,
   MeProfile,
   MeStats,
+  AppMaxBreakEntry,
   RegisterResult,
 } from './types.ts';
 
@@ -299,6 +300,12 @@ export const meApi = {
     apiFetch<{ active: AppMatch[]; history: AppMatch[] }>(
       '/api/app/me/matches',
     ),
+};
+
+// ── Leaderboard (публично) ────────────────────────────────────────────────────
+
+export const leaderboardApi = {
+  breaks: () => apiFetch<AppMaxBreakEntry[]>('/api/app/leaderboard/breaks'),
 };
 
 // ── Notifications ─────────────────────────────────────────────────────────────
