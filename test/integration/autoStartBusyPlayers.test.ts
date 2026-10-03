@@ -2,7 +2,7 @@ import type { UUID } from 'crypto';
 
 import type { Api } from 'grammy';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { db } from '@/db/db.js';
@@ -11,11 +11,21 @@ import {
   tables,
   tournamentParticipants,
   tournamentTables,
+  tournaments,
 } from '@/db/schema.js';
 import { startTournamentFull } from '@/services/tournamentStartService.js';
-import { confirmResult, reportResult } from '@/services/matchService.js';
+import {
+  confirmResult,
+  onTableFreed,
+  reportResult,
+} from '@/services/matchService.js';
 
-import { createTournament, createUser, createVenue } from '../helpers/factories.js';
+import {
+  createTournament,
+  createUser,
+  createVenue,
+  seatedMatches,
+} from '../helpers/factories.js';
 import { createMockBotApi } from '../helpers/mockBotApi.js';
 import { must } from '../helpers/must.js';
 import { truncateAll } from '../helpers/truncate.js';
@@ -60,14 +70,8 @@ async function setupRoundRobin(players: number, tableCount: number) {
   return tournament;
 }
 
-async function liveMatches(tournamentId: UUID) {
-  return db.query.matches.findMany({
-    where: and(
-      eq(matches.tournamentId, tournamentId),
-      inArray(matches.status, ['in_progress']),
-    ),
-  });
-}
+/** Seated = called to a table or being played; both occupy the players. */
+const liveMatches = seatedMatches;
 
 describe('auto-start never double-books a player', () => {
   beforeEach(async () => {
@@ -119,5 +123,27 @@ describe('auto-start never double-books a player', () => {
     expect(after).toHaveLength(1);
     expect(after[0]?.id).not.toBe(live.id);
     expect(after[0]?.tableId).not.toBeNull();
+  });
+
+  it('does not hand out tables once the tournament is finished', async () => {
+    // 3 players => 1 live match, 2 scheduled ones waiting on it.
+    const tournament = await setupRoundRobin(3, 3);
+    const botApi = (createMockBotApi() as unknown as Api);
+    await startTournamentFull(tournament.id, botApi);
+
+    const [first] = await liveMatches(tournament.id);
+    const live = must(first, 'first live match');
+    await db
+      .update(matches)
+      .set({ status: 'completed', winnerId: live.player1Id })
+      .where(eq(matches.id, live.id));
+    await db
+      .update(tournaments)
+      .set({ status: 'completed' })
+      .where(eq(tournaments.id, tournament.id));
+
+    await onTableFreed(tournament.id, must(live.tableId, 'table'), botApi);
+
+    expect(await liveMatches(tournament.id)).toHaveLength(0);
   });
 });

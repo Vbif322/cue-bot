@@ -39,6 +39,8 @@ export type ApiTournamentParticipant = Pick<
 > & {
   username: string | null;
   name: string | null;
+  /** ISO time the referee marked the player absent (no-show); null = present. */
+  absentSince: string | null;
 };
 
 /** One row of a groups_playoff group standing, enriched with player display info. */

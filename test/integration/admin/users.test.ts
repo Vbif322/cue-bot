@@ -54,7 +54,9 @@ describe('admin users router', () => {
     expect(usernames).toContain('amy');
     expect(usernames).toContain('zoe');
     // Globally sorted ascending.
-    expect([...usernames]).toEqual([...usernames].sort((a, b) => a.localeCompare(b)));
+    expect([...usernames]).toEqual(
+      [...usernames].sort((a, b) => a.localeCompare(b)),
+    );
     // Personal data must never be exposed via the API.
     expect(body.data.every((u) => !('birthday' in u))).toBe(true);
   });
@@ -104,7 +106,15 @@ describe('admin users router', () => {
       { user: admin },
     );
     expect(status).toBe(200);
-    expect(body.data).toHaveProperty('matches');
+    expect(body.data.matches).toEqual({
+      played: 0,
+      wins: 0,
+      losses: 0,
+      framesWon: 0,
+      framesLost: 0,
+      points: null,
+      maxBreak: null,
+    });
     expect(body.data.tournamentHistory).toEqual([]);
     expect(body.data.refereeTournaments).toEqual([]);
   });

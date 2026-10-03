@@ -38,6 +38,7 @@ export interface AppUser {
   name: string | null;
   surname: string | null;
   email: string | null;
+  isAdmin: boolean;
 }
 
 /** Статус участия (prod.tournament_participants.status). */
@@ -127,6 +128,14 @@ export interface AppMatch {
   losersNextMatchPosition: number | null;
   losersNextMatchSlot: string | null;
   tableId: string | null;
+  /**
+   * Вызов к столу (single_day): матч `scheduled` со столом и `calledAt` ждёт,
+   * пока оба игрока подтвердят явку (player*ReadyAt), до `callDeadlineAt`.
+   */
+  calledAt: string | null;
+  callDeadlineAt: string | null;
+  player1ReadyAt: string | null;
+  player2ReadyAt: string | null;
   createdAt: string;
   updatedAt: string;
   player1Username?: string | null;
@@ -251,6 +260,12 @@ export interface UserMatchStats {
   played: number;
   wins: number;
   losses: number;
+  /** Фреймы (партии) по счёту матчей; техрезультаты не учитываются. */
+  framesWon: number;
+  framesLost: number;
+  /** Очки снукера по по-фреймовому вводу; null, если таких матчей нет. */
+  points: { won: number; lost: number } | null;
+  maxBreak: number | null;
 }
 
 export interface UserTournamentHistoryItem {

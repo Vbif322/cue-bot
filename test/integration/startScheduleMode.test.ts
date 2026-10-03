@@ -65,9 +65,10 @@ describe('startTournamentFull table auto-assignment by schedule mode', () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((m) => m.tableId === null)).toBe(true);
     expect(rows.every((m) => m.status !== 'in_progress')).toBe(true);
+    expect(rows.every((m) => m.calledAt === null)).toBe(true);
   });
 
-  it('single_day: auto-assigns the table and starts the first match', async () => {
+  it('single_day: auto-assigns the table and calls the first match to it', async () => {
     const tournament = await setupTournament('single_day');
     const api = createMockBotApi() as unknown as Api;
 
@@ -76,9 +77,14 @@ describe('startTournamentFull table auto-assignment by schedule mode', () => {
     const rows = await db.query.matches.findMany({
       where: eq(matches.tournamentId, tournament.id),
     });
-    expect(rows.some((m) => m.tableId !== null && m.status === 'in_progress')).toBe(
-      true,
-    );
+    const called = rows.filter((m) => m.tableId !== null);
+    expect(called.length).toBeGreaterThan(0);
+    // Players are called, not started: play begins on presence confirmation.
+    for (const m of called) {
+      expect(m.status).toBe('scheduled');
+      expect(m.calledAt).not.toBeNull();
+      expect(m.callDeadlineAt).not.toBeNull();
+    }
   });
 });
 

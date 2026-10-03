@@ -7,6 +7,7 @@ import type {
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
+  ApiBusyElsewhere,
   ApiUser,
   ApiUserStats,
   ApiTable,
@@ -30,6 +31,7 @@ export type {
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
+  ApiBusyElsewhere,
   ApiUser,
   ApiUserStats,
   ApiTable,
@@ -101,14 +103,29 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 
+export interface MeResponse {
+  user: { id: string; username: string; role: string } | null;
+  /** Адрес сайта игрока — для ссылки «Сайт игрока». */
+  playerUrl: string;
+}
+
 export const auth = {
+  requestCode: (email: string) =>
+    apiFetch<{ ok: true }>('/api/auth/request-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  verifyCode: (email: string, code: string) =>
+    apiFetch<{ user: NonNullable<MeResponse['user']> }>(
+      '/api/auth/verify-code',
+      { method: 'POST', body: JSON.stringify({ email, code }) },
+    ),
+
   logout: () =>
     apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 
-  me: () =>
-    apiFetch<{ user: { id: string; username: string; role: string } | null }>(
-      '/api/auth/me',
-    ),
+  me: () => apiFetch<MeResponse>('/api/auth/me'),
 };
 
 // ── Tournaments ──────────────────────────────────────────────────────────────
@@ -224,6 +241,12 @@ export const tournamentsApi = {
       { method: 'PATCH', body: JSON.stringify({ action: 'reject' }) },
     ),
 
+  markParticipantPresent: (tournamentId: string, userId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/${userId}/present`,
+      { method: 'POST' },
+    ),
+
   setParticipantSeed: (
     tournamentId: string,
     userId: string,
@@ -252,8 +275,54 @@ export const matchesApi = {
   frames: (id: string) =>
     apiFetch<ApiMatchFrame[]>(`/api/matches/${id}/frames`),
 
+  /** Save one frame while the match is in play (draft); returns all saved frames. */
+  saveFrame: (
+    id: string,
+    frameNumber: number,
+    frame: {
+      player1Points: number;
+      player2Points: number;
+      player1Break?: number | null;
+      player2Break?: number | null;
+    },
+  ) =>
+    apiFetch<ApiMatchFrame[]>(`/api/matches/${id}/frames/${frameNumber}`, {
+      method: 'PUT',
+      body: JSON.stringify(frame),
+    }),
+
+  deleteLastFrame: (id: string) =>
+    apiFetch<ApiMatchFrame[]>(`/api/matches/${id}/frames/last`, {
+      method: 'DELETE',
+    }),
+
   start: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/start`, { method: 'POST' }),
+
+  /** Called match: mark `userId` present for them; the second mark starts it. */
+  markReady: (id: string, userId: string) =>
+    apiFetch<{ started: boolean }>(`/api/matches/${id}/ready`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    }),
+
+  /** Called match: free its table for the next one, mark no-shows absent. */
+  postpone: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/postpone`, {
+      method: 'POST',
+    }),
+
+  extendCall: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/extend-call`, {
+      method: 'POST',
+    }),
+
+  /** Technical loss for the player in `absentSlot` who didn't show up. */
+  noShow: (id: string, absentSlot: 1 | 2) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/no-show`, {
+      method: 'POST',
+      body: JSON.stringify({ absentSlot }),
+    }),
 
   report: (
     id: string,
@@ -303,6 +372,17 @@ export const matchesApi = {
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/table`, {
       method: 'PUT',
       body: JSON.stringify({ tableId }),
+    }),
+
+  busyElsewhere: (tournamentId: string) =>
+    apiFetch<ApiBusyElsewhere[]>(
+      `/api/matches/tournament/${tournamentId}/busy-elsewhere`,
+    ),
+
+  setQueue: (tournamentId: string, matchIds: string[]) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/tournament/${tournamentId}/queue`, {
+      method: 'PUT',
+      body: JSON.stringify({ matchIds }),
     }),
 
   setSchedule: (id: string, scheduledAt: string | null) =>

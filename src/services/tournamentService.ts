@@ -38,6 +38,7 @@ import {
   validateGroupConfig,
   validateDoubleEliminationSize,
 } from '@/shared/tournament/tournamentOptions.js';
+import { supportsRandomAdvancement } from '@/shared/tournament/formats.js';
 import type {
   TournamentStatus,
   TournamentParticipant,
@@ -417,7 +418,9 @@ export async function createTournamentDraft(
         sport: input.sport,
         discipline: input.discipline,
         format: input.format,
-        randomAdvancement: input.randomAdvancement ?? false,
+        randomAdvancement:
+          supportsRandomAdvancement(input.format) &&
+          (input.randomAdvancement ?? false),
         visibility: input.visibility ?? 'public',
         scheduleMode: input.scheduleMode ?? 'single_day',
         status: 'draft',
@@ -524,7 +527,9 @@ export async function updateTournamentDraft(
         name: input.name,
         description: input.description ?? null,
         format: input.format,
-        randomAdvancement: input.randomAdvancement ?? false,
+        randomAdvancement:
+          supportsRandomAdvancement(input.format) &&
+          (input.randomAdvancement ?? false),
         visibility: input.visibility ?? 'public',
         scheduleMode: input.scheduleMode ?? 'single_day',
         startDate: input.startDate ?? null,
@@ -564,16 +569,46 @@ export async function updateTournamentDraft(
 }
 
 /**
- * Complete tournament with winner
+ * Complete a running tournament. Any match still open at this point can no
+ * longer be played, so it is cancelled in the same transaction (mirrors
+ * cancelTournament) — otherwise it would linger as `in_progress`/`scheduled` in
+ * a finished tournament. Leftovers indicate an advancement bug, hence the warn.
+ * No-op unless the tournament is `in_progress`.
  */
 export async function completeTournament(tournamentId: UUID): Promise<void> {
-  await db
-    .update(tournaments)
-    .set({
-      status: 'completed',
-      updatedAt: new Date(),
-    })
-    .where(eq(tournaments.id, tournamentId));
+  const leftover = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(tournaments)
+      .set({
+        status: 'completed',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(tournaments.id, tournamentId),
+          eq(tournaments.status, 'in_progress'),
+        ),
+      )
+      .returning({ id: tournaments.id });
+    if (!updated.length) return [];
+
+    return tx
+      .update(matches)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(
+        and(
+          eq(matches.tournamentId, tournamentId),
+          notInArray(matches.status, ['completed', 'cancelled']),
+        ),
+      )
+      .returning({ id: matches.id });
+  });
+
+  if (leftover.length) {
+    console.warn(
+      `Tournament ${tournamentId} completed with open matches, cancelled: ${leftover.map((m) => m.id).join(', ')}`,
+    );
+  }
 }
 
 /**

@@ -18,6 +18,10 @@ export const idParam = z.object({ id: uuid() });
 export const idUserIdParam = z.object({ id: uuid(), userId: uuid() });
 export const idTournamentIdParam = z.object({ id: uuid(), tournamentId: uuid() });
 export const tournamentIdParam = z.object({ tournamentId: uuid() });
+export const idFrameNumberParam = z.object({
+  id: uuid(),
+  frameNumber: z.coerce.number().int().min(1),
+});
 
 /** `zValidator('param', …)` с единым конвертом `{ error }` на невалидный параметр. */
 export function validateParam<T extends z.ZodType>(

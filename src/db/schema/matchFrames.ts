@@ -8,8 +8,11 @@ import { matches } from './matches.js';
  * Per-frame detail beneath a match. Written only by the snooker frame-entry flow
  * (M2-5/M2-6/M2-7); other disciplines keep the aggregate-only report path and have
  * zero rows here. The match aggregate `player1Score`/`player2Score` (frames-won
- * counts) is an authoritative cache recomputed from these rows on every write, so
- * every existing reader (advancement, standings, cards) keeps working unchanged.
+ * counts) is an authoritative cache recomputed from these rows on every result
+ * report, so every existing reader (advancement, standings, cards) keeps working
+ * unchanged. While the match is still scheduled/in_progress, rows may exist as a
+ * draft saved frame-by-frame from the web forms (`saveMatchFrame`); the aggregate
+ * stays empty until the final report, and readers must gate on match status.
  *
  * The frame winner is derived by comparing points and is never stored. `*Break`
  * columns hold the highest break per player in that frame (snooker only; null

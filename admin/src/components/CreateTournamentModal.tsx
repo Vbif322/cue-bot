@@ -16,6 +16,7 @@ import {
   DEFAULT_WIN_SCORE_BY_DISCIPLINE,
   matchLengthStages,
   MATCH_LENGTH_STAGE_LABELS,
+  supportsRandomAdvancement,
 } from '@server/apiTypes';
 import type {
   ApiTournament,
@@ -313,9 +314,9 @@ function TournamentFormModal({
                 setForm({
                   ...form,
                   format,
-                  // Random pairing is meaningless for round-robin.
+                  // Random pairing only exists for elimination brackets.
                   randomAdvancement:
-                    format === 'round_robin' ? false : form.randomAdvancement,
+                    supportsRandomAdvancement(format) && form.randomAdvancement,
                 });
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -328,22 +329,21 @@ function TournamentFormModal({
             </select>
           </div>
 
-          {form.format !== 'round_robin' &&
-            form.format !== 'groups_playoff' && (
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={form.randomAdvancement}
-                    onChange={(e) =>
-                      setForm({ ...form, randomAdvancement: e.target.checked })
-                    }
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  Случайные пары после каждого раунда
-                </label>
-              </div>
-            )}
+          {supportsRandomAdvancement(form.format) && (
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={form.randomAdvancement}
+                  onChange={(e) =>
+                    setForm({ ...form, randomAdvancement: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Случайные пары после каждого раунда
+              </label>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

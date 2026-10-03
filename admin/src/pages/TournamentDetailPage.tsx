@@ -6,15 +6,17 @@ import TournamentHeader from '../components/tournament-detail/TournamentHeader.t
 import TournamentInfoTab from '../components/tournament-detail/TournamentInfoTab.tsx';
 import ParticipantsTab from '../components/tournament-detail/ParticipantsTab.tsx';
 import MatchesTab from '../components/tournament-detail/MatchesTab.tsx';
+import QueueTab from '../components/tournament-detail/QueueTab.tsx';
 import StandingsTab from '../components/tournament-detail/StandingsTab.tsx';
 
-type Tab = 'info' | 'participants' | 'standings' | 'matches';
+type Tab = 'info' | 'participants' | 'standings' | 'matches' | 'queue';
 
 const TAB_LABELS: Record<Tab, string> = {
   info: 'Информация',
   participants: 'Участники',
   standings: 'Таблица',
   matches: 'Матчи',
+  queue: 'Очередь',
 };
 
 export default function TournamentDetailPage() {
@@ -53,9 +55,18 @@ export default function TournamentDetailPage() {
   const hasStandings =
     tournament.format === 'groups_playoff' ||
     tournament.format === 'round_robin';
-  const tabs: Tab[] = hasStandings
-    ? ['info', 'participants', 'standings', 'matches']
-    : ['info', 'participants', 'matches'];
+  // The table queue only drives auto-assignment in a running tournament;
+  // per-match scheduling seats every match by hand.
+  const hasQueue =
+    tournament.status === 'in_progress' &&
+    tournament.scheduleMode !== 'per_match';
+  const tabs: Tab[] = [
+    'info',
+    'participants',
+    ...(hasStandings ? (['standings'] as const) : []),
+    'matches',
+    ...(hasQueue ? (['queue'] as const) : []),
+  ];
 
   const confirmedParticipants =
     participants?.filter((p) => p.status === 'confirmed') ?? [];
@@ -81,12 +92,15 @@ export default function TournamentDetailPage() {
         hasInvalidSeeds={hasInvalidSeeds}
       />
 
-      <div className="flex gap-1 mb-4 border-b border-gray-200">
+      {/* Scrolls sideways on narrow screens. The baseline is an inset shadow,
+          not a border, so the active tab's underline covers it without the
+          -mb-px overflow that a scroll container would clip. */}
+      <div className="flex gap-1 mb-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shadow-[inset_0_-1px_0_var(--color-gray-200)]">
         {tabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
+            className={`shrink-0 whitespace-nowrap px-3 md:px-4 py-2 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
               activeTab === tab
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-600 hover:text-gray-900'
@@ -105,6 +119,7 @@ export default function TournamentDetailPage() {
       )}
       {activeTab === 'standings' && <StandingsTab tournament={tournament} />}
       {activeTab === 'matches' && <MatchesTab tournamentId={id} />}
+      {activeTab === 'queue' && hasQueue && <QueueTab tournamentId={id} />}
     </div>
   );
 }

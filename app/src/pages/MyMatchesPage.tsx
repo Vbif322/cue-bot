@@ -31,6 +31,13 @@ function MatchRow({
 }) {
   const needsMe =
     match.status === 'pending_confirmation' && match.reportedBy != null && match.reportedBy !== myId;
+  const myReadyAt =
+    match.player1Id === myId ? match.player1ReadyAt : match.player2ReadyAt;
+  const calledMe =
+    match.status === 'scheduled' &&
+    match.tableId != null &&
+    match.calledAt != null &&
+    myReadyAt == null;
   const s1 = match.player1Score;
   const s2 = match.player2Score;
   const scoreText = s1 != null && s2 != null ? `${s1} : ${s2}` : '—';
@@ -73,6 +80,11 @@ function MatchRow({
           {needsMe && (
             <span style={{ fontSize: 12, color: 'var(--color-tone-warning-fg)', fontWeight: 600 }}>
               требует подтверждения
+            </span>
+          )}
+          {calledMe && (
+            <span style={{ fontSize: 12, color: 'var(--color-tone-warning-fg)', fontWeight: 600 }}>
+              вызов к столу{match.tableName ? ` «${match.tableName}»` : ''}
             </span>
           )}
         </div>

@@ -32,6 +32,13 @@ import type { Tournament } from '@/bot/@types/tournament.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
 import { getBracketReadModel } from '@/services/bracketReadService.js';
 import {
+  extendCall,
+  markParticipantPresent,
+  markPlayerReady,
+  noShowTechnicalLoss,
+  postponeCalledMatch,
+} from '@/services/matchCallService.js';
+import {
   notifyMatchStart,
   notifyMatchScheduled,
   notifyResultPending,
@@ -599,13 +606,30 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
     return;
   }
 
-  // Check if user is participant
-  if (match.player1Id !== userId && match.player2Id !== userId) {
-    await ctx.answerCallbackQuery({
-      text: 'Вы не участник этого матча',
-      show_alert: true,
-    });
-    return;
+  const tournament = await db.query.tournaments.findFirst({
+    where: eq(tournaments.id, match.tournamentId),
+  });
+
+  // Admin/referee may start any match (incl. one called to a table whose
+  // players haven't confirmed). Players start their own match only in
+  // per-match scheduling — with auto-seating the table queue starts it.
+  const isParticipant =
+    match.player1Id === userId || match.player2Id === userId;
+  if (!(await canManageTournament(ctx, match.tournamentId))) {
+    if (!isParticipant) {
+      await ctx.answerCallbackQuery({
+        text: 'Вы не участник этого матча',
+        show_alert: true,
+      });
+      return;
+    }
+    if (tournament?.scheduleMode !== 'per_match') {
+      await ctx.answerCallbackQuery({
+        text: 'Матч начнётся, когда бот вызовет вас к столу',
+        show_alert: true,
+      });
+      return;
+    }
   }
 
   const result = await startMatch(matchIdUUID);
@@ -619,9 +643,6 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
   }
 
   const updatedMatch = { ...match, ...result.match };
-  const tournament = await db.query.tournaments.findFirst({
-    where: eq(tournaments.id, match.tournamentId),
-  });
 
   await ctx.answerCallbackQuery('Матч начат!');
 
@@ -629,6 +650,124 @@ matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
     await notifyMatchStart(ctx.api, updatedMatch, tournament.name, userId);
     await refreshMatchCard(ctx, matchIdUUID);
   }
+});
+
+// Игрок подтверждает явку к столу
+matchCommands.callbackQuery(/^match:ready:(.+)$/, async (ctx) => {
+  const matchId = ctx.match[1];
+  if (!matchId) return;
+  const matchIdUUID = matchId as UUID;
+
+  const result = await markPlayerReady(matchIdUUID, ctx.dbUser.id, ctx.api);
+  if (!result.success) {
+    await ctx.answerCallbackQuery({ text: result.error, show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery(
+    result.started ? 'Матч начат!' : 'Отмечено. Ждём соперника',
+  );
+  await refreshMatchCard(ctx, matchIdUUID);
+});
+
+/**
+ * Shared guard for the referee's no-show actions: loads the match and checks
+ * admin/referee rights, answering the callback on failure.
+ */
+async function loadManagedMatch(
+  ctx: BotContext,
+  matchId: UUID,
+): Promise<MatchWithPlayers | null> {
+  const match = await getMatch(matchId);
+  if (!match) {
+    await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
+    return null;
+  }
+  if (!(await canManageTournament(ctx, match.tournamentId))) {
+    await ctx.answerCallbackQuery({
+      text: 'Недостаточно прав',
+      show_alert: true,
+    });
+    return null;
+  }
+  return match;
+}
+
+// Судья: тех. поражение за неявку
+matchCommands.callbackQuery(/^match:noshow:(.+):([12])$/, async (ctx) => {
+  const matchId = ctx.match[1] as UUID | undefined;
+  if (!matchId) return;
+  const absentSlot = ctx.match[2] === '1' ? 1 : 2;
+  if (!(await loadManagedMatch(ctx, matchId))) return;
+
+  const result = await noShowTechnicalLoss(
+    matchId,
+    absentSlot,
+    ctx.dbUser.id,
+    ctx.api,
+  );
+  if (!result.success) {
+    await ctx.answerCallbackQuery({ text: result.error, show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery('Засчитано техническое поражение');
+  await refreshMatchCard(ctx, matchId);
+});
+
+// Судья: отложить вызванный матч, стол уходит следующему
+matchCommands.callbackQuery(/^match:postpone:(.+)$/, async (ctx) => {
+  const matchId = ctx.match[1] as UUID | undefined;
+  if (!matchId) return;
+  if (!(await loadManagedMatch(ctx, matchId))) return;
+
+  const result = await postponeCalledMatch(matchId, ctx.api);
+  if (!result.success) {
+    await ctx.answerCallbackQuery({ text: result.error, show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery('Матч отложен, стол передан следующему');
+  await refreshMatchCard(ctx, matchId);
+});
+
+// Судья: подождать ещё
+matchCommands.callbackQuery(/^match:extend:(.+)$/, async (ctx) => {
+  const matchId = ctx.match[1] as UUID | undefined;
+  if (!matchId) return;
+  if (!(await loadManagedMatch(ctx, matchId))) return;
+
+  const result = await extendCall(matchId);
+  if (!result.success) {
+    await ctx.answerCallbackQuery({ text: result.error, show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery('Ждём ещё 5 минут');
+  await refreshMatchCard(ctx, matchId);
+});
+
+// Игрок, отмеченный отсутствующим, вернулся
+matchCommands.callbackQuery(/^participant:present:(.+)$/, async (ctx) => {
+  const tournamentId = ctx.match[1] as UUID | undefined;
+  if (!tournamentId) return;
+
+  const result = await markParticipantPresent(
+    tournamentId,
+    ctx.dbUser.id,
+    ctx.api,
+  );
+  if (!result.success) {
+    await ctx.answerCallbackQuery({ text: result.error, show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery(
+    result.wasAbsent
+      ? 'Отлично! Вызовем вас к столу, когда он освободится'
+      : 'Вы и так в очереди',
+  );
+  await ctx.editMessageReplyMarkup().catch(() => undefined);
 });
 
 // Показать форму внесения результата
@@ -679,9 +818,17 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
   if (isSnooker(tournament)) {
     const msg = ctx.callbackQuery.message;
     if (!msg) return;
+    // Start from frames already saved from the web forms, so finishing here
+    // doesn't wipe them (the final report replaces the whole frame list).
+    const savedFrames = await getMatchFrames(matchIdUUID);
     const state: FrameReportState = {
       matchId: matchIdUUID,
-      frames: [],
+      frames: savedFrames.map((f) => ({
+        player1Points: f.player1Points,
+        player2Points: f.player2Points,
+        player1Break: f.player1Break,
+        player2Break: f.player2Break,
+      })),
       promptChatId: msg.chat.id,
       promptMessageId: msg.message_id,
     };
@@ -993,7 +1140,7 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   const result = await confirmResult(
     matchIdUUID,
     userId,
-    undefined,
+    ctx.api,
     isAdmin(ctx),
   );
 
@@ -1189,6 +1336,7 @@ matchCommands.callbackQuery(/^match:tech_win:(.+):(.+):(.+)$/, async (ctx) => {
     winnerId,
     reasonText,
     userId,
+    ctx.api,
   );
 
   if (!result.success) {

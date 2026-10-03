@@ -135,6 +135,14 @@ export const appAuth = {
     apiFetch<{ ok: boolean }>('/api/app/auth/logout', { method: 'POST' }),
 
   /**
+   * Одноразовая ссылка входа в админку (только для админов). Сессии сайта и админки
+   * раздельные — фронт делает window.location на полученный URL, редим ставит
+   * admin-сессию на хосте админки.
+   */
+  adminLink: () =>
+    apiFetch<{ url: string }>('/api/app/auth/admin-link', { method: 'POST' }),
+
+  /**
    * Проверка сессии. ТОЛЬКО на 401 возвращаем null (гость); транзиентные ошибки
    * (5xx, сеть) пробрасываем — иначе сбой /me неотличим от «не залогинен» и, например,
    * запускал бы авто-вход Mini App поверх живой email-сессии.
@@ -220,6 +228,27 @@ export const matchesApi = {
   frames: (id: string) =>
     apiFetch<AppMatchFrame[]>(`/api/app/matches/${id}/frames`),
 
+  /** Сохранить один фрейм по ходу матча (черновик); возвращает все сохранённые фреймы. */
+  saveFrame: (
+    id: string,
+    frameNumber: number,
+    frame: {
+      player1Points: number;
+      player2Points: number;
+      player1Break?: number | null;
+      player2Break?: number | null;
+    },
+  ) =>
+    apiFetch<AppMatchFrame[]>(`/api/app/matches/${id}/frames/${frameNumber}`, {
+      method: 'PUT',
+      ...jsonBody(frame),
+    }),
+
+  deleteLastFrame: (id: string) =>
+    apiFetch<AppMatchFrame[]>(`/api/app/matches/${id}/frames/last`, {
+      method: 'DELETE',
+    }),
+
   reportFrames: (
     id: string,
     frames: Array<{
@@ -232,6 +261,12 @@ export const matchesApi = {
     apiFetch<{ ok: boolean }>(`/api/app/matches/${id}/report-frames`, {
       method: 'POST',
       ...jsonBody({ frames }),
+    }),
+
+  /** «Я у стола»: подтвердить явку к вызванному матчу. */
+  ready: (id: string) =>
+    apiFetch<{ started: boolean }>(`/api/app/matches/${id}/ready`, {
+      method: 'POST',
     }),
 
   confirm: (id: string) =>

@@ -25,6 +25,13 @@ const TELEGRAM_LINK_ERRORS: Record<string, string> = {
   has_other: 'К аккаунту уже привязан другой Telegram.',
 };
 
+/** Разница выиграно−проиграно со знаком: `+9`, `−3`, `0`. */
+function signedDiff(n: number): string {
+  if (n > 0) return `+${n}`;
+  if (n < 0) return `−${-n}`;
+  return '0';
+}
+
 export default function ProfilePage() {
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -104,6 +111,11 @@ export default function ProfilePage() {
   const wins = stats?.matches.wins ?? 0;
   const losses = stats?.matches.losses ?? 0;
   const winrate = played > 0 ? Math.round((wins / played) * 100) : 0;
+  const framesWon = stats?.matches.framesWon ?? 0;
+  const framesLost = stats?.matches.framesLost ?? 0;
+  const points = stats?.matches.points ?? null;
+  const maxBreak = stats?.matches.maxBreak ?? null;
+  const hasFrames = framesWon + framesLost > 0;
 
   return (
     <div
@@ -207,6 +219,24 @@ export default function ProfilePage() {
               <div style={{ flex: 1, background: 'var(--color-tone-danger-bg)' }} />
             </div>
           </div>
+
+          {(hasFrames || points || maxBreak != null) && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+              {hasFrames && (
+                <StatTile
+                  value={`${framesWon}–${framesLost}`}
+                  label={`Фреймы · ${signedDiff(framesWon - framesLost)}`}
+                />
+              )}
+              {points && (
+                <StatTile
+                  value={`${points.won}–${points.lost}`}
+                  label={`Очки · ${signedDiff(points.won - points.lost)}`}
+                />
+              )}
+              {maxBreak != null && <StatTile value={maxBreak} label="Макс. брейк" />}
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div

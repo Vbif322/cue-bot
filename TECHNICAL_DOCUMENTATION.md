@@ -334,6 +334,7 @@ erDiagram
 - `nextMatchId` / `nextMatchPosition`: ссылка на следующий матч и слот (`player1` / `player2`)
 - `losersNextMatchPosition` / `losersNextMatchSlot`: маршрут проигравшего в нижнюю сетку (double elimination)
 - `tableId`: стол, на котором идёт матч (`on delete set null`)
+- `queueOrder` (`queue_order`): порядок в очереди на столы, задаётся админом; `null` = не задан (такие матчи идут после упорядоченных, по `round, position`)
 - `reportedBy` / `confirmedBy`: участники двухфазного подтверждения результата
 - `isTechnicalResult` / `technicalReason`: признак и причина технического исхода
 - `isCorrected` / `correctionReason`: признак и причина ручной корректировки результата
@@ -497,6 +498,40 @@ deep-link `/start join_<code>` (см. путь 1).
     -> статус возвращается в in_progress
 ```
 
+`match:start` игрок может нажать только в режиме `per_match`; в `single_day` матчи стартуют
+через вызов к столу (ниже), а вручную их начинает лишь админ или судья.
+
+### 6a. Вызов к столу и неявка (`single_day`)
+
+Свободный стол не стартует матч, а **вызывает** игроков (`assignTableAndCall`): матч остаётся
+`scheduled`, получает `tableId`, `calledAt` и `callDeadlineAt` (`MATCH_CALL_TIMEOUT_MS`,
+10 мин, `src/services/matchCall.const.ts`). Вызванный матч держит стол и занимает обоих игроков,
+как идущий (`findBusyPlayerIds`): их не вызовут за другой стол ни в этом, ни в другом турнире.
+Ручная бронь стола админом (`setMatchTable`) идёт без вызова (`calledAt` = null) и ждёт
+ручного старта.
+
+```text
+стол освободился -> assignTableAndCall -> «Вас вызывают к столу» обоим
+  -> match:ready:{id} («Я у стола», markPlayerReady) от обоих -> status = in_progress
+  -> или судья: match:start:{id}
+дедлайн прошёл -> processOverdueCalls (таймер раз в минуту, src/index.ts)
+  -> алерт судьям турнира (нет судей -> создателю турнира), повторный пинг неявившимся
+  -> судья выбирает:
+     match:noshow:{id}:{1|2}  -> тех. поражение «Неявка соперника» (noShowTechnicalLoss)
+     match:postpone:{id}      -> стол уходит следующему матчу, матч возвращается в очередь
+                                 со своим queueOrder, неявившиеся помечаются отсутствующими
+     match:extend:{id}        -> +5 мин к дедлайну, алерт перевзводится
+```
+
+Состояние вызова хранится в БД (`player1ReadyAt` / `player2ReadyAt`, `noShowAlertedAt`):
+алерт уходит ровно один раз, в том числе через рестарт. Автоматически ничего не засчитывается.
+
+**Отсутствующие.** `tournamentParticipants.absentSince` ставят «Отложить» и тех. поражение за
+неявку (если у игрока ещё есть матчи). Пока отметка стоит, `getNextReadyMatch` пропускает матчи
+игрока. Снимает её `participant:present:{tournamentId}` («Я на месте»), подтверждение явки
+или админ (`POST /api/tournaments/:id/participants/:userId/present`). После снятия свободные
+столы сразу заполняются.
+
 ### 7. Технический результат
 
 Администратор или назначенный судья может установить технический результат:
@@ -506,6 +541,8 @@ deep-link `/start join_<code>` (см. путь 1).
 - победителю засчитывается счёт `winScore:0`, где `winScore` — длина **этого** матча
   (`matches.winScore ?? tournaments.winScore`, см. `winScoreForMatch`)
 - матч завершается без двухфазного подтверждения, далее вызывается `advanceWinner()`
+- если передан `botApi`, оба игрока получают уведомление «Технический результат»
+- для неявки к столу — `match:noshow:{id}:{absentSlot}` / `noShowTechnicalLoss()` (см. 6a)
 
 ### 8. Завершение турнира
 
@@ -641,7 +678,7 @@ deep-link `/start join_<code>` (см. путь 1).
 - `GET /api/health`
 - `GET /api/auth/token?t={token}` — обмен одноразового токена на JWT-cookie (rate limit по IP)
 - `POST /api/auth/logout` — удаление cookie
-- `GET /api/auth/me` — проверка сессии без `requireAdmin`
+- `GET /api/auth/me` — проверка сессии без `requireAdmin`; всегда отдаёт `playerUrl` (ссылка «Сайт игрока»: `PUBLIC_BASE_URL` в production, `http://localhost:5174` в dev)
 
 #### Турниры
 
@@ -660,11 +697,14 @@ deep-link `/start join_<code>` (см. путь 1).
 - `DELETE /api/tournaments/:id/participants/:userId`
 - `PATCH /api/tournaments/:id/participants/:userId/seed`
 - `POST /api/tournaments/:id/participants/seeds/randomize`
+- `POST /api/tournaments/:id/participants/:userId/present` (снять отметку «отсутствует»)
 - `GET /api/tournaments/:id/stats`
 
 #### Матчи
 
 - `GET /api/matches/tournament/:tournamentId`
+- `PUT /api/matches/tournament/:tournamentId/queue` (порядок очереди на столы, body `{ matchIds }`)
+- `GET /api/matches/tournament/:tournamentId/busy-elsewhere` (игроки очереди, занятые в другом турнире)
 - `GET /api/matches/tournament/:tournamentId/stats`
 - `GET /api/matches/:id`
 - `POST /api/matches/:id/start`
@@ -672,6 +712,9 @@ deep-link `/start join_<code>` (см. путь 1).
 - `POST /api/matches/:id/confirm`
 - `POST /api/matches/:id/dispute`
 - `POST /api/matches/:id/technical`
+- `POST /api/matches/:id/postpone` (вызванный матч: отдать стол следующему, неявившихся отметить отсутствующими)
+- `POST /api/matches/:id/extend-call` (+5 мин к дедлайну явки)
+- `POST /api/matches/:id/no-show` (тех. поражение за неявку, body `{ absentSlot: 1 | 2 }`)
 - `POST /api/matches/:id/correct/preview` (dry-run корректировки)
 - `POST /api/matches/:id/correct` (корректировка результата с откатом сетки)
 - `POST /api/matches/:id/advance` (повторное продвижение победителя)
@@ -748,7 +791,7 @@ deep-link `/start join_<code>` (см. путь 1).
 
 Статистика игрока для команды `/me`, профиля и страницы пользователя в админке.
 
-- `getUserMatchStats(userId)` — сыгранные матчи, победы, поражения, win-rate
+- `getUserMatchStats(userId)` — сыгранные матчи, победы, поражения; фреймы (выиграно/проиграно по счёту матчей, без техрезультатов); очки снукера и макс. брейк по `match_frames` (только завершённые матчи, `null`, если данных нет). Win-rate и разницы считают клиенты
 - `getUserCompletedTournaments(userId, limit)` — история последних турниров с признаком победителя
 
 ### matchService
@@ -759,9 +802,20 @@ deep-link `/start join_<code>` (см. путь 1).
 - `startMatch(id)` / `reportResult(id, reporterId, p1, p2)` / `confirmResult(id, confirmerId)` / `disputeResult(id, userId)` — двухфазный поток результата
 - `setTechnicalResult(...)` — техническая победа
 - `advanceWinner()` — продвижение победителя по сетке; на финале вызывает `completeTournament()`
-- управление столами: `onTableFreed()`, `assignTableAndStart()`, `setMatchTable()`
+- управление столами: `onTableFreed()` / `fillFreeTables()`, `assignTableAndCall()` (вызов к столу, см. «Вызов к столу и неявка»), `setMatchTable()`
+- очередь на столы: `getNextReadyMatch()` выбирает первый готовый ожидающий матч (оба игрока известны, на месте и не заняты — не играют и не вызваны к другому столу) в порядке `queueOrder, round, position`; `setMatchQueue(tournamentId, matchIds)` — админ задаёт порядок всех ожидающих матчей (`scheduled` без стола), только в идущем турнире не в режиме `per_match`
+- завершение матча освобождает игроков и для других идущих турниров: `advanceWinner()` после своего `onTableFreed()` заполняет свободные столы турниров, где эти игроки ждут в очереди; `getQueuePlayersBusyElsewhere(tournamentId)` — кто из ожидающих сейчас играет в другом турнире (для вкладки «Очередь»)
 - `previewCorrection(id, p1, p2)` — dry-run корректировки; `correctMatchResult(...)` — исправление завершённого матча с откатом зависимых матчей в `scheduled` и пере-продвижением нового победителя (запись в `matchCorrections`); `resyncAdvancement(id)` — идемпотентное восстановление продвижения
 - `getMatchStats(tournamentId)` — агрегаты для UI
+
+### matchCallService
+
+Вызов к столу и неявка (`single_day`), см. «Вызов к столу и неявка».
+
+- `markPlayerReady(matchId, userId)` — «Я у стола»; второй подтвердивший стартует матч (условный UPDATE, ровно один переход)
+- `processOverdueCalls(api)` — таймер: алерт судье по просроченным вызовам, идемпотентно через `noShowAlertedAt`
+- `postponeCalledMatch(matchId)`, `extendCall(matchId)`, `noShowTechnicalLoss(matchId, absentSlot, byId)` — решения судьи
+- `markParticipantPresent(tournamentId, userId)` — снять отметку «отсутствует» и заполнить свободные столы
 
 ### randomBracketAdvancement
 
@@ -849,7 +903,7 @@ Race-safe случайное продвижение для турниров с �
 
 #### createIpRateLimit (admin API)
 
-- IP-based token-bucket лимитер (`src/admin/server/middleware/rateLimit.ts`), применяется на минтинге токена входа (`GET /api/auth/token`, 10/мин); основан на общем `RateLimiter` из `src/lib/rateLimiter.ts`
+- IP-based token-bucket лимитер (`src/admin/server/middleware/rateLimit.ts`), применяется на минтинге токена входа (`GET /api/auth/token`, 10/мин) и на входе по коду (`/api/auth/request-code`, `/api/auth/verify-code`); основан на общем `RateLimiter` из `src/lib/rateLimiter.ts`
 
 ---
 
@@ -857,12 +911,36 @@ Race-safe случайное продвижение для турниров с �
 
 ### Аутентификация
 
-Вход в панель построен на одноразовых URL-токенах (числовых кодов нет):
+Основной способ — беспарольный вход по коду на почту, как на сайте игрока:
+
+1. `POST /api/auth/request-code` `{email}` выпускает 6-значный код (`email_login_codes`, TTL 10 мин,
+   5 попыток) для **любого** адреса и всегда отвечает `200 {data:{ok:true}}`: ни существование адреса,
+   ни роль не раскрываются, в том числе по времени ответа. Коды и пер-email лимит
+   (`emailCodeLimiter`, 3 шт. + 1/5 мин) общие с `/api/app/auth`.
+2. `POST /api/auth/verify-code` `{email, code}` проверяет код и находит пользователя по
+   **подтверждённой** email-identity (`findActiveEmailUser`; новый пользователь не создаётся).
+   Неверный код, отсутствующая identity и удалённый аккаунт дают одинаковый
+   `400 'Неверный или просроченный код'`. Если код верный, но роль не `admin`, ответ `403`.
+   При успехе выдаётся `admin_token` (24 ч).
+3. Лимиты по IP: request 10/15 мин, verify 20/15 мин. В production оба маршрута отвечают 404,
+   если `Host` не совпадает с хостом `ADMIN_BASE_URL`, чтобы `admin_token` не оказался на
+   публичном хосте игрока.
+
+Дополнительно работают одноразовые URL-токены. Они нужны админам без привязанной почты:
 
 1. Админ в боте вызывает `/dashboard`
 2. Бот создаёт запись в `login_tokens` (32-символьный hex, TTL 5 минут) и присылает WebApp-кнопку со ссылкой `…/api/auth/token?t={token}`
 3. `GET /api/auth/token` валидирует токен, удаляет его (одноразовый), перепроверяет роль `admin` и выдаёт JWT в HttpOnly-cookie `admin_token` (24 ч)
 4. Минтинг ограничен per-admin (`dashboardLimiter`, 1/30 с) и по IP на стороне HTTP (10/мин)
+
+Альтернативный вход — кнопка «Админка» на сайте игрока (видна при `isAdmin` в
+`/api/app/auth/me`). Сессии сайта (`app_token`) и админки (`admin_token`) раздельные —
+host-only cookie на разных хостах, — поэтому кнопка вызывает
+`POST /api/app/auth/admin-link` (`requireUser`, роль `admin`, лимит `adminLinkLimiter`
+3 шт. + 1/20 с), который выпускает тот же `login_tokens`-токен (TTL 60 с) и возвращает URL
+редима `${ADMIN_BASE_URL}/api/auth/token?t=…` (в dev — `http://localhost:5173`); фронт
+переходит по нему. Обратно — обычная
+ссылка «Сайт игрока» на `PUBLIC_BASE_URL` (в dev — `http://localhost:5174`).
 
 ### Основные страницы SPA
 

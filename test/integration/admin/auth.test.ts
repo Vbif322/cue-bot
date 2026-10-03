@@ -1,9 +1,14 @@
 import type { UUID } from 'crypto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
-import { loginTokens } from '@/db/schema.js';
+import {
+  emailLoginCodes,
+  loginTokens,
+  userIdentities,
+  users,
+} from '@/db/schema.js';
 import { createAdminServer } from '@/admin/server/index.js';
 
 import { adminCookie, apiRequest, expiredCookie } from '../../helpers/auth.js';
@@ -13,6 +18,13 @@ import {
   createUser,
 } from '../../helpers/factories.js';
 import { truncateAll } from '../../helpers/truncate.js';
+
+// Plaintext-код хранится только как sha256 — перехватываем его из аргумента отправки.
+vi.mock('@/services/mailService.js', () => ({
+  sendLoginCodeEmail: vi.fn(),
+}));
+import { sendLoginCodeEmail } from '@/services/mailService.js';
+const mockedSend = vi.mocked(sendLoginCodeEmail);
 
 const app = createAdminServer();
 
@@ -117,7 +129,26 @@ describe('admin auth router', () => {
         '/api/auth/me',
       );
       expect(status).toBe(200);
-      expect(body).toEqual({ user: null });
+      expect(body.user).toBeNull();
+    });
+
+    it('always returns playerUrl for the «Сайт игрока» link', async () => {
+      const admin = await createAdminUser();
+      const guest = await apiRequest<{ playerUrl: string }>(
+        app,
+        'GET',
+        '/api/auth/me',
+      );
+      const authed = await apiRequest<{ playerUrl: string }>(
+        app,
+        'GET',
+        '/api/auth/me',
+        { user: admin },
+      );
+      // Тесты идут не в production — всегда локальный Vite-сервер app/.
+      const expected = 'http://localhost:5174';
+      expect(guest.body.playerUrl).toBe(expected);
+      expect(authed.body.playerUrl).toBe(expected);
     });
 
     it('returns the admin user for a valid cookie', async () => {
@@ -140,7 +171,7 @@ describe('admin auth router', () => {
         '/api/auth/me',
         { cookie: 'admin_token=not-a-jwt' },
       );
-      expect(body).toEqual({ user: null });
+      expect(body.user).toBeNull();
     });
 
     it('returns user: null for an expired token', async () => {
@@ -151,7 +182,7 @@ describe('admin auth router', () => {
         '/api/auth/me',
         { cookie: expiredCookie(admin) },
       );
-      expect(body).toEqual({ user: null });
+      expect(body.user).toBeNull();
     });
 
     it('returns user: null when the role was revoked in the DB', async () => {
@@ -163,7 +194,171 @@ describe('admin auth router', () => {
         '/api/auth/me',
         { cookie: adminCookie({ ...user, role: 'admin' }) },
       );
-      expect(body).toEqual({ user: null });
+      expect(body.user).toBeNull();
     });
+  });
+});
+
+describe('admin auth router — вход по коду на почту', () => {
+  const REQUEST = '/api/auth/request-code';
+  const VERIFY = '/api/auth/verify-code';
+
+  // Свежий сервер на каждый тест — сбрасывает пер-IP лимитеры роутера.
+  let emailApp: ReturnType<typeof createAdminServer>;
+
+  // Пер-email лимитер — модульный синглтон, truncateAll его не сбрасывает.
+  let emailSeq = 0;
+  const nextEmail = (): string => `admin${String(emailSeq++)}@example.com`;
+
+  beforeEach(async () => {
+    emailApp = createAdminServer();
+    await truncateAll();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** Привязывает к пользователю email-identity (по умолчанию подтверждённую). */
+  async function linkEmail(userId: UUID, email: string, verified = true) {
+    await db.insert(userIdentities).values({
+      userId,
+      provider: 'email',
+      providerId: email,
+      emailVerifiedAt: verified ? new Date() : null,
+    });
+  }
+
+  /** Запрашивает код и возвращает перехваченный из письма plaintext. */
+  async function requestCode(email: string): Promise<string> {
+    mockedSend.mockClear();
+    const { status } = await apiRequest(emailApp, 'POST', REQUEST, {
+      body: { email },
+    });
+    expect(status).toBe(200);
+    const call = mockedSend.mock.calls.at(-1);
+    if (!call) throw new Error('sendLoginCodeEmail не был вызван');
+    return call[1];
+  }
+
+  it('админ входит по коду: admin_token выставлен, /me возвращает пользователя', async () => {
+    const email = nextEmail();
+    const admin = await createAdminUser();
+    await linkEmail(admin.id, email);
+    const code = await requestCode(email);
+
+    const verify = await apiRequest<{
+      data: { user: { id: UUID; role: string } };
+    }>(emailApp, 'POST', VERIFY, { body: { email, code } });
+    expect(verify.status).toBe(200);
+    expect(verify.body.data.user).toMatchObject({
+      id: admin.id,
+      role: 'admin',
+    });
+
+    const setCookie = verify.res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain('HttpOnly');
+    expect(setCookie).toContain(`Max-Age=${String(24 * 60 * 60)}`);
+    const token = /admin_token=([^;]+)/.exec(setCookie)?.[1];
+    expect(token).toBeDefined();
+
+    const me = await apiRequest<{ user: { id: UUID } | null }>(
+      emailApp,
+      'GET',
+      '/api/auth/me',
+      { cookie: `admin_token=${String(token)}` },
+    );
+    expect(me.body.user?.id).toBe(admin.id);
+  });
+
+  it('request-code выпускает код для любого адреса (без раскрытия роли)', async () => {
+    const email = nextEmail();
+    await requestCode(email);
+
+    const codes = await db.query.emailLoginCodes.findMany({
+      where: eq(emailLoginCodes.email, email),
+    });
+    expect(codes).toHaveLength(1);
+  });
+
+  it('неверный код → 400 без куки', async () => {
+    const email = nextEmail();
+    const admin = await createAdminUser();
+    await linkEmail(admin.id, email);
+    const code = await requestCode(email);
+    const wrong = code === '000000' ? '111111' : '000000';
+
+    const { status, res } = await apiRequest(emailApp, 'POST', VERIFY, {
+      body: { email, code: wrong },
+    });
+    expect(status).toBe(400);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('верный код у не-админа → 403 без куки', async () => {
+    const email = nextEmail();
+    const user = await createUser();
+    await linkEmail(user.id, email);
+    const code = await requestCode(email);
+
+    const { status, res } = await apiRequest(emailApp, 'POST', VERIFY, {
+      body: { email, code },
+    });
+    expect(status).toBe(403);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('адрес без identity → 400, пользователь не создаётся', async () => {
+    const email = nextEmail();
+    const code = await requestCode(email);
+    const before = await db.select({ id: users.id }).from(users);
+
+    const { status } = await apiRequest(emailApp, 'POST', VERIFY, {
+      body: { email, code },
+    });
+    expect(status).toBe(400);
+    const after = await db.select({ id: users.id }).from(users);
+    expect(after).toHaveLength(before.length);
+  });
+
+  it('неподтверждённая identity → 400', async () => {
+    const email = nextEmail();
+    const admin = await createAdminUser();
+    await linkEmail(admin.id, email, false);
+    const code = await requestCode(email);
+
+    const { status } = await apiRequest(emailApp, 'POST', VERIFY, {
+      body: { email, code },
+    });
+    expect(status).toBe(400);
+  });
+
+  it('soft-deleted админ → 400', async () => {
+    const email = nextEmail();
+    const admin = await createAdminUser({ deletedAt: new Date() });
+    await linkEmail(admin.id, email);
+    const code = await requestCode(email);
+
+    const { status } = await apiRequest(emailApp, 'POST', VERIFY, {
+      body: { email, code },
+    });
+    expect(status).toBe(400);
+  });
+
+  it('в production на чужом хосте маршруты отвечают 404', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('ADMIN_BASE_URL', 'https://admin.example.com');
+    const email = nextEmail();
+
+    // apiRequest шлёт на http://localhost → Host: localhost, не admin-хост.
+    const req = await apiRequest(emailApp, 'POST', REQUEST, {
+      body: { email },
+    });
+    expect(req.status).toBe(404);
+    const verify = await apiRequest(emailApp, 'POST', VERIFY, {
+      body: { email, code: '123456' },
+    });
+    expect(verify.status).toBe(404);
+    expect(mockedSend).not.toHaveBeenCalledWith(email, expect.anything());
   });
 });

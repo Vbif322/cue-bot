@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
+import type { MatchFrame } from '@/services/matchService.js';
 import {
   getMatch,
   getMatchFrames,
@@ -12,10 +13,14 @@ import {
   startMatch,
   reportResult,
   reportResultFromFrames,
+  saveMatchFrame,
+  deleteLastMatchFrame,
   confirmResult,
   disputeResult,
   setTechnicalResult,
   setMatchTable,
+  setMatchQueue,
+  getQueuePlayersBusyElsewhere,
   setMatchSchedule,
   previewCorrection,
   correctMatchResult,
@@ -23,13 +28,42 @@ import {
 } from '@/services/matchService.js';
 import { getTournament } from '@/services/tournamentService.js';
 import {
+  extendCall,
+  markPlayerReady,
+  noShowTechnicalLoss,
+  postponeCalledMatch,
+} from '@/services/matchCallService.js';
+import {
   notifyMatchScheduled,
   notifyMatchStart,
   notifyResultPending,
 } from '@/services/notificationService.js';
 
 import { requireAdmin } from '../middleware.js';
-import { validateParam, idParam, tournamentIdParam } from './_shared.js';
+import {
+  validateParam,
+  idParam,
+  idFrameNumberParam,
+  tournamentIdParam,
+} from './_shared.js';
+
+const frameSchema = z.object({
+  player1Points: z.number().int().min(0),
+  player2Points: z.number().int().min(0),
+  player1Break: z.number().int().min(0).nullable().optional(),
+  player2Break: z.number().int().min(0).nullable().optional(),
+});
+
+/** API shape of a frame row (the same for GET and the draft edits). */
+function toFrameDto(f: MatchFrame) {
+  return {
+    frameNumber: f.frameNumber,
+    player1Points: f.player1Points,
+    player2Points: f.player2Points,
+    player1Break: f.player1Break,
+    player2Break: f.player2Break,
+  };
+}
 
 export function createMatchesRouter(botApi: Api) {
   const router = new Hono();
@@ -58,6 +92,31 @@ export function createMatchesRouter(botApi: Api) {
     },
   );
 
+  // Queued players who are at a table in another running tournament
+  router.get(
+    '/tournament/:tournamentId/busy-elsewhere',
+    validateParam(tournamentIdParam),
+    async (c) => {
+      const { tournamentId } = c.req.valid('param');
+      const data = await getQueuePlayersBusyElsewhere(tournamentId);
+      return c.json({ data });
+    },
+  );
+
+  // Reorder the table queue: the full ordered list of waiting matches
+  router.put(
+    '/tournament/:tournamentId/queue',
+    validateParam(tournamentIdParam),
+    zValidator('json', z.object({ matchIds: z.array(z.uuid()).min(1) })),
+    async (c) => {
+      const { tournamentId } = c.req.valid('param');
+      const { matchIds } = c.req.valid('json');
+      const result = await setMatchQueue(tournamentId, matchIds as UUID[]);
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ ok: true });
+    },
+  );
+
   // Get single match with player info
   router.get('/:id', validateParam(idParam), async (c) => {
     const { id } = c.req.valid('param');
@@ -70,14 +129,34 @@ export function createMatchesRouter(botApi: Api) {
   router.get('/:id/frames', validateParam(idParam), async (c) => {
     const { id } = c.req.valid('param');
     const frames = await getMatchFrames(id);
-    const data = frames.map((f) => ({
-      frameNumber: f.frameNumber,
-      player1Points: f.player1Points,
-      player2Points: f.player2Points,
-      player1Break: f.player1Break,
-      player2Break: f.player2Break,
-    }));
-    return c.json({ data });
+    return c.json({ data: frames.map(toFrameDto) });
+  });
+
+  // Save one frame while the match is in play (snooker draft, no notification).
+  router.put(
+    '/:id/frames/:frameNumber',
+    validateParam(idFrameNumberParam),
+    zValidator('json', frameSchema),
+    async (c) => {
+      const { id, frameNumber } = c.req.valid('param');
+      const f = c.req.valid('json');
+      const result = await saveMatchFrame(id, frameNumber, {
+        player1Points: f.player1Points,
+        player2Points: f.player2Points,
+        player1Break: f.player1Break ?? null,
+        player2Break: f.player2Break ?? null,
+      });
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ data: result.frames.map(toFrameDto) });
+    },
+  );
+
+  // Remove the last saved frame of a match in play.
+  router.delete('/:id/frames/last', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const result = await deleteLastMatchFrame(id);
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json({ data: result.frames.map(toFrameDto) });
   });
 
   // Start a match
@@ -100,6 +179,55 @@ export function createMatchesRouter(botApi: Api) {
 
     return c.json({ data: result.match });
   });
+
+  // Mark a called player present on their behalf («Я у стола» from the admin):
+  // for players at the club without the bot. The second mark starts the match.
+  router.post(
+    '/:id/ready',
+    validateParam(idParam),
+    zValidator('json', z.object({ userId: z.uuid() })),
+    async (c) => {
+      const { id } = c.req.valid('param');
+      const { userId } = c.req.valid('json');
+      const result = await markPlayerReady(id, userId as UUID, botApi);
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ data: { started: result.started } });
+    },
+  );
+
+  // Called to the table, nobody showed up in time: the referee's options.
+  router.post('/:id/postpone', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const result = await postponeCalledMatch(id, botApi);
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json({ ok: true });
+  });
+
+  router.post('/:id/extend-call', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const result = await extendCall(id);
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json({ ok: true });
+  });
+
+  router.post(
+    '/:id/no-show',
+    validateParam(idParam),
+    zValidator('json', z.object({ absentSlot: z.literal([1, 2]) })),
+    async (c) => {
+      const { id } = c.req.valid('param');
+      const { absentSlot } = c.req.valid('json');
+      const admin = c.get('adminUser');
+      const result = await noShowTechnicalLoss(
+        id,
+        absentSlot,
+        admin.id,
+        botApi,
+      );
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ ok: true });
+    },
+  );
 
   // Report result (admin acts as one of the players)
   router.post(
@@ -145,16 +273,7 @@ export function createMatchesRouter(botApi: Api) {
       'json',
       z.object({
         reporterId: z.uuid(),
-        frames: z
-          .array(
-            z.object({
-              player1Points: z.number().int().min(0),
-              player2Points: z.number().int().min(0),
-              player1Break: z.number().int().min(0).nullable().optional(),
-              player2Break: z.number().int().min(0).nullable().optional(),
-            }),
-          )
-          .min(1),
+        frames: z.array(frameSchema).min(1),
       }),
     ),
     async (c) => {
@@ -327,10 +446,7 @@ export function createMatchesRouter(botApi: Api) {
   router.put(
     '/:id/schedule',
     validateParam(idParam),
-    zValidator(
-      'json',
-      z.object({ scheduledAt: z.iso.datetime().nullable() }),
-    ),
+    zValidator('json', z.object({ scheduledAt: z.iso.datetime().nullable() })),
     async (c) => {
       const { id } = c.req.valid('param');
       const { scheduledAt } = c.req.valid('json');

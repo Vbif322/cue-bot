@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/db/db.js';
 import { tables, tournamentTables } from '@/db/schema.js';
 import {
-  assignTableAndStart,
+  assignTableAndCall,
   confirmResult,
   disputeResult,
   getMatch,
@@ -106,7 +106,7 @@ describe('matchService concurrency (race-safe paths)', () => {
     }
   });
 
-  it('table race: two assignTableAndStart on one match → exactly one wins the table', async () => {
+  it('table race: two assignTableAndCall on one match → exactly one wins the table', async () => {
     const venue = await createVenue();
     const { matchId, tournamentId } = await freshMatch(venue.id);
 
@@ -121,14 +121,15 @@ describe('matchService concurrency (race-safe paths)', () => {
       .values({ tournamentId, tableId, position: 0 });
 
     const [a, b] = await Promise.all([
-      assignTableAndStart(matchId, tableId),
-      assignTableAndStart(matchId, tableId),
+      assignTableAndCall(matchId, tableId),
+      assignTableAndCall(matchId, tableId),
     ]);
 
     expect([a, b].filter(Boolean)).toHaveLength(1);
 
     const after = await getMatch(matchId);
-    expect(after?.status).toBe('in_progress');
+    expect(after?.status).toBe('scheduled');
+    expect(after?.calledAt).not.toBeNull();
     expect(after?.tableId).toBe(tableId);
   });
 });
