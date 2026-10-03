@@ -263,6 +263,12 @@ export const matchesApi = {
       ...jsonBody({ frames }),
     }),
 
+  /** «Я у стола»: подтвердить явку к вызванному матчу. */
+  ready: (id: string) =>
+    apiFetch<{ started: boolean }>(`/api/app/matches/${id}/ready`, {
+      method: 'POST',
+    }),
+
   confirm: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/app/matches/${id}/confirm`, {
       method: 'POST',

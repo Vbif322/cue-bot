@@ -23,6 +23,8 @@ import { getTournament } from '@/services/tournamentService.js';
 
 import {
   completeMatch,
+  confirmPresence,
+  seatedMatches,
   createTournament,
   createUser,
   createVenue,
@@ -97,7 +99,15 @@ async function allMatches(tournamentId: UUID): Promise<MatchRow[]> {
   });
 }
 
+/**
+ * Matches being played after every called player shows up: confirms presence
+ * on each called match (as both players pressing «Я у стола» would), then
+ * returns the `in_progress` ones.
+ */
 async function liveMatches(tournamentId: UUID): Promise<MatchRow[]> {
+  for (const m of await seatedMatches(tournamentId)) {
+    if (m.status === 'scheduled') await confirmPresence(m.id);
+  }
   return db.query.matches.findMany({
     where: and(
       eq(matches.tournamentId, tournamentId),
@@ -109,9 +119,9 @@ async function liveMatches(tournamentId: UUID): Promise<MatchRow[]> {
 
 /**
  * The table-assignment contract, checked after every step of a run:
- * one unfinished match per table, every live match seated at one of the
- * tournament's tables, no player at two tables, and no table left idle while a
- * playable match is waiting for one.
+ * one unfinished match per table, every live or called match seated at one of
+ * the tournament's tables, no player at (or called to) two tables, and no table
+ * left idle while a playable match is waiting for one.
  */
 async function assertTableInvariants(
   tournamentId: UUID,
@@ -131,7 +141,12 @@ async function assertTableInvariants(
   }
 
   const playing = new Set<UUID>();
-  for (const m of rows.filter((r) => r.status === 'in_progress')) {
+  const occupying = rows.filter(
+    (r) =>
+      r.status === 'in_progress' ||
+      (r.status === 'scheduled' && r.calledAt !== null),
+  );
+  for (const m of occupying) {
     expect(tableIds).toContain(m.tableId);
     for (const id of [m.player1Id, m.player2Id]) {
       const playerId = must(id, 'player id');
@@ -296,7 +311,9 @@ describe('table assignment', () => {
             ),
             'queued match row',
           );
-          expect(seated.status).toBe('in_progress');
+          // Its players are called to the freed table; play starts on presence.
+          expect(seated.status).toBe('scheduled');
+          expect(seated.calledAt).not.toBeNull();
           expect(seated.tableId).toBe(first.tableId);
           await assertTableInvariants(tournament.id, tableIds);
 

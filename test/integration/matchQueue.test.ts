@@ -23,6 +23,7 @@ import { startTournamentFull } from '@/services/tournamentStartService.js';
 import {
   completeMatch,
   createTournament,
+  seatedMatches,
   createUser,
   createVenue,
 } from '../helpers/factories.js';
@@ -98,14 +99,8 @@ async function waitingMatches(tournamentId: UUID): Promise<MatchRow[]> {
   });
 }
 
-async function liveMatches(tournamentId: UUID): Promise<MatchRow[]> {
-  return db.query.matches.findMany({
-    where: and(
-      eq(matches.tournamentId, tournamentId),
-      eq(matches.status, 'in_progress'),
-    ),
-  });
-}
+/** Seated = called to a table or being played; both occupy the players. */
+const liveMatches = seatedMatches;
 
 const hasPlayer = (m: MatchRow, ids: Set<UUID | null>): boolean =>
   ids.has(m.player1Id) || ids.has(m.player2Id);
@@ -131,7 +126,8 @@ describe('match queue (table auto-assignment order)', () => {
       await db.query.matches.findFirst({ where: eq(matches.id, last.id) }),
       'moved match',
     );
-    expect(seated.status).toBe('in_progress');
+    expect(seated.status).toBe('scheduled');
+    expect(seated.calledAt).not.toBeNull();
     expect(seated.tableId).toBe(current.tableId);
   });
 

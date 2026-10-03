@@ -2,6 +2,7 @@ import {
   and,
   eq,
   inArray,
+  isNotNull,
   isNull,
   ne,
   notExists,
@@ -11,6 +12,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import type { Column } from 'drizzle-orm';
 import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
@@ -23,6 +25,7 @@ import {
   tournaments,
   users,
   tables,
+  tournamentParticipants,
   tournamentTables,
   type ITournamentFormat,
 } from '@/db/schema.js';
@@ -47,7 +50,11 @@ type DownstreamVisitor = (
 ) => void | Promise<void>;
 
 import { completeTournament, getTournament } from './tournamentService.js';
-import { notifyMatchStart } from './notificationService.js';
+import {
+  notifyMatchCalled,
+  notifyTechnicalResult,
+} from './notificationService.js';
+import { MATCH_CALL_TIMEOUT_MS } from './matchCall.const.js';
 import type { BracketMatch } from './bracketGenerator.js';
 import {
   getNextPowerOfTwo,
@@ -307,11 +314,24 @@ export async function getPlayerActiveMatches(
 }
 
 /**
- * Which of `userIds` are currently mid-game, i.e. hold a match in `in_progress`.
+ * A match occupies its players while it is being played (`in_progress`) or
+ * while they are called to its table (`scheduled` + `calledAt`, see
+ * assignTableAndCall). Takes columns so the `busy_match` alias can reuse it.
+ */
+function occupiesPlayers(status: Column, calledAt: Column) {
+  return or(
+    eq(status, 'in_progress'),
+    and(eq(status, 'scheduled'), isNotNull(calledAt)),
+  );
+}
+
+/**
+ * Which of `userIds` are currently mid-game: playing a match or called to its
+ * table (occupiesPlayers).
  *
- * A person plays at exactly one table at a time, so a match must not start while
- * either of its players is still playing another one — in this or any other
- * running tournament, hence no tournament scope here. Only tournaments that are
+ * A person plays at exactly one table at a time, so a match must not start
+ * (or be called) while either of its players is still busy with another one —
+ * in this or any other running tournament, hence no tournament scope here. Only tournaments that are
  * themselves `in_progress` count: a match left open in a completed/cancelled
  * tournament is invisible to the player (see getPlayerActiveMatches) and must
  * not lock them out forever. `pending_confirmation` does NOT count: that game is
@@ -328,7 +348,7 @@ export async function findBusyPlayerIds(
   if (ids.length === 0) return new Set();
 
   const conditions = [
-    eq(matches.status, 'in_progress'),
+    occupiesPlayers(matches.status, matches.calledAt),
     eq(tournaments.status, 'in_progress'),
     or(inArray(matches.player1Id, ids), inArray(matches.player2Id, ids)),
   ];
@@ -353,7 +373,7 @@ const busyMatchAlias = alias(matches, 'busy_match');
 
 /**
  * SQL form of the same rule, for the conditional UPDATE: no OTHER match of a
- * running tournament is `in_progress` for either player of the row being
+ * running tournament occupies (occupiesPlayers) either player of the row being
  * updated. Correlated on
  * `matches`, so it is only valid inside a statement whose target table is
  * `matches`. A NULL player slot never matches (`NULL = x` is NULL, not true).
@@ -362,7 +382,7 @@ const busyMatchAlias = alias(matches, 'busy_match');
  * per-player advisory lock. It closes the window between a caller's read and
  * its write when another start committed in between.
  */
-function noOtherMatchInProgress(matchId: UUID) {
+function noOtherMatchOccupyingPlayers(matchId: UUID) {
   return notExists(
     db
       .select({ one: sql`1` })
@@ -370,7 +390,7 @@ function noOtherMatchInProgress(matchId: UUID) {
       .innerJoin(tournaments, eq(busyMatchAlias.tournamentId, tournaments.id))
       .where(
         and(
-          eq(busyMatchAlias.status, 'in_progress'),
+          occupiesPlayers(busyMatchAlias.status, busyMatchAlias.calledAt),
           eq(tournaments.status, 'in_progress'),
           ne(busyMatchAlias.id, matchId),
           or(
@@ -492,9 +512,11 @@ export async function getRoundMatches(
 /**
  * Get the next scheduled match with both players assigned, no table yet, and
  * neither player already mid-game. Skipping a blocked match rather than handing
- * it the table is what keeps the auto-start path (`onTableFreed`,
+ * it the table is what keeps the auto-call path (`onTableFreed`,
  * `kickoffReadyMatches`) from double-booking a player in round-robin and in the
  * DE losers bracket, where one player has several `scheduled` matches at once.
+ * Players marked absent in this tournament (`absentSince`, set when a referee
+ * postpones their no-show) are skipped the same way until they report back.
  */
 export async function getNextReadyMatch(
   tournamentId: UUID,
@@ -516,26 +538,57 @@ export async function getNextReadyMatch(
   const busy = await findBusyPlayerIds(
     result.flatMap((m) => [m.player1Id, m.player2Id]),
   );
+  for (const userId of await getAbsentPlayerIds(tournamentId)) {
+    busy.add(userId);
+  }
 
   return pickNextReadyMatch(result, busy);
 }
 
+/** Participants of a tournament currently marked absent (see getNextReadyMatch). */
+export async function getAbsentPlayerIds(tournamentId: UUID): Promise<UUID[]> {
+  const rows = await db
+    .select({ userId: tournamentParticipants.userId })
+    .from(tournamentParticipants)
+    .where(
+      and(
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        isNotNull(tournamentParticipants.absentSince),
+      ),
+    );
+  return rows.map((r) => r.userId);
+}
+
+/** Columns that make a `scheduled` match "called"; null them to un-call it. */
+export const CLEARED_CALL = {
+  calledAt: null,
+  callDeadlineAt: null,
+  player1ReadyAt: null,
+  player2ReadyAt: null,
+  noShowAlertedAt: null,
+} as const;
+
 /**
- * Atomically assign a table to a match and start it.
+ * Atomically give a match a table and call its players to it. The match stays
+ * `scheduled` (holding the table and occupying both players) until both
+ * confirm presence (markPlayerReady) or a referee starts it (startMatch); a
+ * missed `callDeadlineAt` alerts the referee (processOverdueCalls).
  * Returns true if assignment succeeded (false = race condition).
  */
-export async function assignTableAndStart(
+export async function assignTableAndCall(
   matchId: UUID,
   tableId: UUID,
   botApi?: Api,
 ): Promise<boolean> {
+  const now = new Date();
   const updated = await db
     .update(matches)
     .set({
+      ...CLEARED_CALL,
       tableId,
-      status: 'in_progress',
-      startedAt: new Date(),
-      updatedAt: new Date(),
+      calledAt: now,
+      callDeadlineAt: new Date(now.getTime() + MATCH_CALL_TIMEOUT_MS),
+      updatedAt: now,
     })
     .where(
       and(
@@ -544,7 +597,7 @@ export async function assignTableAndStart(
         isNull(matches.tableId),
         // Same one-match-per-player rule as startMatch; here a violation just
         // means "lost the race", which is already this function's false contract.
-        noOtherMatchInProgress(matchId),
+        noOtherMatchOccupyingPlayers(matchId),
       ),
     )
     .returning({ id: matches.id });
@@ -558,10 +611,10 @@ export async function assignTableAndStart(
         ? await getTournament(matchWithPlayers.tournamentId)
         : null;
       if (matchWithPlayers && tournament) {
-        await notifyMatchStart(botApi, matchWithPlayers, tournament.name, '');
+        await notifyMatchCalled(botApi, matchWithPlayers, tournament.name);
       }
     } catch (err) {
-      console.error(`Failed to notify match start for ${matchId}:`, err);
+      console.error(`Failed to notify match call for ${matchId}:`, err);
     }
   }
 
@@ -570,10 +623,11 @@ export async function assignTableAndStart(
 
 /**
  * Admin override: set / change / clear a match's table. Bypasses the
- * scheduled+empty gate used by assignTableAndStart and does not touch
- * status, startedAt, or trigger notifications. If another in-progress
- * match currently holds the requested table, it is freed in the same
- * transaction so two matches can't end up sharing a tableId.
+ * scheduled+empty gate used by assignTableAndCall and does not touch
+ * status, startedAt, or trigger notifications. If another in-progress or
+ * called match currently holds the requested table, it is freed in the same
+ * transaction so two matches can't end up sharing a tableId; a called match
+ * freed that way (or cleared here) is un-called and goes back to the queue.
  */
 export async function setMatchTable(
   matchId: UUID,
@@ -614,11 +668,26 @@ export async function setMatchTable(
             ne(matches.id, matchId),
           ),
         );
+      await tx
+        .update(matches)
+        .set({ ...CLEARED_CALL, tableId: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(matches.tableId, tableId),
+            eq(matches.status, 'scheduled'),
+            isNotNull(matches.calledAt),
+            ne(matches.id, matchId),
+          ),
+        );
     }
 
     await tx
       .update(matches)
-      .set({ tableId, updatedAt: new Date() })
+      .set({
+        ...(tableId === null ? CLEARED_CALL : {}),
+        tableId,
+        updatedAt: new Date(),
+      })
       .where(eq(matches.id, matchId));
   });
 
@@ -664,7 +733,7 @@ export async function getQueuePlayersBusyElsewhere(
     .where(
       and(
         ne(matches.tournamentId, tournamentId),
-        eq(matches.status, 'in_progress'),
+        occupiesPlayers(matches.status, matches.calledAt),
         eq(tournaments.status, 'in_progress'),
         or(inArray(matches.player1Id, ids), inArray(matches.player2Id, ids)),
       ),
@@ -771,7 +840,7 @@ export async function onTableFreed(
  * Seat the next ready matches at every free table of the tournament, serving
  * `preferTableId` (the table just released) first. See onTableFreed.
  */
-async function fillFreeTables(
+export async function fillFreeTables(
   tournamentId: UUID,
   botApi: Api,
   preferTableId?: UUID,
@@ -784,8 +853,8 @@ async function fillFreeTables(
 
   // A finished match keeps its `tableId` (advanceWinner never clears it), so a
   // table counts as taken only while its match is unfinished: being played,
-  // awaiting score confirmation, or `scheduled` with a table the admin reserved
-  // via setMatchTable (auto-start never leaves a scheduled match seated).
+  // awaiting score confirmation, or `scheduled` with a table — called to it
+  // (assignTableAndCall) or reserved by the admin via setMatchTable.
   const occupied = await db
     .select({ tableId: matches.tableId })
     .from(matches)
@@ -810,7 +879,7 @@ async function fillFreeTables(
   for (const table of free) {
     const next = await getNextReadyMatch(tournamentId);
     if (!next) break;
-    await assignTableAndStart(next.id, table.id, botApi);
+    await assignTableAndCall(next.id, table.id, botApi);
   }
 }
 
@@ -1344,7 +1413,7 @@ export async function disputeResult(
         and(
           eq(matches.id, matchId),
           eq(matches.status, 'pending_confirmation'),
-          noOtherMatchInProgress(matchId),
+          noOtherMatchOccupyingPlayers(matchId),
         ),
       )
       .returning();
@@ -1409,6 +1478,15 @@ export async function setTechnicalResult(
     // result — drop them so they never reach frame points / max breaks.
     await deleteMatchFrames(tx, matchId);
   });
+
+  if (botApi) {
+    try {
+      const updated = await getMatch(matchId);
+      if (updated) await notifyTechnicalResult(botApi, updated);
+    } catch (err) {
+      console.error(`Failed to notify technical result for ${matchId}:`, err);
+    }
+  }
 
   await advanceWinner(matchId, botApi);
 
@@ -1930,7 +2008,7 @@ export async function startMatch(
           and(
             eq(matches.id, matchId),
             eq(matches.status, 'scheduled'),
-            noOtherMatchInProgress(matchId),
+            noOtherMatchOccupyingPlayers(matchId),
           ),
         )
         .returning();
@@ -2176,6 +2254,7 @@ async function resetDownstream(
       startedAt: null,
       completedAt: null,
       tableId: null,
+      ...CLEARED_CALL,
       updatedAt: new Date(),
     })
     .where(eq(matches.id, match.id));

@@ -98,6 +98,17 @@ export const matches = prodSchema.table(
     // queue). Null = not set: such matches follow the ordered ones by
     // (round, position). Independent of `position`, which routes the bracket.
     queueOrder: integer('queue_order'),
+    // Call to the table (single_day auto-seating). A called match is
+    // `scheduled` + `tableId` + `calledAt`: the table is held, but play starts
+    // only once both players confirm presence (player*ReadyAt) or a referee
+    // starts it. `callDeadlineAt` is when the referee is alerted about a
+    // no-show; `noShowAlertedAt` makes that alert fire once, even across a
+    // restart. A table reserved by hand (setMatchTable) has `calledAt` null.
+    calledAt: timestamp('called_at'),
+    callDeadlineAt: timestamp('call_deadline_at'),
+    player1ReadyAt: timestamp('player1_ready_at'),
+    player2ReadyAt: timestamp('player2_ready_at'),
+    noShowAlertedAt: timestamp('no_show_alerted_at'),
     createdAt,
     updatedAt,
   },

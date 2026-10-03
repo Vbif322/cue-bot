@@ -128,6 +128,14 @@ export interface AppMatch {
   losersNextMatchPosition: number | null;
   losersNextMatchSlot: string | null;
   tableId: string | null;
+  /**
+   * Вызов к столу (single_day): матч `scheduled` со столом и `calledAt` ждёт,
+   * пока оба игрока подтвердят явку (player*ReadyAt), до `callDeadlineAt`.
+   */
+  calledAt: string | null;
+  callDeadlineAt: string | null;
+  player1ReadyAt: string | null;
+  player2ReadyAt: string | null;
   createdAt: string;
   updatedAt: string;
   player1Username?: string | null;

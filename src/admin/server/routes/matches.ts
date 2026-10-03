@@ -28,6 +28,12 @@ import {
 } from '@/services/matchService.js';
 import { getTournament } from '@/services/tournamentService.js';
 import {
+  extendCall,
+  markPlayerReady,
+  noShowTechnicalLoss,
+  postponeCalledMatch,
+} from '@/services/matchCallService.js';
+import {
   notifyMatchScheduled,
   notifyMatchStart,
   notifyResultPending,
@@ -173,6 +179,55 @@ export function createMatchesRouter(botApi: Api) {
 
     return c.json({ data: result.match });
   });
+
+  // Mark a called player present on their behalf («Я у стола» from the admin):
+  // for players at the club without the bot. The second mark starts the match.
+  router.post(
+    '/:id/ready',
+    validateParam(idParam),
+    zValidator('json', z.object({ userId: z.uuid() })),
+    async (c) => {
+      const { id } = c.req.valid('param');
+      const { userId } = c.req.valid('json');
+      const result = await markPlayerReady(id, userId as UUID, botApi);
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ data: { started: result.started } });
+    },
+  );
+
+  // Called to the table, nobody showed up in time: the referee's options.
+  router.post('/:id/postpone', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const result = await postponeCalledMatch(id, botApi);
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json({ ok: true });
+  });
+
+  router.post('/:id/extend-call', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const result = await extendCall(id);
+    if (!result.success) return c.json({ error: result.error }, 400);
+    return c.json({ ok: true });
+  });
+
+  router.post(
+    '/:id/no-show',
+    validateParam(idParam),
+    zValidator('json', z.object({ absentSlot: z.literal([1, 2]) })),
+    async (c) => {
+      const { id } = c.req.valid('param');
+      const { absentSlot } = c.req.valid('json');
+      const admin = c.get('adminUser');
+      const result = await noShowTechnicalLoss(
+        id,
+        absentSlot,
+        admin.id,
+        botApi,
+      );
+      if (!result.success) return c.json({ error: result.error }, 400);
+      return c.json({ ok: true });
+    },
+  );
 
   // Report result (admin acts as one of the players)
   router.post(

@@ -117,6 +117,30 @@ export function getMatchStatusEmoji(status: string): string {
 /**
  * Format match card
  */
+/**
+ * A match whose players are called to its table but haven't both confirmed
+ * presence yet (see assignTableAndCall): `scheduled` + table + `calledAt`.
+ */
+export function isMatchCalled(
+  match: Pick<MatchWithPlayers, 'status' | 'tableId' | 'calledAt'>,
+): boolean {
+  return (
+    match.status === 'scheduled' &&
+    match.tableId !== null &&
+    match.calledAt !== null
+  );
+}
+
+/**
+ * Relative wording for the presence deadline. Relative on purpose: stored
+ * timestamps are rendered in UTC, which would show the wrong wall-clock time.
+ */
+export function formatCallDeadline(deadline: Date, now = new Date()): string {
+  const minutes = Math.ceil((deadline.getTime() - now.getTime()) / 60_000);
+  if (minutes <= 0) return '⌛ Время на явку истекло, решение за судьёй';
+  return `⌛ Подтвердить явку: осталось ${String(minutes)} мин`;
+}
+
 export function formatMatchCard(
   match: MatchWithPlayers,
   tournament: Tournament,
@@ -203,7 +227,9 @@ export function formatMatchCard(
   text += `\nСтатус: ${getMatchStatusEmoji(match.status)} `;
   switch (match.status) {
     case 'scheduled':
-      text += 'Ожидает начала';
+      text += isMatchCalled(match)
+        ? 'Игроки вызваны к столу'
+        : 'Ожидает начала';
       break;
     case 'in_progress':
       text += 'В процессе';
@@ -217,6 +243,20 @@ export function formatMatchCard(
     case 'cancelled':
       text += 'Отменён';
       break;
+  }
+
+  if (match.tableName && match.status !== 'completed') {
+    text += `\n🎱 Стол: ${escapeMarkdown(match.tableName)}`;
+  }
+
+  if (isMatchCalled(match)) {
+    const mark = (readyAt: Date | null) =>
+      readyAt ? '✅ у стола' : '⏳ ещё не подтвердил';
+    text += `\n${player1}: ${mark(match.player1ReadyAt)}`;
+    text += `\n${player2}: ${mark(match.player2ReadyAt)}`;
+    if (match.callDeadlineAt) {
+      text += `\n${formatCallDeadline(match.callDeadlineAt)}`;
+    }
   }
 
   if (match.scheduledAt) {
@@ -249,16 +289,19 @@ export function getResultConfirmKeyboard(matchId: string): InlineKeyboard {
  *
  * `options.action` controls the primary button:
  *   - `'start'`  → «▶️ Начать матч» (для назначенного матча),
+ *   - `'ready'`  → «🙋 Я у стола» (для матча, вызванного к столу),
  *   - `'report'` → «📝 Внести результат» (для уже идущего матча),
  *   - не указан   → только навигационные кнопки.
  */
 export function getMatchNotificationKeyboard(
   match: MatchWithPlayers,
-  options: { action?: 'start' | 'report' } = {},
+  options: { action?: 'start' | 'ready' | 'report' } = {},
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (options.action === 'start') {
     keyboard.text('▶️ Начать матч', `match:start:${match.id}`).row();
+  } else if (options.action === 'ready') {
+    keyboard.text('🙋 Я у стола', `match:ready:${match.id}`).row();
   } else if (options.action === 'report') {
     keyboard.text('📝 Внести результат', `match:report:${match.id}`).row();
   }
@@ -267,6 +310,65 @@ export function getMatchNotificationKeyboard(
     .text('📊 К сетке', `bracket:view:${match.tournamentId}`)
     .row();
   return keyboard;
+}
+
+/**
+ * Referee's keyboard on a no-show alert (processOverdueCalls): a technical
+ * loss for each player who hasn't confirmed presence, postpone, wait longer,
+ * or start the match anyway.
+ */
+export function getNoShowAlertKeyboard(
+  match: MatchWithPlayers,
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const slots = [
+    {
+      slot: '1',
+      readyAt: match.player1ReadyAt,
+      name: formatPlayerName(
+        {
+          username: match.player1Username ?? null,
+          name: match.player1Name,
+          surname: match.player1Surname,
+        },
+        { markdown: false },
+      ),
+    },
+    {
+      slot: '2',
+      readyAt: match.player2ReadyAt,
+      name: formatPlayerName(
+        {
+          username: match.player2Username ?? null,
+          name: match.player2Name,
+          surname: match.player2Surname,
+        },
+        { markdown: false },
+      ),
+    },
+  ];
+  for (const { slot, readyAt, name } of slots) {
+    if (readyAt) continue;
+    keyboard
+      .text(`⚠️ Тех. поражение: ${name}`, `match:noshow:${match.id}:${slot}`)
+      .row();
+  }
+  keyboard
+    .text('⏸ Отложить', `match:postpone:${match.id}`)
+    .text('⏳ +5 мин', `match:extend:${match.id}`)
+    .row()
+    .text('▶️ Начать матч', `match:start:${match.id}`)
+    .text('📋 Открыть матч', `match:view:${match.id}`)
+    .row();
+  return keyboard;
+}
+
+/** «Я на месте» for a player marked absent in a tournament. */
+export function getMarkedAbsentKeyboard(tournamentId: string): InlineKeyboard {
+  return new InlineKeyboard().text(
+    '✅ Я на месте',
+    `participant:present:${tournamentId}`,
+  );
 }
 
 /**
@@ -288,14 +390,34 @@ export function getMatchKeyboard(
     keyboard.text('📝 Внести результат', `match:report:${match.id}`).row();
   }
 
-  // Scheduled match - allow starting (if both players are set)
+  const called = isMatchCalled(match);
+
+  // Called to the table - the player confirms presence
+  if (called && isParticipant) {
+    const readyAt = isPlayer1 ? match.player1ReadyAt : match.player2ReadyAt;
+    if (!readyAt) {
+      keyboard.text('🙋 Я у стола', `match:ready:${match.id}`).row();
+    }
+  }
+
+  // Scheduled match - allow starting (if both players are set). With
+  // auto-seating the table queue starts matches, so only admin/referee may
+  // start one by hand; players start their own only in per-match scheduling.
   if (
     match.status === 'scheduled' &&
     match.player1Id &&
     match.player2Id &&
-    isParticipant
+    (canManage || (isParticipant && tournament.scheduleMode === 'per_match'))
   ) {
     keyboard.text('▶️ Начать матч', `match:start:${match.id}`).row();
+  }
+
+  // Called match nobody started yet - the referee's no-show tools
+  if (called && canManage) {
+    keyboard
+      .text('⏸ Отложить', `match:postpone:${match.id}`)
+      .text('⏳ +5 мин', `match:extend:${match.id}`)
+      .row();
   }
 
   // Pending confirmation - show confirm/dispute for opponent

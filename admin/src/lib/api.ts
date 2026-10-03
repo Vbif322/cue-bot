@@ -241,6 +241,12 @@ export const tournamentsApi = {
       { method: 'PATCH', body: JSON.stringify({ action: 'reject' }) },
     ),
 
+  markParticipantPresent: (tournamentId: string, userId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/tournaments/${tournamentId}/participants/${userId}/present`,
+      { method: 'POST' },
+    ),
+
   setParticipantSeed: (
     tournamentId: string,
     userId: string,
@@ -292,6 +298,31 @@ export const matchesApi = {
 
   start: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/start`, { method: 'POST' }),
+
+  /** Called match: mark `userId` present for them; the second mark starts it. */
+  markReady: (id: string, userId: string) =>
+    apiFetch<{ started: boolean }>(`/api/matches/${id}/ready`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    }),
+
+  /** Called match: free its table for the next one, mark no-shows absent. */
+  postpone: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/postpone`, {
+      method: 'POST',
+    }),
+
+  extendCall: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/extend-call`, {
+      method: 'POST',
+    }),
+
+  /** Technical loss for the player in `absentSlot` who didn't show up. */
+  noShow: (id: string, absentSlot: 1 | 2) =>
+    apiFetch<{ ok: boolean }>(`/api/matches/${id}/no-show`, {
+      method: 'POST',
+      body: JSON.stringify({ absentSlot }),
+    }),
 
   report: (
     id: string,

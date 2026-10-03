@@ -1,4 +1,10 @@
-import { integer, primaryKey, uuid, varchar } from 'drizzle-orm/pg-core';
+import {
+  integer,
+  primaryKey,
+  timestamp,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
 import type { UUID } from 'crypto';
 
 import { createdAt, enumCheck, prodSchema } from '../schemaHelpers.js';
@@ -28,6 +34,10 @@ export const tournamentParticipants = prodSchema.table(
       .references(() => users.id, { onDelete: 'cascade' }),
     status: varchar({ enum: participantStatus }).notNull().default('pending'),
     seed: integer(),
+    // Set when a referee postpones a called match because this player didn't
+    // show up: the table queue skips the player's matches until they report
+    // back («Я на месте») or a referee clears it. Null = present.
+    absentSince: timestamp('absent_since'),
     createdAt,
   },
   (table) => [
