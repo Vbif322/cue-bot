@@ -8,6 +8,7 @@ import MatchDetailPage from './pages/MatchDetailPage.tsx';
 import UsersPage from './pages/UsersPage.tsx';
 import UserDetailPage from './pages/UserDetailPage.tsx';
 import VenuesPage from './pages/VenuesPage.tsx';
+import LeaderboardPage from './pages/LeaderboardPage.tsx';
 
 export default function App() {
   const { data, isLoading } = useMe();
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/venues" element={<VenuesPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/users/:id" element={<UserDetailPage />} />
+        <Route path="/leaderboard" element={<LeaderboardPage />} />
         <Route path="*" element={<Navigate to="/tournaments" replace />} />
       </Routes>
     </Layout>

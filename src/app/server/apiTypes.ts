@@ -2,7 +2,12 @@
 // read-model types. The future player SPA (Этап 5) imports from here via its
 // own alias; the admin `@server` alias (→ src/admin/server) is untouched.
 
-export type { UserRole, ApiUser, ApiUserStats } from '../../bot/@types/user.js';
+export type {
+  UserRole,
+  ApiUser,
+  ApiUserStats,
+  ApiMaxBreakLeaderboardEntry,
+} from '../../bot/@types/user.js';
 export type { AppUser } from '../../services/userService.js';
 export type {
   TournamentStatus,
