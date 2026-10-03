@@ -110,6 +110,18 @@ export interface MeResponse {
 }
 
 export const auth = {
+  requestCode: (email: string) =>
+    apiFetch<{ ok: true }>('/api/auth/request-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  verifyCode: (email: string, code: string) =>
+    apiFetch<{ user: NonNullable<MeResponse['user']> }>(
+      '/api/auth/verify-code',
+      { method: 'POST', body: JSON.stringify({ email, code }) },
+    ),
+
   logout: () =>
     apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 

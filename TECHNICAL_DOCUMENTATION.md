@@ -854,7 +854,7 @@ Race-safe случайное продвижение для турниров с �
 
 #### createIpRateLimit (admin API)
 
-- IP-based token-bucket лимитер (`src/admin/server/middleware/rateLimit.ts`), применяется на минтинге токена входа (`GET /api/auth/token`, 10/мин); основан на общем `RateLimiter` из `src/lib/rateLimiter.ts`
+- IP-based token-bucket лимитер (`src/admin/server/middleware/rateLimit.ts`), применяется на минтинге токена входа (`GET /api/auth/token`, 10/мин) и на входе по коду (`/api/auth/request-code`, `/api/auth/verify-code`); основан на общем `RateLimiter` из `src/lib/rateLimiter.ts`
 
 ---
 
@@ -862,7 +862,22 @@ Race-safe случайное продвижение для турниров с �
 
 ### Аутентификация
 
-Вход в панель построен на одноразовых URL-токенах (числовых кодов нет):
+Основной способ — беспарольный вход по коду на почту, как на сайте игрока:
+
+1. `POST /api/auth/request-code` `{email}` выпускает 6-значный код (`email_login_codes`, TTL 10 мин,
+   5 попыток) для **любого** адреса и всегда отвечает `200 {data:{ok:true}}`: ни существование адреса,
+   ни роль не раскрываются, в том числе по времени ответа. Коды и пер-email лимит
+   (`emailCodeLimiter`, 3 шт. + 1/5 мин) общие с `/api/app/auth`.
+2. `POST /api/auth/verify-code` `{email, code}` проверяет код и находит пользователя по
+   **подтверждённой** email-identity (`findActiveEmailUser`; новый пользователь не создаётся).
+   Неверный код, отсутствующая identity и удалённый аккаунт дают одинаковый
+   `400 'Неверный или просроченный код'`. Если код верный, но роль не `admin`, ответ `403`.
+   При успехе выдаётся `admin_token` (24 ч).
+3. Лимиты по IP: request 10/15 мин, verify 20/15 мин. В production оба маршрута отвечают 404,
+   если `Host` не совпадает с хостом `ADMIN_BASE_URL`, чтобы `admin_token` не оказался на
+   публичном хосте игрока.
+
+Дополнительно работают одноразовые URL-токены. Они нужны админам без привязанной почты:
 
 1. Админ в боте вызывает `/dashboard`
 2. Бот создаёт запись в `login_tokens` (32-символьный hex, TTL 5 минут) и присылает WebApp-кнопку со ссылкой `…/api/auth/token?t={token}`

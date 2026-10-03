@@ -150,6 +150,30 @@ export async function findOrCreateEmailUser(
 }
 
 /**
+ * Ищет активный аккаунт по подтверждённой email-identity, НЕ создавая новый (вход
+ * в админку: туда пускаем только уже существующих пользователей). `users.email` не
+ * учитывается — он неуникален и не подтверждён. `null` — identity нет, адрес не
+ * подтверждён или аккаунт soft-deleted. `email` должен быть нормализован.
+ */
+export async function findActiveEmailUser(
+  email: string,
+): Promise<DbUser | null> {
+  const identity = await db.query.userIdentities.findFirst({
+    where: and(
+      eq(userIdentities.provider, 'email'),
+      eq(userIdentities.providerId, email),
+    ),
+  });
+  if (!identity?.emailVerifiedAt) return null;
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, identity.userId),
+  });
+  if (user?.deletedAt !== null) return null;
+  return user;
+}
+
+/**
  * Привязывает email-identity к УЖЕ существующему аккаунту `userId` (зеркало
  * привязки Telegram, но для почты — вход по коду её подтверждает). Всё в одной
  * транзакции; вызывать только после успешной проверки кода на этот адрес.
