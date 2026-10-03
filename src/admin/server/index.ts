@@ -9,11 +9,13 @@ import { createAppTournamentsRouter } from '../../app/server/routes/tournaments.
 import { createAppMatchesRouter } from '../../app/server/routes/matches.js';
 import { createAppMeRouter } from '../../app/server/routes/me.js';
 import { createAppNotificationsRouter } from '../../app/server/routes/notifications.js';
+import { createAppLeaderboardRouter } from '../../app/server/routes/leaderboard.js';
 import { createTournamentsRouter } from './routes/tournaments.js';
 import { createMatchesRouter } from './routes/matches.js';
 import { createUsersRouter } from './routes/users.js';
 import { createTablesRouter } from './routes/tables.js';
 import { createVenuesRouter } from './routes/venues.js';
+import { createLeaderboardRouter } from './routes/leaderboard.js';
 
 export function createAdminServer() {
   const app = new Hono();
@@ -76,11 +78,12 @@ export function createAdminServer() {
   app.route('/api/app/auth', createAppAuthRouter());
 
   // REST API игрока для SPA app/ (Этап 4). Каждый роутер сам вешает requireUser
-  // (кроме публичных GET-ов ленты/карточки внутри tournaments).
+  // (кроме публичных GET-ов ленты/карточки внутри tournaments и leaderboard).
   app.route('/api/app/tournaments', createAppTournamentsRouter());
   app.route('/api/app/matches', createAppMatchesRouter(bot.api));
   app.route('/api/app/me', createAppMeRouter());
   app.route('/api/app/notifications', createAppNotificationsRouter());
+  app.route('/api/app/leaderboard', createAppLeaderboardRouter());
 
   // Protected routes
   app.route('/api/tournaments', createTournamentsRouter(bot.api));
@@ -88,6 +91,7 @@ export function createAdminServer() {
   app.route('/api/users', createUsersRouter());
   app.route('/api/tables', createTablesRouter());
   app.route('/api/venues', createVenuesRouter());
+  app.route('/api/leaderboard', createLeaderboardRouter());
 
   return app;
 }

@@ -19,6 +19,7 @@ const NAV: NavEntry[] = [
   { to: '/', label: 'Турниры', end: true },
   { to: '/matches', label: 'Матчи' },
   { to: '/my/tournaments', label: 'Мои турниры' },
+  { to: '/leaderboard', label: 'Лидеры' },
   // { to: '/notifications', label: 'Уведомления', badge: true },
   { to: '/profile', label: 'Профиль' },
 ];
@@ -27,6 +28,7 @@ const TITLES: Record<string, string> = {
   '/': 'Турниры',
   '/matches': 'Матчи',
   '/my/tournaments': 'Мои турниры',
+  '/leaderboard': 'Лидеры',
   // '/notifications': 'Уведомления',
   '/profile': 'Профиль',
 };
