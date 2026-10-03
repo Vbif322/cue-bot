@@ -280,6 +280,20 @@ export interface MeStats {
   tournamentHistory: UserTournamentHistoryItem[];
 }
 
+/** Строка таблицы лидеров по брейкам (GET /api/app/leaderboard/breaks). */
+export interface AppMaxBreakEntry {
+  /** Место; при равных брейках общее (1, 1, 3). */
+  rank: number;
+  userId: string;
+  name: string | null;
+  surname: string | null;
+  username: string;
+  maxBreak: number;
+  achievedAt: string | null;
+  /** null — турнир приватный. */
+  tournament: { id: string; name: string } | null;
+}
+
 /** Результат register/join. */
 export interface RegisterResult {
   status: 'pending' | 'confirmed';

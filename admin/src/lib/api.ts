@@ -10,6 +10,7 @@ import type {
   ApiBusyElsewhere,
   ApiUser,
   ApiUserStats,
+  ApiMaxBreakLeaderboardEntry,
   ApiTable,
   ApiVenue,
   StartTournamentResponse,
@@ -34,6 +35,7 @@ export type {
   ApiBusyElsewhere,
   ApiUser,
   ApiUserStats,
+  ApiMaxBreakLeaderboardEntry,
   ApiTable,
   ApiVenue,
   StartTournamentResponse,
@@ -462,6 +464,13 @@ export const usersApi = {
 
   delete: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
+};
+
+// ── Leaderboard ──────────────────────────────────────────────────────────────
+
+export const leaderboardApi = {
+  breaks: () =>
+    apiFetch<ApiMaxBreakLeaderboardEntry[]>('/api/leaderboard/breaks'),
 };
 
 // ── Tables ────────────────────────────────────────────────────────────────────
