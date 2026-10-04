@@ -1,16 +1,28 @@
-// Пофреймовый ввод результата (снукер) для игрока: строки со счётом фреймов и
+// Пофреймовый ввод результата (снукер): строки со счётом фреймов и
 // необязательными макс. брейками. «＋ Фрейм» сохраняет фрейм на сервер, так что
-// закрытое окно ничего не теряет; итог уходит одной отправкой через
-// двухфазное подтверждение (→ pending_confirmation). Тёмная тема, контролы cb-*.
-import { useCallback } from 'react';
+// закрытое окно ничего не теряет. Игрок отправляет итог через двухфазное
+// подтверждение (→ pending_confirmation); судейский пульт подменяет API
+// черновика (`draftApi`) и сам решает, что делать с итогом (`onSubmit`).
+// Тёмная тема, контролы cb-*.
+import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFrameDraft, type DraftFrame } from '@cue-bot/ui';
+import { useFrameDraft, type DraftFrame, type FramePayload } from '@cue-bot/ui';
 import { matchesApi } from '../lib/api.ts';
-import type { AppMatch } from '../lib/types.ts';
+import type { AppMatch, AppMatchFrame } from '../lib/types.ts';
 import { Btn, Field } from './controls.tsx';
 import { ErrorBox } from './ui.tsx';
 
-const scoreInput: React.CSSProperties = { width: 54, textAlign: 'center' };
+// Узкие поля: текстовые (без стрелок спиннера) и с малым паддингом, иначе на
+// десктопе двузначное число и «бр.1» не помещаются.
+const scoreInput: React.CSSProperties = {
+  width: 54,
+  textAlign: 'center',
+  paddingLeft: 4,
+  paddingRight: 4,
+};
+
+/** Только цифры: поле текстовое, `type=number` не фильтрует ввод за нас. */
+const digits = (v: string) => v.replace(/\D/g, '');
 
 const linkButton: React.CSSProperties = {
   background: 'none',
@@ -19,33 +31,65 @@ const linkButton: React.CSSProperties = {
   padding: 4,
 };
 
+/** Источник черновика фреймов, если не API игрока (судейский пульт). */
+export interface FramesDraftApi {
+  load: () => Promise<AppMatchFrame[]>;
+  saveFrame: (n: number, frame: FramePayload) => Promise<AppMatchFrame[]>;
+  deleteLastFrame: () => Promise<AppMatchFrame[]>;
+}
+
 export default function FramesReport({
   match,
   winScore,
   onDone,
+  draftApi,
+  onSubmit,
+  submitting = false,
+  title = 'Внести результат по фреймам',
+  submitLabel = 'Отправить результат',
 }: {
   match: AppMatch;
   winScore: number;
-  onDone: () => void;
+  onDone?: () => void;
+  draftApi?: FramesDraftApi;
+  /** Итог забирает родитель (например, подтверждение судьи) вместо отправки игроком. */
+  onSubmit?: (frames: FramePayload[]) => void;
+  submitting?: boolean;
+  title?: string;
+  submitLabel?: string;
 }) {
   const queryClient = useQueryClient();
+  // Отдельный ключ кэша у пульта: другой эндпоинт (права судьи, не игрока).
+  const isReferee = draftApi !== undefined;
+  const framesKey = useMemo(
+    () =>
+      isReferee
+        ? ['referee', 'match-frames', match.id]
+        : ['match-frames', match.id],
+    [isReferee, match.id],
+  );
 
-  const { data: savedFrames } = useQuery({
-    queryKey: ['match-frames', match.id],
-    queryFn: () => matchesApi.frames(match.id),
+  const { data: savedFrames, error: loadError } = useQuery({
+    queryKey: framesKey,
+    queryFn: () => (draftApi ? draftApi.load() : matchesApi.frames(match.id)),
   });
 
   const onSynced = useCallback(
-    (frames: DraftFrame[]) =>
-      queryClient.setQueryData(['match-frames', match.id], frames),
-    [queryClient, match.id],
+    (frames: DraftFrame[]) => queryClient.setQueryData(framesKey, frames),
+    [queryClient, framesKey],
   );
 
   const draft = useFrameDraft({
     savedFrames,
     winScore,
-    saveFrame: (n, frame) => matchesApi.saveFrame(match.id, n, frame),
-    deleteLastFrame: () => matchesApi.deleteLastFrame(match.id),
+    saveFrame: (n, frame) =>
+      draftApi
+        ? draftApi.saveFrame(n, frame)
+        : matchesApi.saveFrame(match.id, n, frame),
+    deleteLastFrame: () =>
+      draftApi
+        ? draftApi.deleteLastFrame()
+        : matchesApi.deleteLastFrame(match.id),
     onSynced,
   });
   const { rows, validation } = draft;
@@ -55,20 +99,48 @@ export default function FramesReport({
       if (!('frames' in validation)) throw new Error(validation.error);
       return matchesApi.reportFrames(match.id, validation.frames);
     },
-    onSuccess: onDone,
+    onSuccess: () => onDone?.(),
   });
+  const submit = () => {
+    if (!onSubmit) {
+      mutation.mutate();
+      return;
+    }
+    if ('frames' in validation) onSubmit(validation.frames);
+  };
+  const pending = mutation.isPending || submitting;
+  const heading = (
+    <div
+      style={{
+        fontSize: 13,
+        fontWeight: 600,
+        color: 'var(--text-secondary)',
+      }}
+    >
+      {title}
+    </div>
+  );
+
+  // До загрузки черновика пустая форма выглядит рабочей, а введённое поверх
+  // затрётся сохранёнными фреймами — поэтому не показываем её вовсе.
+  if (draft.loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {heading}
+        {loadError ? (
+          <ErrorBox message={loadError.message} />
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>
+            Загрузка фреймов…
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div
-        style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: 'var(--text-secondary)',
-        }}
-      >
-        Внести результат по фреймам
-      </div>
+      {heading}
 
       {rows.map((row, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -86,44 +158,44 @@ export default function FramesReport({
             {row.saved && '✓'}
           </span>
           <Field
-            type="number"
-            min={0}
+            type="text"
             inputMode="numeric"
+            autoComplete="off"
             aria-label={`Фрейм ${i + 1}, счёт 1`}
             value={row.p1}
-            onChange={(e) => draft.setCell(i, { p1: e.target.value })}
+            onChange={(e) => draft.setCell(i, { p1: digits(e.target.value) })}
             style={scoreInput}
           />
           <span style={{ color: 'var(--text-disabled)', fontWeight: 700 }}>
             :
           </span>
           <Field
-            type="number"
-            min={0}
+            type="text"
             inputMode="numeric"
+            autoComplete="off"
             aria-label={`Фрейм ${i + 1}, счёт 2`}
             value={row.p2}
-            onChange={(e) => draft.setCell(i, { p2: e.target.value })}
+            onChange={(e) => draft.setCell(i, { p2: digits(e.target.value) })}
             style={scoreInput}
           />
           <Field
-            type="number"
-            min={0}
+            type="text"
             inputMode="numeric"
+            autoComplete="off"
             placeholder="бр.1"
             aria-label={`Фрейм ${i + 1}, брейк 1`}
             value={row.b1}
-            onChange={(e) => draft.setCell(i, { b1: e.target.value })}
+            onChange={(e) => draft.setCell(i, { b1: digits(e.target.value) })}
             style={scoreInput}
           />
           <Field
-            type="number"
-            min={0}
+            type="text"
             inputMode="numeric"
+            autoComplete="off"
             placeholder="бр.2"
             aria-label={`Фрейм ${i + 1}, брейк 2`}
             value={row.b2}
-            onChange={(e) => draft.setCell(i, { b2: e.target.value })}
+            onChange={(e) => draft.setCell(i, { b2: digits(e.target.value) })}
             style={scoreInput}
           />
           {draft.canSaveRow(i) && (
@@ -185,10 +257,10 @@ export default function FramesReport({
 
       <Btn
         block
-        disabled={mutation.isPending || draft.busy || 'error' in validation}
-        onClick={() => mutation.mutate()}
+        disabled={pending || draft.busy || 'error' in validation}
+        onClick={submit}
       >
-        {mutation.isPending ? 'Отправка…' : 'Отправить результат'}
+        {pending ? 'Отправка…' : submitLabel}
       </Btn>
     </div>
   );

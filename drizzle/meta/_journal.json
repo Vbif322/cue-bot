@@ -176,6 +176,13 @@
       "when": 1791020877125,
       "tag": "0024_match_call",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791101007070,
+      "tag": "0025_match_dispute",
+      "breakpoints": true
     }
   ]
 }

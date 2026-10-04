@@ -128,6 +128,8 @@ export interface AppMatch {
   losersNextMatchPosition: number | null;
   losersNextMatchSlot: string | null;
   tableId: string | null;
+  /** Порядок в очереди на столы, заданный судьёй; null — по сетке после заданных. */
+  queueOrder: number | null;
   /**
    * Вызов к столу (single_day): матч `scheduled` со столом и `calledAt` ждёт,
    * пока оба игрока подтвердят явку (player*ReadyAt), до `callDeadlineAt`.
@@ -136,6 +138,11 @@ export interface AppMatch {
   callDeadlineAt: string | null;
   player1ReadyAt: string | null;
   player2ReadyAt: string | null;
+  /** Метка спора: стоит, пока судья не зафиксирует итог (или матч не завершится). */
+  disputedAt: string | null;
+  disputedBy: string | null;
+  /** Оспоренный счёт для показа, например «3:1 (74:15, …)». */
+  disputedScore: string | null;
   createdAt: string;
   updatedAt: string;
   player1Username?: string | null;
@@ -226,7 +233,8 @@ export type NotificationType =
   | 'match_result_pending'
   | 'disqualification'
   | 'tournament_invitation'
-  | 'tournament_cancelled';
+  | 'tournament_cancelled'
+  | 'match_no_show';
 
 export interface AppNotification {
   id: string;
@@ -297,4 +305,84 @@ export interface AppMaxBreakEntry {
 /** Результат register/join. */
 export interface RegisterResult {
   status: 'pending' | 'confirmed';
+}
+
+// ── Судейский пульт (/api/app/referee/*) ─────────────────────────────────────
+
+/** Поля турнира, нужные экранам судьи. */
+export interface RefereeTournamentInfo {
+  id: string;
+  name: string;
+  status: TournamentStatus;
+  format: TournamentFormat;
+  discipline: string;
+  scheduleMode: TournamentScheduleMode;
+  winScore: number;
+}
+
+export interface RefereeTournamentCounts {
+  inProgress: number;
+  pending: number;
+  /** Ждут стол: оба игрока известны, стола нет. */
+  queued: number;
+  /** Вызваны к столу, явка не подтверждена обоими. */
+  called: number;
+  overdueCalls: number;
+  disputed: number;
+}
+
+export interface RefereeTournamentSummary extends RefereeTournamentInfo {
+  counts: RefereeTournamentCounts;
+}
+
+export interface RefereeAttentionItem {
+  reason: 'disputed' | 'overdue_call';
+  tournamentName: string;
+  match: AppMatch;
+}
+
+/** GET /referee/tournaments. Пустой список турниров — пользователь не судья. */
+export interface RefereeOverview {
+  tournaments: RefereeTournamentSummary[];
+  attention: RefereeAttentionItem[];
+}
+
+export interface RefereeTable {
+  id: string;
+  name: string;
+}
+
+export interface RefereeAbsentPlayer {
+  userId: string;
+  username: string;
+  name: string | null;
+  surname: string | null;
+  absentSince: string;
+}
+
+export interface RefereeBusyElsewhere {
+  userId: string;
+  tournamentId: string;
+  tournamentName: string;
+}
+
+/** GET /referee/tournaments/:id/board. */
+export interface RefereeBoard {
+  tournament: RefereeTournamentInfo;
+  /** Незавершённые матчи (scheduled / in_progress / pending_confirmation). */
+  matches: AppMatch[];
+  /** Последние завершённые, новые первыми. */
+  recent: AppMatch[];
+  tables: RefereeTable[];
+  absent: RefereeAbsentPlayer[];
+  busyElsewhere: RefereeBusyElsewhere[];
+}
+
+/** GET /referee/matches/:id. */
+export interface RefereeMatchDetail {
+  match: AppMatch;
+  tournament: RefereeTournamentInfo;
+  winScore: number;
+  frames: AppMatchFrame[];
+  tables: RefereeTable[];
 }

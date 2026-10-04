@@ -31,6 +31,7 @@ import { sportOfDiscipline } from '@/shared/tournament/disciplines.js';
 import type { Tournament } from '@/bot/@types/tournament.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
 import { getBracketReadModel } from '@/services/bracketReadService.js';
+import { getMatchDecisionMakers } from '@/services/refereeService.js';
 import {
   extendCall,
   markParticipantPresent,
@@ -43,7 +44,9 @@ import {
   notifyMatchScheduled,
   notifyResultPending,
   notifyResultConfirmed,
+  notifyMatchScheduleCleared,
   notifyResultDisputed,
+  disputeContact,
 } from '@/services/notificationService.js';
 
 import {
@@ -532,8 +535,21 @@ matchCommands.callbackQuery(/^msch:clear:(.+)$/, async (ctx) => {
     return;
   }
 
-  await setMatchSchedule(matchIdUUID, null);
+  const cleared = await setMatchSchedule(matchIdUUID, null);
   await ctx.answerCallbackQuery({ text: 'Время сброшено' });
+
+  if (cleared.previous) {
+    try {
+      const tournament = await db.query.tournaments.findFirst({
+        where: eq(tournaments.id, match.tournamentId),
+      });
+      if (tournament) {
+        await notifyMatchScheduleCleared(ctx.api, match, tournament.name);
+      }
+    } catch (error) {
+      console.error('Failed to notify cleared match schedule:', error);
+    }
+  }
 
   await refreshMatchCard(ctx, matchIdUUID);
 });
@@ -1186,23 +1202,28 @@ matchCommands.callbackQuery(/^match:dispute:(.+)$/, async (ctx) => {
     return;
   }
 
+  const match = await getMatch(matchIdUUID);
+  const byReferees = match
+    ? (await getMatchDecisionMakers(match.tournamentId)).byReferees
+    : true;
   await ctx.answerCallbackQuery(
-    'Результат оспорен. Обратитесь к судье турнира.',
+    `Результат оспорен. Обратитесь ${disputeContact(byReferees)}.`,
   );
 
   // Show updated match and send notifications
-  const match = await getMatch(matchIdUUID);
   if (match) {
     // Notify both players about the dispute
     try {
-      await notifyResultDisputed(ctx.api, match, userId);
+      await notifyResultDisputed(ctx.api, match, userId, result.previous);
     } catch (error) {
       console.error('Failed to send result disputed notification:', error);
       // Don't fail the whole operation if notification fails
     }
 
     await refreshMatchCard(ctx, matchIdUUID, {
-      extraText: '\n\n⚠️ Результат оспорен. Ожидайте решения судьи.',
+      extraText: `\n\n⚠️ Результат оспорен. Ожидайте решения ${
+        byReferees ? 'судьи' : 'организатора'
+      }.`,
     });
   }
 });

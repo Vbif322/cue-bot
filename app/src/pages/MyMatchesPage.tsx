@@ -5,7 +5,7 @@ import { MatchStatusBadge } from '@cue-bot/ui';
 import { meApi } from '../lib/api.ts';
 import type { AppMatch } from '../lib/types.ts';
 import { useMe } from '../lib/useAuth.ts';
-import { displayName } from '../lib/format.ts';
+import { displayName, formatDateTime } from '../lib/format.ts';
 import MatchModal from '../components/MatchModal.tsx';
 import { EmptyState, ErrorBox, Loader } from '../components/ui.tsx';
 
@@ -85,6 +85,11 @@ function MatchRow({
           {calledMe && (
             <span style={{ fontSize: 12, color: 'var(--color-tone-warning-fg)', fontWeight: 600 }}>
               вызов к столу{match.tableName ? ` «${match.tableName}»` : ''}
+            </span>
+          )}
+          {match.status === 'scheduled' && match.scheduledAt && !calledMe && (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {formatDateTime(match.scheduledAt)}
             </span>
           )}
         </div>

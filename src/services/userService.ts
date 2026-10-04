@@ -589,6 +589,10 @@ export async function mergeAccountIntoTelegram(
       .update(matches)
       .set({ confirmedBy: survivorId })
       .where(eq(matches.confirmedBy, losingId));
+    await tx
+      .update(matches)
+      .set({ disputedBy: survivorId })
+      .where(eq(matches.disputedBy, losingId));
 
     await tx
       .update(disqualifications)

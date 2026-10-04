@@ -358,10 +358,9 @@ export const matchesApi = {
       body: JSON.stringify({ confirmerId }),
     }),
 
-  dispute: (id: string, userId: string) =>
+  dispute: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/dispute`, {
       method: 'POST',
-      body: JSON.stringify({ userId }),
     }),
 
   setTechnical: (id: string, winnerId: string, reason: string) =>
@@ -381,10 +380,15 @@ export const matchesApi = {
       `/api/matches/tournament/${tournamentId}/busy-elsewhere`,
     ),
 
-  setQueue: (tournamentId: string, matchIds: string[]) =>
+  /** `expectedMatchIds` is the order the admin saw; a stale one is rejected. */
+  setQueue: (
+    tournamentId: string,
+    matchIds: string[],
+    expectedMatchIds: string[],
+  ) =>
     apiFetch<{ ok: boolean }>(`/api/matches/tournament/${tournamentId}/queue`, {
       method: 'PUT',
-      body: JSON.stringify({ matchIds }),
+      body: JSON.stringify({ matchIds, expectedMatchIds }),
     }),
 
   setSchedule: (id: string, scheduledAt: string | null) =>

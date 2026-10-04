@@ -14,6 +14,9 @@ import type {
   MeStats,
   AppMaxBreakEntry,
   RegisterResult,
+  RefereeOverview,
+  RefereeBoard,
+  RefereeMatchDetail,
 } from './types.ts';
 
 export * from './types.ts';
@@ -329,5 +332,107 @@ export const notificationsApi = {
   markAllRead: () =>
     apiFetch<{ ok: boolean }>('/api/app/notifications/read-all', {
       method: 'POST',
+    }),
+};
+
+// ── Судейский пульт ───────────────────────────────────────────────────────────
+
+type FrameBody = {
+  player1Points: number;
+  player2Points: number;
+  player1Break?: number | null;
+  player2Break?: number | null;
+};
+
+const refereePost = <T = { ok: boolean }>(path: string, body?: unknown) =>
+  apiFetch<T>(`/api/app/referee${path}`, {
+    method: 'POST',
+    ...(body === undefined ? {} : jsonBody(body)),
+  });
+
+export const refereeApi = {
+  overview: () => apiFetch<RefereeOverview>('/api/app/referee/tournaments'),
+
+  board: (tournamentId: string) =>
+    apiFetch<RefereeBoard>(
+      `/api/app/referee/tournaments/${tournamentId}/board`,
+    ),
+
+  /** `expectedMatchIds` — порядок, который видел судья: устаревший отклоняется. */
+  setQueue: (
+    tournamentId: string,
+    matchIds: string[],
+    expectedMatchIds: string[],
+  ) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/app/referee/tournaments/${tournamentId}/queue`,
+      { method: 'PUT', ...jsonBody({ matchIds, expectedMatchIds }) },
+    ),
+
+  markPresent: (tournamentId: string, userId: string) =>
+    refereePost<{ wasAbsent: boolean }>(
+      `/tournaments/${tournamentId}/participants/${userId}/present`,
+    ),
+
+  match: (id: string) =>
+    apiFetch<RefereeMatchDetail>(`/api/app/referee/matches/${id}`),
+
+  start: (id: string) => refereePost(`/matches/${id}/start`),
+
+  /** Явка за игрока; вторая отметка начинает матч. */
+  ready: (id: string, slot: 1 | 2) =>
+    refereePost<{ started: boolean }>(`/matches/${id}/ready`, { slot }),
+
+  extendCall: (id: string) => refereePost(`/matches/${id}/extend-call`),
+
+  postpone: (id: string) => refereePost(`/matches/${id}/postpone`),
+
+  noShow: (id: string, absentSlot: 1 | 2) =>
+    refereePost(`/matches/${id}/no-show`, { absentSlot }),
+
+  technical: (id: string, winnerSlot: 1 | 2, reason?: string) =>
+    refereePost(`/matches/${id}/technical`, {
+      winnerSlot,
+      ...(reason ? { reason } : {}),
+    }),
+
+  /** Итоговый счёт — окончательный, без подтверждения игроков. */
+  result: (id: string, player1Score: number, player2Score: number) =>
+    refereePost<{ wasDisputed: boolean }>(`/matches/${id}/result`, {
+      player1Score,
+      player2Score,
+    }),
+
+  resultFrames: (id: string, frames: FrameBody[]) =>
+    refereePost<{ wasDisputed: boolean }>(`/matches/${id}/result-frames`, {
+      frames,
+    }),
+
+  saveFrame: (id: string, frameNumber: number, frame: FrameBody) =>
+    apiFetch<AppMatchFrame[]>(
+      `/api/app/referee/matches/${id}/frames/${frameNumber}`,
+      { method: 'PUT', ...jsonBody(frame) },
+    ),
+
+  deleteLastFrame: (id: string) =>
+    apiFetch<AppMatchFrame[]>(`/api/app/referee/matches/${id}/frames/last`, {
+      method: 'DELETE',
+    }),
+
+  /** 409 — стол держит другой матч; повторить с `force`, чтобы забрать. */
+  setTable: (id: string, tableId: string | null, force = false) =>
+    apiFetch<{ ok: boolean }>(`/api/app/referee/matches/${id}/table`, {
+      method: 'PUT',
+      ...jsonBody({ tableId, ...(force ? { force } : {}) }),
+    }),
+
+  call: (id: string, tableId: string) =>
+    refereePost(`/matches/${id}/call`, { tableId }),
+
+  /** ISO-8601 UTC («настенное» время, как в боте) или null — сбросить. */
+  setSchedule: (id: string, scheduledAt: string | null) =>
+    apiFetch<{ ok: boolean }>(`/api/app/referee/matches/${id}/schedule`, {
+      method: 'PUT',
+      ...jsonBody({ scheduledAt }),
     }),
 };

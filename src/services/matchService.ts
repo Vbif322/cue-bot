@@ -51,7 +51,9 @@ type DownstreamVisitor = (
 
 import { completeTournament, getTournament } from './tournamentService.js';
 import {
+  notifyCallCancelled,
   notifyMatchCalled,
+  notifyRefereeResult,
   notifyTechnicalResult,
 } from './notificationService.js';
 import { MATCH_CALL_TIMEOUT_MS } from './matchCall.const.js';
@@ -70,6 +72,7 @@ import {
 import { errorMessage } from '@/utils/errors.js';
 import { formatFullName } from '@/utils/messageHelpers.js';
 import { getTournamentTables } from './tableService.js';
+import { ACTIVE_MATCH_STATUSES } from './refereeService.js';
 
 /**
  * Effective "race to N" for a match.
@@ -568,6 +571,17 @@ export const CLEARED_CALL = {
   noShowAlertedAt: null,
 } as const;
 
+/** Columns of the dispute marker (see matches schema); null them on completion. */
+export const CLEARED_DISPUTE = {
+  disputedAt: null,
+  disputedBy: null,
+  disputedScore: null,
+} as const;
+
+/** Error returned when a status-guarded UPDATE lost a race. */
+const STALE_STATUS_ERROR =
+  'Статус матча изменился. Попробуйте обновить страницу.';
+
 /**
  * Atomically give a match a table and call its players to it. The match stays
  * `scheduled` (holding the table and occupying both players) until both
@@ -622,19 +636,151 @@ export async function assignTableAndCall(
 }
 
 /**
+ * Referee: call a waiting match to a specific table. Unlike assignTableAndCall
+ * (the auto-seating path, which picks a free table itself) the table comes
+ * from the client, so it is checked here: it must belong to the tournament
+ * and be free — in SQL, in the same UPDATE, so two calls can't share it. A
+ * table reserved for this very match by hand (setMatchTable) is allowed.
+ */
+export async function callMatchToTable(
+  matchId: UUID,
+  tableId: UUID,
+  botApi?: Api,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const match = await getMatch(matchId);
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status !== 'scheduled' || match.calledAt !== null) {
+    return { success: false, error: 'Матч уже вызван или начат' };
+  }
+  if (!match.player1Id || !match.player2Id) {
+    return { success: false, error: 'У матча нет обоих игроков' };
+  }
+
+  const [link] = await db
+    .select({ tableId: tournamentTables.tableId })
+    .from(tournamentTables)
+    .where(
+      and(
+        eq(tournamentTables.tournamentId, match.tournamentId),
+        eq(tournamentTables.tableId, tableId),
+      ),
+    );
+  if (!link) return { success: false, error: 'Стол не принадлежит турниру' };
+
+  const now = new Date();
+  const players = [match.player1Id, match.player2Id];
+  const called = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(matches)
+      .set({
+        ...CLEARED_CALL,
+        tableId,
+        calledAt: now,
+        callDeadlineAt: new Date(now.getTime() + MATCH_CALL_TIMEOUT_MS),
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(matches.id, matchId),
+          eq(matches.status, 'scheduled'),
+          isNull(matches.calledAt),
+          or(isNull(matches.tableId), eq(matches.tableId, tableId)),
+          noOtherMatchOccupyingPlayers(matchId),
+          notExists(
+            db
+              .select({ one: sql`1` })
+              .from(busyMatchAlias)
+              .where(
+                and(
+                  eq(busyMatchAlias.tableId, tableId),
+                  ne(busyMatchAlias.id, matchId),
+                  inArray(busyMatchAlias.status, ACTIVE_MATCH_STATUSES),
+                ),
+              ),
+          ),
+        ),
+      )
+      .returning({ id: matches.id });
+    if (!updated.length) return false;
+
+    // The referee called them by hand, so they are no longer "absent"; if
+    // they don't show up, the usual no-show flow marks them again.
+    await tx
+      .update(tournamentParticipants)
+      .set({ absentSince: null })
+      .where(
+        and(
+          eq(tournamentParticipants.tournamentId, match.tournamentId),
+          inArray(tournamentParticipants.userId, players),
+          isNotNull(tournamentParticipants.absentSince),
+        ),
+      );
+    return true;
+  });
+
+  if (!called) {
+    return {
+      success: false,
+      error: 'Стол занят, матч уже вызван или игрок играет другой матч',
+    };
+  }
+
+  if (botApi) {
+    try {
+      const fresh = await getMatch(matchId);
+      const tournament = fresh ? await getTournament(fresh.tournamentId) : null;
+      if (fresh && tournament) {
+        await notifyMatchCalled(botApi, fresh, tournament.name);
+      }
+    } catch (err) {
+      console.error(`Failed to notify match call for ${matchId}:`, err);
+    }
+  }
+
+  return { success: true };
+}
+
+/**
+ * The unfinished match (other than `excludeMatchId`) holding a table — being
+ * played, awaiting confirmation, called or reserved by hand — or null. Lets a
+ * caller warn before setMatchTable silently takes the table away from it.
+ */
+export async function findMatchHoldingTable(
+  tableId: UUID,
+  excludeMatchId: UUID,
+): Promise<MatchWithPlayers | null> {
+  const [row] = await selectMatchesWithPlayers()
+    .where(
+      and(
+        eq(matches.tableId, tableId),
+        ne(matches.id, excludeMatchId),
+        inArray(matches.status, ACTIVE_MATCH_STATUSES),
+      ),
+    )
+    .limit(1);
+  return row ? mapMatchRow(row) : null;
+}
+
+/**
  * Admin override: set / change / clear a match's table. Bypasses the
  * scheduled+empty gate used by assignTableAndCall and does not touch
- * status, startedAt, or trigger notifications. If another in-progress or
- * called match currently holds the requested table, it is freed in the same
- * transaction so two matches can't end up sharing a tableId; a called match
- * freed that way (or cleared here) is un-called and goes back to the queue.
+ * status or startedAt. If another in-progress or called match currently holds
+ * the requested table, it is freed in the same transaction so two matches
+ * can't end up sharing a tableId; a called match freed that way (or cleared
+ * here) is un-called and goes back to the queue. With `botApi` the players of
+ * such un-called matches are told their call is cancelled.
  */
 export async function setMatchTable(
   matchId: UUID,
   tableId: UUID | null,
+  botApi?: Api,
 ): Promise<{ success: true } | { success: false; error: string }> {
   const [match] = await db
-    .select({ tournamentId: matches.tournamentId })
+    .select({
+      tournamentId: matches.tournamentId,
+      status: matches.status,
+      calledAt: matches.calledAt,
+    })
     .from(matches)
     .where(eq(matches.id, matchId));
 
@@ -656,7 +802,8 @@ export async function setMatchTable(
     }
   }
 
-  await db.transaction(async (tx) => {
+  const uncalled = await db.transaction(async (tx) => {
+    const ids: UUID[] = [];
     if (tableId !== null) {
       await tx
         .update(matches)
@@ -668,7 +815,7 @@ export async function setMatchTable(
             ne(matches.id, matchId),
           ),
         );
-      await tx
+      const displaced = await tx
         .update(matches)
         .set({ ...CLEARED_CALL, tableId: null, updatedAt: new Date() })
         .where(
@@ -678,7 +825,9 @@ export async function setMatchTable(
             isNotNull(matches.calledAt),
             ne(matches.id, matchId),
           ),
-        );
+        )
+        .returning({ id: matches.id });
+      ids.push(...displaced.map((m) => m.id));
     }
 
     await tx
@@ -689,7 +838,29 @@ export async function setMatchTable(
         updatedAt: new Date(),
       })
       .where(eq(matches.id, matchId));
+    if (
+      tableId === null &&
+      match.status === 'scheduled' &&
+      match.calledAt !== null
+    ) {
+      ids.push(matchId);
+    }
+    return ids;
   });
+
+  if (botApi && uncalled.length > 0) {
+    try {
+      const tournament = await getTournament(match.tournamentId);
+      for (const id of uncalled) {
+        const m = await getMatch(id);
+        if (m && tournament) {
+          await notifyCallCancelled(botApi, m, tournament.name);
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to notify cancelled call for ${matchId}:`, err);
+    }
+  }
 
   return { success: true };
 }
@@ -755,12 +926,15 @@ export async function getQueuePlayersBusyElsewhere(
  * Admin: reorder the table queue — the waiting matches (`scheduled`, no table)
  * that getNextReadyMatch hands free tables to. `matchIds` must list exactly the
  * current waiting set, so a stale list (a match started meanwhile) is rejected
- * instead of half-applied. Reordering never makes a match ready, so no table
- * assignment is re-run here.
+ * instead of half-applied. `expectedMatchIds` is the order the client saw: if
+ * someone else reordered the queue meanwhile it no longer matches the stored
+ * order and the write is rejected rather than silently overwriting theirs.
+ * Reordering never makes a match ready, so no table assignment is re-run here.
  */
 export async function setMatchQueue(
   tournamentId: UUID,
   matchIds: UUID[],
+  expectedMatchIds: UUID[],
 ): Promise<{ success: true } | { success: false; error: string }> {
   const tournament = await getTournament(tournamentId);
   if (!tournament) return { success: false, error: 'Турнир не найден' };
@@ -777,30 +951,42 @@ export async function setMatchQueue(
     };
   }
 
-  const waiting = await db
-    .select({ id: matches.id })
-    .from(matches)
-    .where(
-      and(
-        eq(matches.tournamentId, tournamentId),
-        eq(matches.status, 'scheduled'),
-        isNull(matches.tableId),
-      ),
-    );
-  const waitingIds = new Set(waiting.map((m) => m.id));
-  const requested = new Set(matchIds);
-  if (
-    requested.size !== matchIds.length ||
-    requested.size !== waitingIds.size ||
-    matchIds.some((id) => !waitingIds.has(id))
-  ) {
-    return {
-      success: false,
-      error: 'Очередь изменилась — обновите страницу',
-    };
-  }
+  const stale = {
+    success: false,
+    error: 'Очередь изменилась — обновите страницу',
+  } as const;
 
-  await db.transaction(async (tx) => {
+  return await db.transaction(async (tx) => {
+    // Lock the waiting set so two concurrent reorders can't both pass the check.
+    const waiting = await tx
+      .select({
+        id: matches.id,
+        queueOrder: matches.queueOrder,
+        round: matches.round,
+        position: matches.position,
+      })
+      .from(matches)
+      .where(
+        and(
+          eq(matches.tournamentId, tournamentId),
+          eq(matches.status, 'scheduled'),
+          isNull(matches.tableId),
+        ),
+      )
+      .for('update');
+    const byId = new Map(waiting.map((m) => [m.id, m]));
+    if (!sameIdSet(matchIds, byId) || !sameIdSet(expectedMatchIds, byId)) {
+      return stale;
+    }
+    // The client's order must agree with the stored one. Matches with an
+    // equal key (unset queue, same round/position in different brackets)
+    // may come in either order, so compare keys rather than exact ids.
+    const seen = expectedMatchIds.map((id) => byId.get(id));
+    for (const [i, cur] of seen.entries()) {
+      const prev = seen[i - 1];
+      if (prev && cur && compareQueueKey(prev, cur) > 0) return stale;
+    }
+
     const now = new Date();
     for (const [index, id] of matchIds.entries()) {
       await tx
@@ -808,9 +994,29 @@ export async function setMatchQueue(
         .set({ queueOrder: index, updatedAt: now })
         .where(eq(matches.id, id));
     }
+    return { success: true } as const;
   });
+}
 
-  return { success: true };
+/** `ids` lists every key of `byId` exactly once. */
+function sameIdSet(ids: UUID[], byId: Map<UUID, unknown>): boolean {
+  return (
+    ids.length === byId.size &&
+    new Set(ids).size === ids.length &&
+    ids.every((id) => byId.has(id))
+  );
+}
+
+/** Queue order as getNextReadyMatch sees it: set queue first, then bracket. */
+function compareQueueKey(
+  a: { queueOrder: number | null; round: number; position: number },
+  b: { queueOrder: number | null; round: number; position: number },
+): number {
+  return (
+    (a.queueOrder ?? Infinity) - (b.queueOrder ?? Infinity) ||
+    a.round - b.round ||
+    a.position - b.position
+  );
 }
 
 /**
@@ -967,7 +1173,9 @@ export async function reportResult(
   const winnerId =
     player1Score > player2Score ? match.player1Id : match.player2Id;
 
-  await db
+  // Guarded like reportResultFromFrames: a report must not overwrite one that
+  // is already pending, nor a result a referee recorded in the meantime.
+  const updated = await db
     .update(matches)
     .set({
       player1Score,
@@ -977,7 +1185,15 @@ export async function reportResult(
       status: 'pending_confirmation',
       updatedAt: new Date(),
     })
-    .where(eq(matches.id, matchId));
+    .where(
+      and(
+        eq(matches.id, matchId),
+        inArray(matches.status, ['scheduled', 'in_progress']),
+      ),
+    )
+    .returning({ id: matches.id });
+
+  if (!updated.length) return { success: false, error: STALE_STATUS_ERROR };
 
   return { success: true };
 }
@@ -1335,6 +1551,7 @@ export async function confirmResult(
       status: 'completed',
       confirmedBy: confirmerId,
       completedAt: new Date(),
+      ...CLEARED_DISPUTE,
       updatedAt: new Date(),
     })
     .where(
@@ -1355,19 +1572,55 @@ export async function confirmResult(
 }
 
 /**
- * Dispute match result
+ * Display line for a reported result: `3:1`, plus the frame breakdown when
+ * there is one — `3:1 (74:15, 60:72, …)`. Capped to fit `disputedScore`.
+ * Pure — unit-tested.
+ */
+export function formatScoreSummary(
+  player1Score: number | null,
+  player2Score: number | null,
+  frames: Pick<FrameInput, 'player1Points' | 'player2Points'>[] = [],
+): string {
+  const score = `${String(player1Score ?? '?')}:${String(player2Score ?? '?')}`;
+  const summary =
+    frames.length > 0
+      ? `${score} (${frames
+          .map((f) => `${String(f.player1Points)}:${String(f.player2Points)}`)
+          .join(', ')})`
+      : score;
+  return summary.length > 255 ? `${summary.slice(0, 254)}…` : summary;
+}
+
+/** The report a dispute rejected — the dispute itself wipes it from the row. */
+export interface DisputedReport {
+  player1Score: number | null;
+  player2Score: number | null;
+  reportedBy: UUID | null;
+  summary: string;
+}
+
+/**
+ * Dispute match result. Puts the match back into play and sets the dispute
+ * marker (disputedAt/By/Score) so referees see it until the match completes.
+ * `byAdmin`: an admin disputes from the admin panel — `userId` is the admin,
+ * who need not play in the match.
  */
 export async function disputeResult(
   matchId: UUID,
   userId: UUID,
-): Promise<{ success: boolean; error?: string }> {
+  options: { byAdmin?: boolean } = {},
+): Promise<{ success: boolean; error?: string; previous?: DisputedReport }> {
   const match = await getMatch(matchId);
 
   if (!match) return { success: false, error: 'Матч не найден' };
   if (match.status !== 'pending_confirmation') {
     return { success: false, error: 'Матч не ожидает подтверждения' };
   }
-  if (match.player1Id !== userId && match.player2Id !== userId) {
+  if (
+    options.byAdmin !== true &&
+    match.player1Id !== userId &&
+    match.player2Id !== userId
+  ) {
     return { success: false, error: 'Вы не являетесь участником этого матча' };
   }
 
@@ -1398,6 +1651,17 @@ export async function disputeResult(
     };
   }
 
+  // Read before the transaction wipes them. Frames can't change meanwhile:
+  // draft edits are guarded on scheduled/in_progress (editFrameDraft).
+  const frames = await getMatchFrames(matchId);
+  const previous: DisputedReport = {
+    player1Score: match.player1Score,
+    player2Score: match.player2Score,
+    reportedBy: match.reportedBy,
+    summary: formatScoreSummary(match.player1Score, match.player2Score, frames),
+  };
+
+  const now = new Date();
   const updated = await db.transaction(async (tx) => {
     const rows = await tx
       .update(matches)
@@ -1407,7 +1671,10 @@ export async function disputeResult(
         player2Score: null,
         winnerId: null,
         reportedBy: null,
-        updatedAt: new Date(),
+        disputedAt: now,
+        disputedBy: userId,
+        disputedScore: previous.summary,
+        updatedAt: now,
       })
       .where(
         and(
@@ -1423,13 +1690,10 @@ export async function disputeResult(
   });
 
   if (!updated.length) {
-    return {
-      success: false,
-      error: 'Статус матча изменился. Попробуйте обновить страницу.',
-    };
+    return { success: false, error: STALE_STATUS_ERROR };
   }
 
-  return { success: true };
+  return { success: true, previous };
 }
 
 /**
@@ -1459,8 +1723,11 @@ export async function setTechnicalResult(
   const player1Score = match.player1Id === winnerId ? winScore : 0;
   const player2Score = match.player2Id === winnerId ? winScore : 0;
 
-  await db.transaction(async (tx) => {
-    await tx
+  const applied = await db.transaction(async (tx) => {
+    // Status-guarded so a technical result racing a confirmation or a
+    // referee result completes the match once — advanceWinner must not run
+    // twice and place the winner in two slots.
+    const rows = await tx
       .update(matches)
       .set({
         player1Score,
@@ -1471,13 +1738,25 @@ export async function setTechnicalResult(
         technicalReason: reason,
         confirmedBy: setById,
         completedAt: new Date(),
+        ...CLEARED_CALL,
+        ...CLEARED_DISPUTE,
         updatedAt: new Date(),
       })
-      .where(eq(matches.id, matchId));
+      .where(
+        and(
+          eq(matches.id, matchId),
+          inArray(matches.status, ACTIVE_MATCH_STATUSES),
+        ),
+      )
+      .returning({ id: matches.id });
+    if (!rows.length) return false;
     // Frames saved while the match was in play don't describe a technical
     // result — drop them so they never reach frame points / max breaks.
     await deleteMatchFrames(tx, matchId);
+    return true;
   });
+
+  if (!applied) return { success: false, error: STALE_STATUS_ERROR };
 
   if (botApi) {
     try {
@@ -1491,6 +1770,151 @@ export async function setTechnicalResult(
   await advanceWinner(matchId, botApi);
 
   return { success: true };
+}
+
+export type RefereeResultInput =
+  | { kind: 'score'; player1Score: number; player2Score: number }
+  | { kind: 'frames'; frames: FrameInput[] };
+
+/**
+ * Referee records the FINAL result of a match: it goes straight to
+ * `completed` — no player confirmation — and the winner advances. Works from
+ * any active status, so it also overrides a pending player report and closes
+ * a disputed match. Snooker matches may pass the frame breakdown; an aggregate
+ * score drops any draft frames (they would no longer match it).
+ *
+ * The caller checks that `refereeId` may manage the tournament.
+ */
+export async function recordRefereeResult(
+  matchId: UUID,
+  refereeId: UUID,
+  input: RefereeResultInput,
+  botApi?: Api,
+): Promise<
+  { success: true; wasDisputed: boolean } | { success: false; error: string }
+> {
+  const match = await getMatch(matchId);
+  if (!match) return { success: false, error: 'Матч не найден' };
+  if (match.status === 'completed' || match.status === 'cancelled') {
+    return { success: false, error: 'Матч уже завершён или отменён' };
+  }
+  if (!match.player1Id || !match.player2Id) {
+    return { success: false, error: 'У матча нет обоих игроков' };
+  }
+
+  const tournament = await getTournament(match.tournamentId);
+  if (!tournament) return { success: false, error: 'Турнир не найден' };
+  if (tournament.status !== 'in_progress') {
+    return { success: false, error: 'Турнир не идёт' };
+  }
+
+  const winScore = winScoreForMatch(match, tournament);
+  let result: { player1Score: number; player2Score: number; winnerId: UUID };
+  let frames: FrameInput[] = [];
+  if (input.kind === 'score') {
+    const { player1Score, player2Score } = input;
+    // validateCorrectionScores alone would accept 3:5 in a race to 3.
+    for (const score of [player1Score, player2Score]) {
+      if (!Number.isInteger(score) || score < 0 || score > winScore) {
+        return {
+          success: false,
+          error: `Счёт должен быть от 0 до ${String(winScore)}`,
+        };
+      }
+    }
+    const error = validateCorrectionScores(
+      player1Score,
+      player2Score,
+      winScore,
+    );
+    if (error) return { success: false, error };
+    result = {
+      player1Score,
+      player2Score,
+      winnerId: player1Score === winScore ? match.player1Id : match.player2Id,
+    };
+  } else {
+    frames = input.frames;
+    const draftError = validateFrameDraft(frames, winScore);
+    if (draftError) return { success: false, error: draftError };
+    const derived = deriveFrameResult(
+      frames,
+      winScore,
+      match.player1Id,
+      match.player2Id,
+    );
+    if ('error' in derived) return { success: false, error: derived.error };
+    result = derived;
+  }
+
+  const now = new Date();
+  let wasDisputed = false;
+  try {
+    await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ disputedAt: matches.disputedAt })
+        .from(matches)
+        .where(
+          and(
+            eq(matches.id, matchId),
+            inArray(matches.status, ACTIVE_MATCH_STATUSES),
+          ),
+        )
+        .for('update');
+      if (!locked) throw new Error(STALE_STATUS_ERROR);
+      wasDisputed = locked.disputedAt !== null;
+
+      await tx
+        .update(matches)
+        .set({
+          status: 'completed',
+          player1Score: result.player1Score,
+          player2Score: result.player2Score,
+          winnerId: result.winnerId,
+          reportedBy: refereeId,
+          confirmedBy: refereeId,
+          isTechnicalResult: false,
+          technicalReason: null,
+          startedAt: sql`coalesce(${matches.startedAt}, now())`,
+          completedAt: now,
+          ...CLEARED_CALL,
+          ...CLEARED_DISPUTE,
+          updatedAt: now,
+        })
+        .where(eq(matches.id, matchId));
+
+      await deleteMatchFrames(tx, matchId);
+      if (frames.length > 0) {
+        await tx.insert(matchFrames).values(
+          frames.map((frame, i) => ({
+            matchId,
+            frameNumber: i + 1,
+            player1Points: frame.player1Points,
+            player2Points: frame.player2Points,
+            player1Break: frame.player1Break ?? null,
+            player2Break: frame.player2Break ?? null,
+          })),
+        );
+      }
+    });
+  } catch (error) {
+    return { success: false, error: errorMessage(error) };
+  }
+
+  // Same order as setTechnicalResult: the result message reaches the players
+  // before advancement calls anyone to their next table.
+  if (botApi) {
+    try {
+      const updated = await getMatch(matchId);
+      if (updated) await notifyRefereeResult(botApi, updated, frames);
+    } catch (err) {
+      console.error(`Failed to notify referee result for ${matchId}:`, err);
+    }
+  }
+
+  await advanceWinner(matchId, botApi);
+
+  return { success: true, wasDisputed };
 }
 
 /**
@@ -2002,6 +2426,11 @@ export async function startMatch(
         .set({
           status: 'in_progress',
           startedAt: new Date(),
+          // Disarm the no-show alert of a called match started by a referee.
+          // calledAt / ready marks stay as history; nothing reads them once
+          // the match is in_progress.
+          callDeadlineAt: null,
+          noShowAlertedAt: null,
           updatedAt: new Date(),
         })
         .where(
@@ -2030,24 +2459,36 @@ export async function startMatch(
 /**
  * Set or clear a match's scheduled date/time (per-match scheduling). Does not
  * touch the match status — scheduling is independent of starting the match.
- * Pass `null` to clear the schedule.
+ * Pass `null` to clear the schedule. `previous` is the time it replaced, so
+ * callers can tell the players a set time was cancelled.
  */
 export async function setMatchSchedule(
   matchId: UUID,
   scheduledAt: Date | null,
-): Promise<{ success: boolean; error?: string; match?: Match }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  match?: Match;
+  previous?: Date | null;
+}> {
   try {
-    const updatedMatch = await db
-      .update(matches)
-      .set({ scheduledAt, updatedAt: new Date() })
-      .where(eq(matches.id, matchId))
-      .returning();
+    return await db.transaction(async (tx) => {
+      const [before] = await tx
+        .select({ scheduledAt: matches.scheduledAt })
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .for('update');
+      if (!before) return { success: false, error: 'Матч не найден' };
 
-    if (!updatedMatch[0]) {
-      return { success: false, error: 'Матч не найден' };
-    }
+      const [updated] = await tx
+        .update(matches)
+        .set({ scheduledAt, updatedAt: new Date() })
+        .where(eq(matches.id, matchId))
+        .returning();
+      if (!updated) return { success: false, error: 'Матч не найден' };
 
-    return { success: true, match: updatedMatch[0] };
+      return { success: true, match: updated, previous: before.scheduledAt };
+    });
   } catch (error) {
     return { success: false, error: errorMessage(error) };
   }
@@ -2255,6 +2696,7 @@ async function resetDownstream(
       completedAt: null,
       tableId: null,
       ...CLEARED_CALL,
+      ...CLEARED_DISPUTE,
       updatedAt: new Date(),
     })
     .where(eq(matches.id, match.id));

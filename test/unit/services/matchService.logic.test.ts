@@ -5,6 +5,7 @@ import type { UUID } from 'crypto';
 import {
   busyPlayersMessage,
   deriveFrameResult,
+  formatScoreSummary,
   loserTarget,
   parseFrameScoreLine,
   pickNextReadyMatch,
@@ -250,7 +251,10 @@ describe('playerSlotName', () => {
   });
 
   it('truncates so two names still fit a Telegram callback answer', () => {
-    const long = playerSlotName({ name: 'я'.repeat(50), surname: 'ю'.repeat(90) });
+    const long = playerSlotName({
+      name: 'я'.repeat(50),
+      surname: 'ю'.repeat(90),
+    });
     expect(long).toHaveLength(40);
     expect(long.endsWith('…')).toBe(true);
   });
@@ -314,9 +318,7 @@ describe('pickNextReadyMatch', () => {
   });
 
   it('returns null when every candidate is blocked', () => {
-    expect(
-      pickNextReadyMatch([m('a', P1, P2)], new Set([P1, P2])),
-    ).toBeNull();
+    expect(pickNextReadyMatch([m('a', P1, P2)], new Set([P1, P2]))).toBeNull();
   });
 });
 
@@ -355,5 +357,28 @@ describe('validateFrameDraft (snooker frames saved mid-match)', () => {
         3,
       ),
     ).toBe('Фрейм 1: брейк 2 больше очков игрока');
+  });
+});
+
+describe('formatScoreSummary', () => {
+  it('formats a plain score', () => {
+    expect(formatScoreSummary(3, 1)).toBe('3:1');
+  });
+
+  it('marks a missing score', () => {
+    expect(formatScoreSummary(null, 2)).toBe('?:2');
+  });
+
+  it('appends the frame breakdown', () => {
+    expect(
+      formatScoreSummary(2, 1, [frame(74, 15), frame(10, 60), frame(64, 30)]),
+    ).toBe('2:1 (74:15, 10:60, 64:30)');
+  });
+
+  it('caps the summary at 255 characters', () => {
+    const frames = Array.from({ length: 40 }, () => frame(100, 99));
+    const summary = formatScoreSummary(21, 19, frames);
+    expect(summary).toHaveLength(255);
+    expect(summary.endsWith('…')).toBe(true);
   });
 });

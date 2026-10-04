@@ -34,8 +34,11 @@ import {
   postponeCalledMatch,
 } from '@/services/matchCallService.js';
 import {
+  notifyMatchScheduleCleared,
   notifyMatchScheduled,
   notifyMatchStart,
+  notifyResultConfirmed,
+  notifyResultDisputed,
   notifyResultPending,
 } from '@/services/notificationService.js';
 
@@ -107,11 +110,21 @@ export function createMatchesRouter(botApi: Api) {
   router.put(
     '/tournament/:tournamentId/queue',
     validateParam(tournamentIdParam),
-    zValidator('json', z.object({ matchIds: z.array(z.uuid()).min(1) })),
+    zValidator(
+      'json',
+      z.object({
+        matchIds: z.array(z.uuid()).min(1),
+        expectedMatchIds: z.array(z.uuid()).min(1),
+      }),
+    ),
     async (c) => {
       const { tournamentId } = c.req.valid('param');
-      const { matchIds } = c.req.valid('json');
-      const result = await setMatchQueue(tournamentId, matchIds as UUID[]);
+      const { matchIds, expectedMatchIds } = c.req.valid('json');
+      const result = await setMatchQueue(
+        tournamentId,
+        matchIds as UUID[],
+        expectedMatchIds as UUID[],
+      );
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },
@@ -321,23 +334,36 @@ export function createMatchesRouter(botApi: Api) {
       // Route is behind requireAdmin, so an admin may confirm even their own report.
       const result = await confirmResult(id, confirmerId as UUID, botApi, true);
       if (!result.success) return c.json({ error: result.error }, 400);
+
+      try {
+        const updated = await getMatch(id);
+        if (updated) await notifyResultConfirmed(botApi, updated);
+      } catch (err) {
+        console.error(`Failed to notify result confirmed for ${id}:`, err);
+      }
+
       return c.json({ ok: true });
     },
   );
 
-  // Dispute result
-  router.post(
-    '/:id/dispute',
-    validateParam(idParam),
-    zValidator('json', z.object({ userId: z.uuid() })),
-    async (c) => {
-      const { userId } = c.req.valid('json');
-      const { id } = c.req.valid('param');
-      const result = await disputeResult(id, userId as UUID);
-      if (!result.success) return c.json({ error: result.error }, 400);
-      return c.json({ ok: true });
-    },
-  );
+  // Dispute result — recorded as the admin's own dispute, not a player's
+  router.post('/:id/dispute', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const admin = c.get('adminUser');
+    const result = await disputeResult(id, admin.id, { byAdmin: true });
+    if (!result.success) return c.json({ error: result.error }, 400);
+
+    try {
+      const updated = await getMatch(id);
+      if (updated) {
+        await notifyResultDisputed(botApi, updated, admin.id, result.previous);
+      }
+    } catch (err) {
+      console.error(`Failed to notify result disputed for ${id}:`, err);
+    }
+
+    return c.json({ ok: true });
+  });
 
   // Set technical result
   router.post(
@@ -435,7 +461,7 @@ export function createMatchesRouter(botApi: Api) {
     async (c) => {
       const { tableId } = c.req.valid('json');
       const { id } = c.req.valid('param');
-      const result = await setMatchTable(id, tableId as UUID | null);
+      const result = await setMatchTable(id, tableId as UUID | null, botApi);
       if (!result.success) return c.json({ error: result.error }, 400);
       return c.json({ ok: true });
     },
@@ -455,13 +481,15 @@ export function createMatchesRouter(botApi: Api) {
       const result = await setMatchSchedule(id, date);
       if (!result.success) return c.json({ error: result.error }, 400);
 
-      // Notify players when a concrete time is set (not on clear).
-      if (date) {
+      // Notify players when a time is set, or a set time is cleared.
+      if (date || result.previous) {
         const match = await getMatch(id);
         if (match) {
           const tournament = await getTournament(match.tournamentId);
           if (tournament) {
-            await notifyMatchScheduled(botApi, match, tournament.name, date);
+            await (date
+              ? notifyMatchScheduled(botApi, match, tournament.name, date)
+              : notifyMatchScheduleCleared(botApi, match, tournament.name));
           }
         }
       }

@@ -185,6 +185,7 @@ export function useFrameDraft({
   const [serverCount, setServerCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -192,6 +193,7 @@ export function useFrameDraft({
     initialized.current = true;
     setRows(withTrailingRow(savedFrames.map(fromFrame), winScore));
     setServerCount(savedFrames.length);
+    setLoaded(true);
   }, [savedFrames, winScore]);
 
   const tally = useMemo(() => tallyRows(rows), [rows]);
@@ -275,6 +277,8 @@ export function useFrameDraft({
   };
 
   return {
+    /** Черновик ещё не загружен: пустые строки — не настоящие, ввод поверх потеряется. */
+    loading: !loaded,
     rows,
     setCell,
     tally,

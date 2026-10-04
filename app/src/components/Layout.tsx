@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMe } from '../lib/useAuth.ts';
 import { useIsDesktop } from '../lib/useMediaQuery.ts';
 import { notificationsApi } from '../lib/api.ts';
+import { useIsReferee } from '../lib/useReferee.ts';
 import { displayName, initials, gradientFor } from '../lib/format.ts';
 import AdminSwitch from './AdminSwitch.tsx';
 
@@ -23,6 +24,19 @@ const NAV: NavEntry[] = [
   // { to: '/notifications', label: 'Уведомления', badge: true },
   { to: '/profile', label: 'Профиль' },
 ];
+
+/** Пункт пульта — только тем, кто судит (или админам). */
+const REFEREE_NAV: NavEntry = { to: '/referee', label: 'Судья' };
+
+function useNav(): NavEntry[] {
+  const isReferee = useIsReferee();
+  return isReferee ? [...NAV.slice(0, -1), REFEREE_NAV, ...NAV.slice(-1)] : NAV;
+}
+
+function titleFor(pathname: string): string {
+  if (pathname.startsWith('/referee')) return 'Судья';
+  return TITLES[pathname] ?? 'Cue Bot';
+}
 
 const TITLES: Record<string, string> = {
   '/': 'Турниры',
@@ -72,6 +86,7 @@ function Badge({ count }: { count: number }) {
 function DesktopSidebar({ unread }: { unread: number }) {
   const { data: me } = useMe();
   const user = me?.user;
+  const nav = useNav();
   return (
     <aside
       style={{
@@ -117,7 +132,7 @@ function DesktopSidebar({ unread }: { unread: number }) {
         </span>
       </div>
 
-      {NAV.map((item) => (
+      {nav.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
@@ -207,6 +222,7 @@ function DesktopSidebar({ unread }: { unread: number }) {
 }
 
 function MobileBottomNav({ unread }: { unread: number }) {
+  const nav = useNav();
   return (
     <nav
       style={{
@@ -222,7 +238,7 @@ function MobileBottomNav({ unread }: { unread: number }) {
         zIndex: 20,
       }}
     >
-      {NAV.map((item) => (
+      {nav.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
@@ -269,7 +285,11 @@ function MobileBottomNav({ unread }: { unread: number }) {
                   />
                 )}
               </span>
-              <span style={{ fontSize: 11 }}>{item.label}</span>
+              <span
+                style={{ fontSize: 11, textAlign: 'center', lineHeight: 1.2 }}
+              >
+                {item.label}
+              </span>
             </>
           )}
         </NavLink>
@@ -282,7 +302,7 @@ export default function Layout() {
   const isDesktop = useIsDesktop();
   const unread = useUnreadCount();
   const location = useLocation();
-  const title = TITLES[location.pathname] ?? 'Cue Bot';
+  const title = titleFor(location.pathname);
 
   if (isDesktop) {
     return (

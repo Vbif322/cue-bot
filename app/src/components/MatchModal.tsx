@@ -7,7 +7,12 @@ import { MatchStatusBadge } from '@cue-bot/ui';
 import { matchesApi, tournamentsApi } from '../lib/api.ts';
 import type { AppMatch } from '../lib/types.ts';
 import { useMe } from '../lib/useAuth.ts';
-import { displayName, initials, gradientFor } from '../lib/format.ts';
+import {
+  displayName,
+  formatDateTime,
+  initials,
+  gradientFor,
+} from '../lib/format.ts';
 import AppModal from './AppModal.tsx';
 import { Btn, Field } from './controls.tsx';
 import { Avatar, ErrorBox } from './ui.tsx';
@@ -151,6 +156,8 @@ export default function MatchModal({
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['match', matchId] });
+    // После report-frames, спора и т.п. меняется и разбивка по фреймам.
+    qc.invalidateQueries({ queryKey: ['match-frames', matchId] });
     qc.invalidateQueries({ queryKey: ['me', 'matches'] });
     if (match) {
       qc.invalidateQueries({ queryKey: ['tournament', match.tournamentId] });
@@ -168,9 +175,12 @@ export default function MatchModal({
       ),
     onSuccess: invalidate,
   });
+  // Ошибка («Матч не ожидает подтверждения») значит, что матч уже изменился —
+  // перечитываем его, чтобы не показывать устаревший счёт и кнопки.
   const confirmMut = useMutation({
     mutationFn: () => matchesApi.confirm(matchId),
     onSuccess: invalidate,
+    onError: invalidate,
   });
   const readyMut = useMutation({
     mutationFn: () => matchesApi.ready(matchId),
@@ -182,7 +192,12 @@ export default function MatchModal({
       invalidate();
       setShowDispute(false);
     },
+    onError: invalidate,
   });
+  const closeDispute = () => {
+    disputeMut.reset();
+    setShowDispute(false);
+  };
 
   if (isLoading || !match) {
     return (
@@ -259,10 +274,10 @@ export default function MatchModal({
     confirmMut.isPending ||
     disputeMut.isPending ||
     readyMut.isPending;
+  // Ошибка спора показывается в его диалоге.
   const actionError =
     reportMut.error?.message ||
     confirmMut.error?.message ||
-    disputeMut.error?.message ||
     readyMut.error?.message;
 
   return (
@@ -270,9 +285,14 @@ export default function MatchModal({
       <AppModal
         onClose={onClose}
         title="Матч"
-        subtitle={
-          match.tableName ? `Стол: ${match.tableName}` : `Раунд ${match.round}`
-        }
+        subtitle={[
+          match.tableName ? `Стол: ${match.tableName}` : `Раунд ${match.round}`,
+          match.status === 'scheduled' && match.scheduledAt
+            ? formatDateTime(match.scheduledAt)
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
         rightSlot={<MatchStatusBadge status={match.status} />}
       >
         {/* Scoreboard */}
@@ -581,14 +601,10 @@ export default function MatchModal({
                 )}
               </div>
               {isPlayer && (
-                <Btn
-                  variant="danger"
-                  block
-                  disabled={busy}
-                  onClick={() => setShowDispute(true)}
-                >
-                  Оспорить результат
-                </Btn>
+                <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>
+                  Результат окончательный. Исправить его может только
+                  организатор турнира.
+                </div>
               )}
             </>
           )}
@@ -612,7 +628,7 @@ export default function MatchModal({
       </AppModal>
 
       {showDispute && (
-        <AppModal onClose={() => setShowDispute(false)} maxWidth={400}>
+        <AppModal onClose={closeDispute} maxWidth={400}>
           <div
             style={{
               padding: 22,
@@ -644,7 +660,7 @@ export default function MatchModal({
                 variant="ghost"
                 block
                 disabled={disputeMut.isPending}
-                onClick={() => setShowDispute(false)}
+                onClick={closeDispute}
               >
                 Отмена
               </Btn>

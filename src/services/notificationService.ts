@@ -1,5 +1,6 @@
 import { eq, and } from 'drizzle-orm';
-import type { Api, InlineKeyboard } from 'grammy';
+import { InlineKeyboard } from 'grammy';
+import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -23,7 +24,12 @@ import {
 } from '@/bot/ui/matchUI.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
+import {
+  addRefereeWebAppButton,
+  refereeMatchPath,
+} from '@/bot/ui/refereeUI.js';
 import { MATCH_CALL_TIMEOUT_MS } from './matchCall.const.js';
+import { getMatchDecisionMakers } from './refereeService.js';
 
 type NotificationType = (typeof notifications.$inferInsert)['type'];
 
@@ -260,6 +266,28 @@ export async function notifyMatchCalled(
 }
 
 /**
+ * A called match lost its table (taken by another match, or cleared by a
+ * referee): the players who were sent to the table learn it's off.
+ */
+export async function notifyCallCancelled(
+  api: Api,
+  match: MatchWithPlayers,
+  tournamentName: string,
+): Promise<void> {
+  const safeName = escapeMarkdown(tournamentName);
+
+  await notifyBothPlayers(api, match, ({ opponentName }) => ({
+    type: 'match_reminder',
+    title: 'Вызов отменён',
+    message:
+      `Турнир: ${safeName}\n` +
+      `Соперник: ${opponentName}\n\n` +
+      `Вызов к столу отменён — матч вернулся в очередь. ` +
+      `Мы сообщим, когда вас снова вызовут.`,
+  }));
+}
+
+/**
  * Tell the player who hasn't confirmed presence yet that the opponent is
  * already at the table.
  */
@@ -435,6 +463,29 @@ export async function notifyMatchScheduled(
   );
 }
 
+/** A set match time was cleared: players should not come at the old time. */
+export async function notifyMatchScheduleCleared(
+  api: Api,
+  match: MatchWithPlayers,
+  tournamentName: string,
+): Promise<void> {
+  const safeName = escapeMarkdown(tournamentName);
+
+  await notifyBothPlayers(
+    api,
+    match,
+    ({ opponentName }) => ({
+      type: 'match_reminder',
+      title: 'Время матча отменено',
+      message:
+        `Турнир: ${safeName}\n` +
+        `Соперник: ${opponentName}\n\n` +
+        `Назначенное время матча отменено. Новое время сообщим отдельно.`,
+    }),
+    { keyboard: getMatchNotificationKeyboard(match) },
+  );
+}
+
 /**
  * Notify match start
  */
@@ -533,28 +584,113 @@ export async function notifyResultConfirmed(
   }));
 }
 
+/** Both players learn the final result a referee recorded (no confirmation step). */
+export async function notifyRefereeResult(
+  api: Api,
+  match: MatchWithPlayers,
+  frames: Pick<MatchFrame, 'player1Points' | 'player2Points'>[] = [],
+): Promise<void> {
+  const winnerName = formatPlayerName({
+    username: match.winnerUsername ?? null,
+    name: match.winnerName,
+    surname: match.winnerSurname,
+    telegramId: match.winnerTelegramId,
+  });
+  const breakdown =
+    frames.length > 0
+      ? `По фреймам: ${frames
+          .map((f) => `${String(f.player1Points)}:${String(f.player2Points)}`)
+          .join(', ')}\n`
+      : '';
+
+  await notifyBothPlayers(api, match, () => ({
+    type: 'result_confirmed',
+    title: 'Результат зафиксирован судьёй',
+    message:
+      `Судья зафиксировал результат матча.\n\n` +
+      `Счёт: ${String(match.player1Score ?? '?')}:${String(match.player2Score ?? '?')}\n` +
+      breakdown +
+      `Победитель: ${winnerName}`,
+  }));
+}
+
 /**
- * Notify both players about disputed result
+ * A result was disputed — by a player, or by an admin from the admin panel.
+ * The players learn it, and so do the tournament's referees (its creator when
+ * there are none) — they decide the match, so they get the disputed score and
+ * a button into the referee page. A referee who plays in this match may
+ * decide it too, so they get the referee notice instead of the player one.
  */
 export async function notifyResultDisputed(
   api: Api,
   match: MatchWithPlayers,
   disputedByUserId: UUID,
+  previous?: { summary: string },
 ): Promise<void> {
   const { player1Name, player2Name } = playerNamesOf(match);
   const disputerName =
-    match.player1Id === disputedByUserId ? player1Name : player2Name;
+    match.player1Id === disputedByUserId
+      ? player1Name
+      : match.player2Id === disputedByUserId
+        ? player2Name
+        : 'Администратор';
+  const { userIds: recipients, byReferees } = await getMatchDecisionMakers(
+    match.tournamentId,
+  );
+  const deciders = new Set<string>(recipients);
 
   const message =
     `${disputerName} оспорил результат матча.\n\n` +
     `Матч возвращён в статус "в процессе".\n` +
-    `Обратитесь к судье турнира для разрешения ситуации.`;
+    `Обратитесь ${disputeContact(byReferees)} для разрешения ситуации.`;
 
-  await notifyBothPlayers(api, match, () => ({
-    type: 'result_dispute',
-    title: 'Результат оспорен',
-    message,
-  }));
+  for (const playerId of [match.player1Id, match.player2Id]) {
+    if (!playerId || deciders.has(playerId)) continue;
+    await createAndSendNotification(api, {
+      userId: playerId,
+      type: 'result_dispute',
+      title: 'Результат оспорен',
+      message,
+      tournamentId: match.tournamentId,
+      matchId: match.id,
+    });
+  }
+  if (recipients.length === 0) return;
+
+  const [tournament] = await db
+    .select({ name: tournaments.name })
+    .from(tournaments)
+    .where(eq(tournaments.id, match.tournamentId));
+  const refereeMessage =
+    `Турнир: ${escapeMarkdown(tournament?.name ?? '')}\n` +
+    `Матч: ${player1Name} — ${player2Name}\n\n` +
+    `${disputerName} оспорил результат` +
+    (previous ? ` ${escapeMarkdown(previous.summary)}` : '') +
+    `.\nМатч возвращён в игру — зафиксируйте итоговый счёт или технический результат.`;
+  const keyboard = addRefereeWebAppButton(
+    new InlineKeyboard(),
+    refereeMatchPath(match.id),
+  ).text('📋 Открыть матч', `match:view:${match.id}`);
+
+  for (const userId of recipients) {
+    await createAndSendNotification(
+      api,
+      {
+        userId,
+        type: 'result_dispute',
+        title: 'Спор по результату',
+        message: refereeMessage,
+        tournamentId: match.tournamentId,
+        matchId: match.id,
+      },
+      keyboard,
+    );
+  }
+}
+
+/** «к судье турнира» / «к организатору турнира» — who resolves a dispute. */
+export function disputeContact(byReferees: boolean): string {
+  return byReferees ? 'к судье турнира' : 'к организатору турнира';
 }
 
 /**

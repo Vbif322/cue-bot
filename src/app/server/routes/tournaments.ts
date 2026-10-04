@@ -18,6 +18,7 @@ import {
 import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 import { getBracketReadModel } from '@/services/bracketReadService.js';
 import { getStandings } from '@/services/groupPhaseService.js';
+import { isTournamentRefereeUser } from '@/services/refereeService.js';
 import {
   APP_SESSION,
   requireUser,
@@ -30,30 +31,35 @@ const paramId = z.object({ id: z.uuid() });
 const paramCode = z.object({ code: z.string().min(1).max(64) });
 
 /**
- * Флаги видимости турнира для игрока. Для app-API `isAdmin`/`isReferee` ВСЕГДА
- * `false` — админ/судейские возможности живут в `/api/*`, даже если у
- * пользователя `role='admin'`.
+ * Флаги видимости турнира для игрока. `isAdmin` в app-API ВСЕГДА `false` —
+ * админ здесь выступает как игрок. Судья турнира видит его приватную сетку:
+ * судейский пульт живёт на этом же сайте (`/referee`).
  */
 async function computeViewer(
   tournament: TournamentReadModel,
   userId: UUID | null,
-): Promise<{ isParticipant: boolean; isCreator: boolean }> {
-  if (!userId) return { isParticipant: false, isCreator: false };
-  const participation = await getUserParticipation(tournament.id, userId);
+): Promise<{ isParticipant: boolean; isCreator: boolean; isReferee: boolean }> {
+  if (!userId) {
+    return { isParticipant: false, isCreator: false, isReferee: false };
+  }
+  const [participation, isReferee] = await Promise.all([
+    getUserParticipation(tournament.id, userId),
+    isTournamentRefereeUser(userId, tournament.id),
+  ]);
   const isParticipant =
     participation != null && participation.status !== 'cancelled';
-  return { isParticipant, isCreator: tournament.createdBy === userId };
+  return {
+    isParticipant,
+    isCreator: tournament.createdBy === userId,
+    isReferee,
+  };
 }
 
 function visibleTo(
   tournament: TournamentReadModel,
-  viewer: { isParticipant: boolean; isCreator: boolean },
+  viewer: { isParticipant: boolean; isCreator: boolean; isReferee: boolean },
 ): boolean {
-  return isTournamentVisibleTo(tournament, {
-    isAdmin: false,
-    isReferee: false,
-    ...viewer,
-  });
+  return isTournamentVisibleTo(tournament, { isAdmin: false, ...viewer });
 }
 
 /**

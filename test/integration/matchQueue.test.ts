@@ -118,7 +118,13 @@ describe('match queue (table auto-assignment order)', () => {
     const waiting = await waitingMatches(tournamentId);
     const last = must(waiting.at(-1), 'last waiting match');
     const ids = [last.id, ...waiting.slice(0, -1).map((m) => m.id)];
-    expect(await setMatchQueue(tournamentId, ids)).toEqual({ success: true });
+    expect(
+      await setMatchQueue(
+        tournamentId,
+        ids,
+        waiting.map((m) => m.id),
+      ),
+    ).toEqual({ success: true });
 
     await completeMatch(current.id, must(current.player1Id, 'p1'), botApi);
 
@@ -151,7 +157,11 @@ describe('match queue (table auto-assignment order)', () => {
     const rest = waiting
       .filter((m) => m.id !== blocked.id && m.id !== free.id)
       .map((m) => m.id);
-    await setMatchQueue(tournamentId, [blocked.id, free.id, ...rest]);
+    await setMatchQueue(
+      tournamentId,
+      [blocked.id, free.id, ...rest],
+      waiting.map((m) => m.id),
+    );
 
     // Both tables are busy, so nothing is seated; the next pick skips `blocked`.
     const next = await getNextReadyMatch(tournamentId);
@@ -166,29 +176,70 @@ describe('match queue (table auto-assignment order)', () => {
 
     const stale = 'Очередь изменилась — обновите страницу';
     // Missing one.
-    expect(await setMatchQueue(tournamentId, ids.slice(1))).toEqual({
+    expect(await setMatchQueue(tournamentId, ids.slice(1), ids)).toEqual({
       success: false,
       error: stale,
     });
     // Duplicate instead of a real id.
     expect(
-      await setMatchQueue(tournamentId, [
-        must(first, 'first'),
-        must(first, 'first'),
-        ...ids.slice(2),
-      ]),
+      await setMatchQueue(
+        tournamentId,
+        [must(first, 'first'), must(first, 'first'), ...ids.slice(2)],
+        ids,
+      ),
     ).toEqual({ success: false, error: stale });
     // A match that is already being played.
     expect(
-      await setMatchQueue(tournamentId, [
-        must(live, 'live').id,
-        ...ids.slice(1),
-      ]),
+      await setMatchQueue(
+        tournamentId,
+        [must(live, 'live').id, ...ids.slice(1)],
+        ids,
+      ),
     ).toEqual({ success: false, error: stale });
 
     // Nothing was written.
     const rows = await waitingMatches(tournamentId);
     expect(rows.every((m) => m.queueOrder === null)).toBe(true);
+  });
+
+  it('rejects a reorder based on an order someone else has changed', async () => {
+    const { tournamentId } = await startRoundRobin(1);
+    const seen = (await waitingMatches(tournamentId)).map((m) => m.id);
+    const [first, second, ...rest] = seen;
+    const a = must(first, 'first');
+    const b = must(second, 'second');
+
+    // The admin moves the last match to the front…
+    const adminOrder = [...seen.slice(-1), ...seen.slice(0, -1)];
+    expect(await setMatchQueue(tournamentId, adminOrder, seen)).toEqual({
+      success: true,
+    });
+
+    // …and the referee, still looking at the old order, swaps the first two.
+    expect(await setMatchQueue(tournamentId, [b, a, ...rest], seen)).toEqual({
+      success: false,
+      error: 'Очередь изменилась — обновите страницу',
+    });
+    const rows = await db.query.matches.findMany({
+      where: eq(matches.tournamentId, tournamentId),
+    });
+    const order = new Map(rows.map((m) => [m.id, m.queueOrder]));
+    expect(adminOrder.map((id) => order.get(id))).toEqual(
+      adminOrder.map((_, i) => i),
+    );
+
+    // Based on the fresh order the same swap goes through.
+    expect(
+      await setMatchQueue(
+        tournamentId,
+        [
+          must(adminOrder[1], 'a1'),
+          must(adminOrder[0], 'a0'),
+          ...adminOrder.slice(2),
+        ],
+        adminOrder,
+      ),
+    ).toEqual({ success: true });
   });
 
   it('seats another tournament once its players leave this one', async () => {
@@ -212,10 +263,14 @@ describe('match queue (table auto-assignment order)', () => {
     // Keep A's freed table away from p1/p2 so B's refill is what seats them.
     const aWaiting = await waitingMatches(a.tournamentId);
     const freed = new Set<UUID | null>([p1, p2]);
-    await setMatchQueue(a.tournamentId, [
-      ...aWaiting.filter((m) => !hasPlayer(m, freed)).map((m) => m.id),
-      ...aWaiting.filter((m) => hasPlayer(m, freed)).map((m) => m.id),
-    ]);
+    await setMatchQueue(
+      a.tournamentId,
+      [
+        ...aWaiting.filter((m) => !hasPlayer(m, freed)).map((m) => m.id),
+        ...aWaiting.filter((m) => hasPlayer(m, freed)).map((m) => m.id),
+      ],
+      aWaiting.map((m) => m.id),
+    );
 
     await completeMatch(current.id, p1, a.botApi);
 
@@ -225,7 +280,7 @@ describe('match queue (table auto-assignment order)', () => {
 
   it('rejects a tournament that is not running', async () => {
     const t = await createTournament({ status: 'registration_closed' });
-    expect(await setMatchQueue(t.id, [])).toEqual({
+    expect(await setMatchQueue(t.id, [], [])).toEqual({
       success: false,
       error: 'Очередь можно менять только в идущем турнире',
     });
@@ -236,7 +291,7 @@ describe('match queue (table auto-assignment order)', () => {
       status: 'in_progress',
       scheduleMode: 'per_match',
     });
-    expect(await setMatchQueue(t.id, [])).toEqual({
+    expect(await setMatchQueue(t.id, [], [])).toEqual({
       success: false,
       error: 'В режиме расписания по матчам столы назначаются вручную',
     });

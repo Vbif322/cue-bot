@@ -10,6 +10,7 @@ import { createAppMatchesRouter } from '../../app/server/routes/matches.js';
 import { createAppMeRouter } from '../../app/server/routes/me.js';
 import { createAppNotificationsRouter } from '../../app/server/routes/notifications.js';
 import { createAppLeaderboardRouter } from '../../app/server/routes/leaderboard.js';
+import { createAppRefereeRouter } from '../../app/server/routes/referee.js';
 import { createTournamentsRouter } from './routes/tournaments.js';
 import { createMatchesRouter } from './routes/matches.js';
 import { createUsersRouter } from './routes/users.js';
@@ -84,6 +85,7 @@ export function createAdminServer() {
   app.route('/api/app/me', createAppMeRouter());
   app.route('/api/app/notifications', createAppNotificationsRouter());
   app.route('/api/app/leaderboard', createAppLeaderboardRouter());
+  app.route('/api/app/referee', createAppRefereeRouter(bot.api));
 
   // Protected routes
   app.route('/api/tournaments', createTournamentsRouter(bot.api));
