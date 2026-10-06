@@ -141,8 +141,10 @@ Telegram-доставки (общий шов — `sendNotification`).
 - Остальные события в группу поверх готового шва `postToGroupChat`
   (`src/services/groupBroadcastService.ts`): закрытие регистрации, старт турнира,
   результаты матчей (`formatMatchCard`, `src/bot/ui/matchUI.ts`), финальная сетка
-  (`buildBracketView`, `src/bot/ui/bracketUI.ts`). `group_announcements.messageId`
-  уже пишется — под редактирование анонса на месте.
+  (`buildBracketView`, `src/bot/ui/bracketUI.ts`). Анонс регистрации уже
+  редактируется на месте по `group_announcements.messageId` (счётчик участников,
+  заголовок по статусу, кнопка только пока открыта регистрация) — сигнал
+  `markAnnouncementStale` (`src/services/announcementRefresh.ts`) из сервисов.
 - Полноценное управление турниром прямо из группы: регистрация участников,
   отчёт/подтверждение результатов и просмотр сетки (inline-кнопки). Потребует
   расширить белый список в `chatScopeMiddleware`, который сейчас пропускает в группе

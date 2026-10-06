@@ -38,6 +38,7 @@ import {
   validateGroupConfig,
   validateDoubleEliminationSize,
 } from '@/shared/tournament/tournamentOptions.js';
+import { markAnnouncementStale } from '@/services/announcementRefresh.js';
 import { supportsRandomAdvancement } from '@/shared/tournament/formats.js';
 import type {
   TournamentStatus,
@@ -561,6 +562,8 @@ export async function updateTournamentDraft(
     }
   });
 
+  markAnnouncementStale(id);
+
   const tournament = await getTournament(id);
 
   if (!tournament) throw new Error('Ошибка загрузки турнира после обновления');
@@ -603,6 +606,8 @@ export async function completeTournament(tournamentId: UUID): Promise<void> {
       )
       .returning({ id: matches.id });
   });
+
+  markAnnouncementStale(tournamentId);
 
   if (leftover.length) {
     console.warn(
@@ -910,6 +915,8 @@ export async function updateTournamentStatus(
       updatedAt: new Date(),
     })
     .where(eq(tournaments.id, tournamentId));
+
+  markAnnouncementStale(tournamentId);
 }
 
 /**
@@ -940,6 +947,8 @@ export async function closeRegistrationWithCount(
       updatedAt: new Date(),
     })
     .where(eq(tournaments.id, tournamentId));
+
+  markAnnouncementStale(tournamentId);
 
   return count;
 }
@@ -999,6 +1008,8 @@ export async function cancelTournament(tournamentId: UUID): Promise<void> {
         ),
       );
   });
+
+  markAnnouncementStale(tournamentId);
 }
 
 /**
@@ -1085,6 +1096,8 @@ export async function deleteParticipant(
         eq(tournamentParticipants.userId, userId as UUID),
       ),
     );
+
+  markAnnouncementStale(tournamentId as UUID);
 }
 
 /**
@@ -1106,7 +1119,10 @@ export async function rejectParticipant(
       ),
     )
     .returning({ userId: tournamentParticipants.userId });
-  return result.length > 0;
+  if (result.length === 0) return false;
+
+  markAnnouncementStale(tournamentId as UUID);
+  return true;
 }
 
 export type RegisterOutcome =
@@ -1136,7 +1152,7 @@ export async function registerParticipant(
   userId: UUID,
   opts: { desiredStatus: 'pending' | 'confirmed'; requireOpen: boolean },
 ): Promise<RegisterOutcome> {
-  return db.transaction(async (tx): Promise<RegisterOutcome> => {
+  const outcome = await db.transaction(async (tx): Promise<RegisterOutcome> => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
     );
@@ -1198,6 +1214,10 @@ export async function registerParticipant(
       reregistered: existing != null,
     };
   });
+
+  // После коммита: правка анонса читает счётчик из БД.
+  if (outcome.ok) markAnnouncementStale(tournamentId);
+  return outcome;
 }
 
 /**
@@ -1272,6 +1292,7 @@ export async function cancelRegistration(
       ),
     );
 
+  markAnnouncementStale(tournamentId);
   return { ok: true };
 }
 
@@ -1359,51 +1380,57 @@ export async function acceptInvitation(
   tournamentId: UUID,
   userId: UUID,
 ): Promise<AcceptInvitationOutcome> {
-  return db.transaction(async (tx): Promise<AcceptInvitationOutcome> => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
-    );
-
-    const tournament = await tx.query.tournaments.findFirst({
-      where: eq(tournaments.id, tournamentId),
-    });
-    if (!tournament) return { ok: false, reason: 'not_found' };
-
-    const participation = await tx.query.tournamentParticipants.findFirst({
-      where: and(
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        eq(tournamentParticipants.userId, userId),
-      ),
-    });
-    if (participation?.status !== 'invited') {
-      return { ok: false, reason: 'not_invited' };
-    }
-
-    const [active] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(tournamentParticipants)
-      .where(
-        and(
-          eq(tournamentParticipants.tournamentId, tournamentId),
-          inArray(tournamentParticipants.status, ['pending', 'confirmed']),
-        ),
+  const outcome = await db.transaction(
+    async (tx): Promise<AcceptInvitationOutcome> => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
       );
-    if ((active?.count ?? 0) >= tournament.maxParticipants) {
-      return { ok: false, reason: 'full' };
-    }
 
-    await tx
-      .update(tournamentParticipants)
-      .set({ status: 'confirmed' })
-      .where(
-        and(
+      const tournament = await tx.query.tournaments.findFirst({
+        where: eq(tournaments.id, tournamentId),
+      });
+      if (!tournament) return { ok: false, reason: 'not_found' };
+
+      const participation = await tx.query.tournamentParticipants.findFirst({
+        where: and(
           eq(tournamentParticipants.tournamentId, tournamentId),
           eq(tournamentParticipants.userId, userId),
         ),
-      );
+      });
+      if (participation?.status !== 'invited') {
+        return { ok: false, reason: 'not_invited' };
+      }
 
-    return { ok: true };
-  });
+      const [active] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(tournamentParticipants)
+        .where(
+          and(
+            eq(tournamentParticipants.tournamentId, tournamentId),
+            inArray(tournamentParticipants.status, ['pending', 'confirmed']),
+          ),
+        );
+      if ((active?.count ?? 0) >= tournament.maxParticipants) {
+        return { ok: false, reason: 'full' };
+      }
+
+      await tx
+        .update(tournamentParticipants)
+        .set({ status: 'confirmed' })
+        .where(
+          and(
+            eq(tournamentParticipants.tournamentId, tournamentId),
+            eq(tournamentParticipants.userId, userId),
+          ),
+        );
+
+      return { ok: true };
+    },
+  );
+
+  // invited не занимает место, confirmed — занимает: счётчик в анонсе вырос.
+  if (outcome.ok) markAnnouncementStale(tournamentId);
+  return outcome;
 }
 
 export type DeclineInvitationOutcome =

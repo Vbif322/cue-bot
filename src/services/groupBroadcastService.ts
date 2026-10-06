@@ -1,3 +1,4 @@
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { GrammyError } from 'grammy';
 import type { Api, InlineKeyboard } from 'grammy';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -5,10 +6,18 @@ import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import { groupAnnouncements } from '@/db/schema.js';
+import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 import {
   buildAnnouncementKeyboard,
-  buildRegistrationOpenAnnouncement,
+  buildBracketKeyboard,
+  buildRegistrationAnnouncement,
 } from '@/bot/ui/groupAnnouncementUI.js';
+import type {
+  AnnouncementStatus,
+  TournamentAnnouncement,
+} from '@/bot/ui/groupAnnouncementUI.js';
+import { markAnnouncementStale } from '@/services/announcementRefresh.js';
+import type { RefreshOutcome } from '@/services/announcementRefresh.js';
 import {
   deactivateGroupChat,
   registerGroupChat,
@@ -27,6 +36,12 @@ export type PostOutcome =
   | { ok: true; messageId: number }
   | { ok: false; reason: 'unreachable'; detail: string }
   | { ok: false; reason: 'migrated'; newChatId: string }
+  | { ok: false; reason: 'transient'; detail: string };
+
+export type EditOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'gone'; detail: string }
+  | { ok: false; reason: 'rate_limited'; retryAfterSec: number }
   | { ok: false; reason: 'transient'; detail: string };
 
 export interface AnnounceResult {
@@ -113,6 +128,161 @@ export async function postToGroupChat(
   }
 }
 
+/** Ошибки 400 правки, означающие «этого сообщения больше нет». */
+const MESSAGE_GONE_400 = [
+  'message to edit not found',
+  "message can't be edited",
+];
+
+/** Если Telegram не скажет `retry_after`, ждём столько. */
+const DEFAULT_RETRY_AFTER_SEC = 30;
+
+function classifyEdit(error: unknown): EditOutcome & { ok: false } {
+  if (error instanceof GrammyError) {
+    if (error.error_code === 429) {
+      return {
+        ok: false,
+        reason: 'rate_limited',
+        retryAfterSec: error.parameters.retry_after ?? DEFAULT_RETRY_AFTER_SEC,
+      };
+    }
+
+    const description = error.description.toLowerCase();
+    if (
+      error.error_code === 400 &&
+      MESSAGE_GONE_400.some((needle) => description.includes(needle))
+    ) {
+      return { ok: false, reason: 'gone', detail: error.description };
+    }
+  }
+
+  const outcome = classify(error);
+  if (outcome.reason === 'transient') return outcome;
+  // Чат недостижим или мигрировал: при миграции история переезжает с новыми
+  // message_id, так что старое сообщение в любом случае не отредактировать.
+  return {
+    ok: false,
+    reason: 'gone',
+    detail: outcome.reason === 'migrated' ? 'migrated' : outcome.detail,
+  };
+}
+
+function isNotModified(error: unknown): boolean {
+  return (
+    error instanceof GrammyError &&
+    error.error_code === 400 &&
+    error.description.toLowerCase().includes('message is not modified')
+  );
+}
+
+/**
+ * ШОВ ПРАВКИ АНОНСА — пара к `postToGroupChat`, по тем же правилам: никогда не
+ * бросает, в БД не ходит, только правит и классифицирует сбой.
+ *
+ * Без `keyboard` кнопки снимаются явно (`inline_keyboard: []`): если просто не
+ * передать `reply_markup`, Telegram оставит старую «Участвовать».
+ *
+ * Лимита по времени у правки нет: 48 часов в Bot API касаются только чужих
+ * business-сообщений, свои сообщения в группе бот правит бессрочно.
+ */
+export async function editGroupMessage(
+  api: Api,
+  chatId: string,
+  messageId: number,
+  text: string,
+  keyboard?: InlineKeyboard,
+): Promise<EditOutcome> {
+  const replyMarkup = { reply_markup: keyboard ?? { inline_keyboard: [] } };
+
+  try {
+    await api.editMessageText(chatId, messageId, text, {
+      parse_mode: 'Markdown',
+      ...replyMarkup,
+    });
+    return { ok: true };
+  } catch (error) {
+    // Счётчик не изменился (например, pending → confirmed) — это не сбой.
+    if (isNotModified(error)) return { ok: true };
+
+    // Тот же повтор простым текстом, что и в `postToGroupChat`.
+    if (
+      error instanceof GrammyError &&
+      error.error_code === 400 &&
+      error.description.toLowerCase().includes("can't parse entities")
+    ) {
+      try {
+        await api.editMessageText(chatId, messageId, text, replyMarkup);
+        return { ok: true };
+      } catch (retryError) {
+        if (isNotModified(retryError)) return { ok: true };
+        return classifyEdit(retryError);
+      }
+    }
+
+    return classifyEdit(error);
+  }
+}
+
+/**
+ * Поля анонса из турнира — общие для первой отправки и для правок. `null` для
+ * черновика: анонса у него не бывает.
+ */
+function toAnnouncement(
+  tournament: TournamentReadModel,
+  participantsCount: number,
+): TournamentAnnouncement | null {
+  if (tournament.status === 'draft') return null;
+
+  return {
+    id: tournament.id,
+    name: tournament.name,
+    // Турнир с открытой регистрацией сделали приватным: группе в него больше не
+    // записаться, поэтому для неё он выглядит закрытым.
+    status:
+      tournament.status === 'registration_open' &&
+      tournament.visibility !== 'public'
+        ? 'registration_closed'
+        : tournament.status,
+    sport: tournament.sport,
+    discipline: tournament.discipline,
+    format: tournament.format,
+    randomAdvancement: tournament.randomAdvancement,
+    venueName: tournament.venueName,
+    startDate: tournament.startDate,
+    maxParticipants: tournament.maxParticipants,
+    participantsCount,
+    winScore: tournament.winScore,
+    description: tournament.description,
+  };
+}
+
+/**
+ * Кнопка под правленым анонсом: «Участвовать», пока идёт регистрация; ссылка
+ * на сетку, когда турнир начался или завершён; иначе — без кнопки.
+ */
+async function announcementKeyboard(
+  api: Api,
+  tournament: TournamentReadModel,
+  status: AnnouncementStatus,
+): Promise<InlineKeyboard | undefined> {
+  if (status === 'registration_open') {
+    return buildAnnouncementKeyboard(
+      tournament.id,
+      (await api.getMe()).username,
+    );
+  }
+
+  // Сетку приватного турнира гость на сайте не откроет.
+  if (
+    (status === 'in_progress' || status === 'completed') &&
+    tournament.visibility === 'public'
+  ) {
+    return buildBracketKeyboard(tournament.id, tournament.format) ?? undefined;
+  }
+
+  return undefined;
+}
+
 /**
  * Пишем строку лога ПОСЛЕ успешной отправки. Конфликт по уникальному индексу
  * (чат, турнир, вид) означает, что анонс уже уходил — считаем пропуском.
@@ -187,20 +357,10 @@ export async function announceRegistrationOpen(
       api.getMe(),
     ]);
 
-    const text = buildRegistrationOpenAnnouncement({
-      id: tournament.id,
-      name: tournament.name,
-      sport: tournament.sport,
-      discipline: tournament.discipline,
-      format: tournament.format,
-      randomAdvancement: tournament.randomAdvancement,
-      venueName: tournament.venueName,
-      startDate: tournament.startDate,
-      maxParticipants: tournament.maxParticipants,
-      participantsCount,
-      winScore: tournament.winScore,
-      description: tournament.description,
-    });
+    const announcement = toAnnouncement(tournament, participantsCount);
+    if (!announcement) return result;
+
+    const text = buildRegistrationAnnouncement(announcement);
     const keyboard = buildAnnouncementKeyboard(tournament.id, me.username);
 
     for (const [index, chat] of chats.entries()) {
@@ -266,9 +426,100 @@ export async function announceRegistrationOpen(
       );
       result.failed++;
     }
+
+    // Кто-то мог записаться, пока шла рассылка: счётчик посчитан до неё, а
+    // правка по сигналу тогда ещё не видела строк лога. Одна правка закрывает
+    // это окно; если ничего не поменялось, Telegram ответит «not modified».
+    if (result.sent > 0) markAnnouncementStale(tournamentId);
   } catch (error) {
     console.error('Рассылка анонса прервалась:', errorMessage(error));
   }
 
   return result;
+}
+
+/**
+ * Перерисовать уже отправленные анонсы турнира: свежий счётчик участников,
+ * заголовок по статусу, кнопка по статусу (см. `announcementKeyboard`).
+ *
+ * Зовётся из `announcementRefresh` по сигналу `markAnnouncementStale`. По
+ * контракту не бросает. Чат при сбое НЕ гасит: это правка, а не рассылка, и
+ * судьбу чата решает `announceRegistrationOpen`. Сообщение, которое больше не
+ * отредактировать (удалили, бота выгнали, чат мигрировал), забываем —
+ * обнуляем `messageId`, но строку оставляем: уникальный индекс по ней
+ * защищает от повторной рассылки.
+ */
+export async function refreshRegistrationAnnouncement(
+  api: Api,
+  tournamentId: UUID,
+): Promise<RefreshOutcome> {
+  try {
+    const rows = await db
+      .select({
+        id: groupAnnouncements.id,
+        chatId: groupAnnouncements.chatId,
+        messageId: groupAnnouncements.messageId,
+      })
+      .from(groupAnnouncements)
+      .where(
+        and(
+          eq(groupAnnouncements.tournamentId, tournamentId),
+          eq(groupAnnouncements.kind, 'registration_open'),
+          isNotNull(groupAnnouncements.messageId),
+        ),
+      );
+    if (rows.length === 0) return {};
+
+    const tournament = await getTournament(tournamentId);
+    if (!tournament) return {};
+
+    const announcement = toAnnouncement(
+      tournament,
+      await getParticipantsCount(tournamentId),
+    );
+    if (!announcement) return {};
+
+    const text = buildRegistrationAnnouncement(announcement);
+    const keyboard = await announcementKeyboard(
+      api,
+      tournament,
+      announcement.status,
+    );
+
+    for (const [index, row] of rows.entries()) {
+      if (row.messageId === null) continue;
+      if (index > 0) await sleep(SEND_GAP_MS);
+
+      const outcome = await editGroupMessage(
+        api,
+        row.chatId,
+        row.messageId,
+        text,
+        keyboard,
+      );
+      if (outcome.ok) continue;
+
+      if (outcome.reason === 'rate_limited') {
+        // Остальные чаты тоже перерисует повторный проход.
+        return { retryAfterSec: outcome.retryAfterSec };
+      }
+
+      if (outcome.reason === 'gone') {
+        await db
+          .update(groupAnnouncements)
+          .set({ messageId: null })
+          .where(eq(groupAnnouncements.id, row.id));
+        continue;
+      }
+
+      console.error(
+        `Не удалось обновить анонс в чате ${row.chatId}:`,
+        outcome.detail,
+      );
+    }
+  } catch (error) {
+    console.error('Обновление анонса прервалось:', errorMessage(error));
+  }
+
+  return {};
 }

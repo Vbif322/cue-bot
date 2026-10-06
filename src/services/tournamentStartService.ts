@@ -26,6 +26,7 @@ import { getGroupStandings } from './groupPhaseService.js';
 import { selectQualifiers } from './standingsService.js';
 import { notifyMatchAssigned } from './notificationService.js';
 import { getTournamentTables } from './tableService.js';
+import { markAnnouncementStale } from './announcementRefresh.js';
 
 export interface StartTournamentFullResult {
   participantsCount: number;
@@ -181,6 +182,9 @@ export async function startTournamentFull(
       };
     },
   );
+
+  // После коммита: анонс в группах → «Турнир начался», без кнопки.
+  markAnnouncementStale(tournamentId);
 
   // 6. Assign tables + notify first round (group round 1 for groups_playoff).
   // Kept OUTSIDE the transaction: these are external Telegram/table calls that

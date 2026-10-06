@@ -46,6 +46,8 @@ import { db } from './db/db.js';
 import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
 import { sweepExpiredEmailLoginCodes } from './services/emailLoginCodeService.js';
 import { processOverdueCalls } from './services/matchCallService.js';
+import { setAnnouncementRefresher } from './services/announcementRefresh.js';
+import { refreshRegistrationAnnouncement } from './services/groupBroadcastService.js';
 import { MATCH_CALL_SWEEP_INTERVAL_MS } from './services/matchCall.const.js';
 import { errorMessage } from './utils/errors.js';
 import { assertMailConfigured } from './services/mailService.js';
@@ -340,6 +342,12 @@ async function start() {
   }, MATCH_CALL_SWEEP_INTERVAL_MS);
   matchCallSweep.unref();
 
+  // Анонсы в группах правятся на месте по сигналу из сервисов (счётчик
+  // участников, статус турнира). Подставляем правку здесь, где есть Api бота.
+  setAnnouncementRefresher((tournamentId) =>
+    refreshRegistrationAnnouncement(bot.api, tournamentId),
+  );
+
   await startBot();
 }
 
@@ -367,6 +375,7 @@ async function shutdown(signal: string) {
   if (dialogSessionSweep) clearInterval(dialogSessionSweep);
   if (rateLimitSweep) clearInterval(rateLimitSweep);
   if (matchCallSweep) clearInterval(matchCallSweep);
+  setAnnouncementRefresher(null);
 
   // 1. Останавливаем приём новых апдейтов от Telegram. При вебхуке останавливать нечего
   //    (polling-цикла нет), а сам вебхук намеренно не снимаем — так Telegram доставит
