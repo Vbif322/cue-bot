@@ -4,6 +4,10 @@ import type {
   ApiTournamentParticipant,
   ApiGroupStanding,
   ApiPlayerStanding,
+  ApiPrizeReport,
+  ApiPrizeRow,
+  IFinanceSettings,
+  IPrizeMode,
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
@@ -29,6 +33,10 @@ export type {
   ApiTournamentParticipant,
   ApiGroupStanding,
   ApiPlayerStanding,
+  ApiPrizeReport,
+  ApiPrizeRow,
+  IFinanceSettings,
+  IPrizeMode,
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
@@ -141,6 +149,16 @@ export const tournamentsApi = {
 
   standings: (id: string) =>
     apiFetch<ApiGroupStanding[]>(`/api/tournaments/${id}/standings`),
+
+  /** Null for a free tournament (no entry fee). */
+  prizes: (id: string) =>
+    apiFetch<ApiPrizeReport | null>(`/api/tournaments/${id}/prizes`),
+
+  setFinance: (id: string, data: IFinanceSettings) =>
+    apiFetch<ApiTournament>(`/api/tournaments/${id}/finance`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
 
   create: (
     data: {

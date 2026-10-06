@@ -8,8 +8,15 @@ import ParticipantsTab from '../components/tournament-detail/ParticipantsTab.tsx
 import MatchesTab from '../components/tournament-detail/MatchesTab.tsx';
 import QueueTab from '../components/tournament-detail/QueueTab.tsx';
 import StandingsTab from '../components/tournament-detail/StandingsTab.tsx';
+import PrizesTab from '../components/tournament-detail/PrizesTab.tsx';
 
-type Tab = 'info' | 'participants' | 'standings' | 'matches' | 'queue';
+type Tab =
+  | 'info'
+  | 'participants'
+  | 'standings'
+  | 'matches'
+  | 'queue'
+  | 'prizes';
 
 const TAB_LABELS: Record<Tab, string> = {
   info: 'Информация',
@@ -17,6 +24,7 @@ const TAB_LABELS: Record<Tab, string> = {
   standings: 'Таблица',
   matches: 'Матчи',
   queue: 'Очередь',
+  prizes: 'Призы',
 };
 
 export default function TournamentDetailPage() {
@@ -66,6 +74,7 @@ export default function TournamentDetailPage() {
     ...(hasStandings ? (['standings'] as const) : []),
     'matches',
     ...(hasQueue ? (['queue'] as const) : []),
+    'prizes',
   ];
 
   const confirmedParticipants =
@@ -120,6 +129,7 @@ export default function TournamentDetailPage() {
       {activeTab === 'standings' && <StandingsTab tournament={tournament} />}
       {activeTab === 'matches' && <MatchesTab tournamentId={id} />}
       {activeTab === 'queue' && hasQueue && <QueueTab tournamentId={id} />}
+      {activeTab === 'prizes' && <PrizesTab tournament={tournament} />}
     </div>
   );
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "prod"."tournaments" ADD COLUMN "organizer_fee_amount" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "prod"."tournaments" ADD CONSTRAINT "tournaments_organizer_fee_amount_nonneg" CHECK ("prod"."tournaments"."organizer_fee_amount" >= 0);

@@ -1,6 +1,7 @@
 import type { UUID } from 'crypto';
 
 import type { tournaments, tournamentParticipants } from '../../db/schema.js';
+import type { IPrizeSummary } from '../../shared/tournament/prizes.js';
 
 import type { Serialize } from './helpers.ts';
 
@@ -71,4 +72,24 @@ export interface ApiGroupStanding {
   /** Every completed non-walkover match of the group has a frame breakdown, so
    *  `pointsDiff` is comparable and worth showing. */
   pointsComplete: boolean;
+}
+
+/** One row of the prize table: a player (or, in a forecast, just a place). */
+export interface ApiPrizeRow {
+  placeFrom: number;
+  placeTo: number;
+  /** Null in a forecast — the tournament is not finished yet. */
+  userId: UUID | null;
+  username: string | null;
+  name: string | null;
+  /** Whole rubles; 0 for a place outside the prize split. */
+  amount: number;
+}
+
+/** Entry fee / prize fund breakdown of a tournament (calculation only). */
+export interface ApiPrizeReport {
+  /** True once the tournament is completed and rows name the players. */
+  isFinal: boolean;
+  summary: IPrizeSummary;
+  rows: ApiPrizeRow[];
 }

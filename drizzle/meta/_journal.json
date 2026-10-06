@@ -183,6 +183,27 @@
       "when": 1791101007070,
       "tag": "0025_match_dispute",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791225014941,
+      "tag": "0026_tournament_finance",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791226619583,
+      "tag": "0027_prize_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791226819492,
+      "tag": "0028_organizer_fee_amount",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   integer,
   jsonb,
   text,
@@ -65,6 +67,11 @@ export {
   type IStageWinScores,
 } from '../../shared/tournament/tournamentOptions.js';
 import { groupDraws } from '../../shared/tournament/tournamentOptions.js';
+import { prizeModes } from '../../shared/tournament/prizes.js';
+import type {
+  IPrizeDistribution,
+  IPrizeMode,
+} from '../../shared/tournament/prizes.js';
 import type {
   IGroupDraw,
   ITournamentWinScore,
@@ -159,6 +166,23 @@ export const tournaments = prodSchema.table(
     qualifiersPerGroup: integer('qualifiers_per_group'),
     groupDraw: varchar('group_draw', { enum: groupDraws }).$type<IGroupDraw>(),
     rules: text(),
+    // Entry fee + prize split (M3 stage 1). Calculation only — the bot never
+    // handles money. Whole rubles; null = free tournament. `prizeMode` sets the
+    // unit of both the organizer's cut and the prizes: in `percent` mode the
+    // organizer takes `organizerFeePercent` of everything collected and
+    // `prizeDistribution` splits the rest in percents; in `fixed` mode the cut
+    // is `organizerFeeAmount` rubles and the prizes are rubles per place. Each
+    // mode keeps its own organizer value, so switching loses nothing.
+    // Validated by validateFinanceSettings; editable in any status via
+    // updateTournamentFinance, not tied to canEditTournament.
+    entryFee: integer('entry_fee'),
+    organizerFeePercent: integer('organizer_fee_percent').notNull().default(0),
+    organizerFeeAmount: integer('organizer_fee_amount').notNull().default(0),
+    prizeMode: varchar('prize_mode', { enum: prizeModes })
+      .$type<IPrizeMode>()
+      .notNull()
+      .default('percent'),
+    prizeDistribution: jsonb('prize_distribution').$type<IPrizeDistribution>(),
     inviteCode: varchar('invite_code', { length: 16 }).unique(),
     createdBy: uuid('created_by')
       .$type<UUID>()
@@ -190,6 +214,16 @@ export const tournaments = prodSchema.table(
     nonNegativeCheck(
       'tournaments_qualifiers_per_group_nonneg',
       t.qualifiersPerGroup,
+    ),
+    nonNegativeCheck('tournaments_entry_fee_nonneg', t.entryFee),
+    enumCheck('tournaments_prize_mode_check', t.prizeMode, prizeModes),
+    nonNegativeCheck(
+      'tournaments_organizer_fee_amount_nonneg',
+      t.organizerFeeAmount,
+    ),
+    check(
+      'tournaments_organizer_fee_percent_range',
+      sql`${t.organizerFeePercent} BETWEEN 0 AND 100`,
     ),
   ],
 );

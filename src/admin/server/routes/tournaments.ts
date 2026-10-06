@@ -46,6 +46,11 @@ import {
   registerParticipant,
 } from '@/services/tournamentService.js';
 import {
+  getPrizeReport,
+  updateTournamentFinance,
+} from '@/services/prizeService.js';
+import { MAX_PRIZE_PLACES, prizeModes } from '@/shared/tournament/prizes.js';
+import {
   notifyRegistrationConfirmed,
   notifyRegistrationRejected,
   notifyTournamentCancelled,
@@ -63,6 +68,26 @@ import { clinchedUserIds } from '@/services/standingsService.js';
 import { getTournamentTables } from '@/services/tableService.js';
 import { requireAdmin } from '../middleware.js';
 import { validateParam, idParam, idUserIdParam } from './_shared.js';
+
+// Entry fee + prize split. Shape only — the semantic checks (contiguous places,
+// shares summing to 100, fixed prizes + cut fitting the fees) need the turnout, so
+// they run in updateTournamentFinance via validateFinanceSettings, which the
+// SPA shares.
+const financeSchema = z.object({
+  entryFee: z.number().int().positive().max(10_000_000).nullable(),
+  organizerFeePercent: z.number().int().min(0).max(100),
+  organizerFeeAmount: z.number().int().min(0).max(1_000_000_000),
+  prizeMode: z.enum(prizeModes),
+  prizeDistribution: z
+    .array(
+      z.object({
+        place: z.number().int().min(1),
+        value: z.number().int(),
+      }),
+    )
+    .max(MAX_PRIZE_PLACES)
+    .nullable(),
+});
 
 // Shared create/update body schema. For groups_playoff the four group fields are
 // required and validated together; for the other formats maxParticipants must be
@@ -234,6 +259,39 @@ export function createTournamentsRouter(botApi: Api) {
 
     return c.json({ data });
   });
+
+  // Prize table: final split for a completed tournament, forecast by place
+  // before that; null data for a free tournament.
+  router.get('/:id/prizes', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const tournament = await getTournament(id);
+    if (!tournament) return c.json({ error: 'Не найден' }, 404);
+
+    try {
+      return c.json({ data: await getPrizeReport(tournament) });
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
+  // Entry fee + prize split, editable in any status but cancelled (see
+  // updateTournamentFinance) — unlike PATCH /:id, which stops at the start.
+  router.patch(
+    '/:id/finance',
+    validateParam(idParam),
+    zValidator('json', financeSchema),
+    async (c) => {
+      const { id } = c.req.valid('param');
+      const body = c.req.valid('json');
+
+      try {
+        const tournament = await updateTournamentFinance(id, body);
+        return c.json({ data: tournament });
+      } catch (error) {
+        return c.json({ error: errorMessage(error) }, 400);
+      }
+    },
+  );
 
   router.post('/', zValidator('json', tournamentBodySchema), async (c) => {
     const body = c.req.valid('json');
