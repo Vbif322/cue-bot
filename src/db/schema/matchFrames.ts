@@ -11,8 +11,10 @@ import { matches } from './matches.js';
  * counts) is an authoritative cache recomputed from these rows on every result
  * report, so every existing reader (advancement, standings, cards) keeps working
  * unchanged. While the match is still scheduled/in_progress, rows may exist as a
- * draft saved frame-by-frame from the web forms (`saveMatchFrame`); the aggregate
- * stays empty until the final report, and readers must gate on match status.
+ * draft saved frame-by-frame from the web forms or the bot (`saveMatchFrame`), or
+ * left by a dispute (which keeps the reported frames for correction); the
+ * aggregate stays empty until the final report, and readers must gate on match
+ * status.
  *
  * The frame winner is derived by comparing points and is never stored. `*Break`
  * columns hold the highest break per player in that frame (snooker only; null

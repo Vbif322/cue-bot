@@ -1600,7 +1600,8 @@ export interface DisputedReport {
 }
 
 /**
- * Dispute match result. Puts the match back into play and sets the dispute
+ * Dispute match result. Puts the match back into play — its frames stay as the
+ * draft, so the reporter can fix one frame and re-submit — and sets the dispute
  * marker (disputedAt/By/Score) so referees see it until the match completes.
  * `byAdmin`: an admin disputes from the admin panel — `userId` is the admin,
  * who need not play in the match.
@@ -1651,8 +1652,8 @@ export async function disputeResult(
     };
   }
 
-  // Read before the transaction wipes them. Frames can't change meanwhile:
-  // draft edits are guarded on scheduled/in_progress (editFrameDraft).
+  // Read before the update. Frames can't change meanwhile: draft edits are
+  // guarded on scheduled/in_progress (editFrameDraft).
   const frames = await getMatchFrames(matchId);
   const previous: DisputedReport = {
     player1Score: match.player1Score,
@@ -1662,32 +1663,30 @@ export async function disputeResult(
   };
 
   const now = new Date();
-  const updated = await db.transaction(async (tx) => {
-    const rows = await tx
-      .update(matches)
-      .set({
-        status: 'in_progress',
-        player1Score: null,
-        player2Score: null,
-        winnerId: null,
-        reportedBy: null,
-        disputedAt: now,
-        disputedBy: userId,
-        disputedScore: previous.summary,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(matches.id, matchId),
-          eq(matches.status, 'pending_confirmation'),
-          noOtherMatchOccupyingPlayers(matchId),
-        ),
-      )
-      .returning();
-    // Drop any per-frame breakdown so the match returns to a clean in_progress.
-    if (rows.length) await deleteMatchFrames(tx, matchId);
-    return rows;
-  });
+  // The frame rows are kept: back in in_progress they become the draft again
+  // (see matchFrames), so the disputed frame can be fixed and the result
+  // re-submitted without re-entering the whole match.
+  const updated = await db
+    .update(matches)
+    .set({
+      status: 'in_progress',
+      player1Score: null,
+      player2Score: null,
+      winnerId: null,
+      reportedBy: null,
+      disputedAt: now,
+      disputedBy: userId,
+      disputedScore: previous.summary,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(matches.id, matchId),
+        eq(matches.status, 'pending_confirmation'),
+        noOtherMatchOccupyingPlayers(matchId),
+      ),
+    )
+    .returning();
 
   if (!updated.length) {
     return { success: false, error: STALE_STATUS_ERROR };

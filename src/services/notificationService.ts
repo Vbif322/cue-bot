@@ -642,6 +642,7 @@ export async function notifyResultDisputed(
   const message =
     `${disputerName} оспорил результат матча.\n\n` +
     `Матч возвращён в статус "в процессе".\n` +
+    `Фреймы сохранены — исправьте спорный фрейм и отправьте результат заново.\n` +
     `Обратитесь ${disputeContact(byReferees)} для разрешения ситуации.`;
 
   for (const playerId of [match.player1Id, match.player2Id]) {

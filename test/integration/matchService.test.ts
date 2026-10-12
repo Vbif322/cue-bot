@@ -325,7 +325,7 @@ describe('matchService lifecycle', () => {
       expect(await getMatchFrames(match.id)).toHaveLength(3);
     });
 
-    it('disputeResult clears the aggregate AND the frame rows', async () => {
+    it('disputeResult clears the aggregate but keeps the frames as a draft', async () => {
       const { match, p1, p2 } = await startedMatch();
       await reportResultFromFrames(match.id, p1, sweep);
       const res = await disputeResult(match.id, p2);
@@ -335,7 +335,42 @@ describe('matchService lifecycle', () => {
       expect(after?.status).toBe('in_progress');
       expect(after?.player1Score).toBeNull();
       expect(after?.player2Score).toBeNull();
-      expect(await getMatchFrames(match.id)).toHaveLength(0);
+      expect(after?.winnerId).toBeNull();
+      expect(await getMatchFrames(match.id)).toHaveLength(3);
+    });
+
+    it('after a dispute one frame can be fixed and the result re-submitted', async () => {
+      const { match, p1, p2 } = await startedMatch();
+      await reportResultFromFrames(match.id, p1, sweep);
+      await disputeResult(match.id, p2);
+
+      // P2 actually took frame 2.
+      const fixed = await saveMatchFrame(match.id, 2, {
+        player1Points: 10,
+        player2Points: 70,
+      });
+      expect(fixed.success).toBe(true);
+      const res = await reportResultFromFrames(
+        match.id,
+        p1,
+        await getMatchFrames(match.id),
+      );
+      expect(res.success).toBe(false);
+
+      // 2:1 needs a fourth frame (winScore 3).
+      await saveMatchFrame(match.id, 4, {
+        player1Points: 64,
+        player2Points: 20,
+      });
+      const resubmit = await reportResultFromFrames(
+        match.id,
+        p1,
+        await getMatchFrames(match.id),
+      );
+      expect(resubmit.success).toBe(true);
+      const after = await getMatch(match.id);
+      expect(after?.status).toBe('pending_confirmation');
+      expect([after?.player1Score, after?.player2Score]).toEqual([3, 1]);
     });
 
     it('persists per-frame breaks (snooker), null where unset', async () => {
@@ -580,7 +615,10 @@ describe('matchService lifecycle', () => {
         3,
         'round_robin',
       );
-      const all = await createMatchesForTournament(tournament.id, 'round_robin');
+      const all = await createMatchesForTournament(
+        tournament.id,
+        'round_robin',
+      );
       return { all };
     }
 
@@ -798,7 +836,9 @@ describe('completeTournament', () => {
     const after = await getTournamentMatches(tournament.id);
     expect(after.find((m) => m.id === done.id)?.status).toBe('completed');
     expect(
-      after.filter((m) => m.id !== done.id).every((m) => m.status === 'cancelled'),
+      after
+        .filter((m) => m.id !== done.id)
+        .every((m) => m.status === 'cancelled'),
     ).toBe(true);
     const row = await db.query.tournaments.findFirst({
       where: eq(tournaments.id, tournament.id),

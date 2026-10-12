@@ -132,7 +132,7 @@ export async function waitForCalledMatches(
   return called;
 }
 
-async function waitForMatchStatus(
+export async function waitForMatchStatus(
   matchId: UUID,
   status: Match['status'],
 ): Promise<void> {
@@ -143,7 +143,7 @@ async function waitForMatchStatus(
     .toBe(status);
 }
 
-function playerById(players: Player[], id: UUID | null): Player {
+export function playerById(players: Player[], id: UUID | null): Player {
   const player = players.find((p) => p.id === id);
   if (!player) throw new Error(`no session for player ${String(id)}`);
   return player;

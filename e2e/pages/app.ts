@@ -104,6 +104,51 @@ export class PlayerMatchesPage {
     ).toBeVisible();
   }
 
+  /**
+   * Dispute the opponent's report (two-step: «Оспорить» → confirm dialog).
+   * The match goes back into play, so the score form reappears.
+   */
+  async dispute(matchId: UUID): Promise<void> {
+    await this.openMatch(matchId);
+    await this.button('Оспорить').click();
+    await expect(this.page.getByText('Оспорить результат?')).toBeVisible();
+    await this.button('Оспорить').last().click();
+    await expect(this.button('Отправить результат')).toBeVisible();
+  }
+
+  /** Score inputs of a frame row (1-based). */
+  frameInputs(n: number): [Locator, Locator] {
+    return [
+      this.page.getByLabel(`Фрейм ${String(n)}, счёт 1`, { exact: true }),
+      this.page.getByLabel(`Фрейм ${String(n)}, счёт 2`, { exact: true }),
+    ];
+  }
+
+  /**
+   * Snooker: fix one already saved frame of the draft («Сохр.» saves just
+   * that row) and re-submit the result.
+   */
+  async fixFrameAndSubmit(
+    matchId: UUID,
+    n: number,
+    frame: { p1: number; p2: number },
+  ): Promise<void> {
+    await this.openMatch(matchId);
+    const [a, b] = this.frameInputs(n);
+    await a.fill(String(frame.p1));
+    await b.fill(String(frame.p2));
+    const save = this.page.getByRole('button', {
+      name: `Сохранить фрейм ${String(n)}`,
+    });
+    await save.click();
+    // «Сохр.» disappears once the server has the row.
+    await expect(save).toHaveCount(0);
+    await this.button('Отправить результат').click();
+    await expect(
+      this.page.getByText('Ожидает подтверждения соперником'),
+    ).toBeVisible();
+  }
+
   async confirm(matchId: UUID): Promise<void> {
     await this.openMatch(matchId);
     await this.button('Подтвердить').click();
