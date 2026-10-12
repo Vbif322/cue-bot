@@ -348,6 +348,13 @@ async function start() {
     refreshRegistrationAnnouncement(bot.api, tournamentId),
   );
 
+  // E2E-тесты поднимают сервер с фейковым токеном: без бота, чтобы не ждать
+  // ретраев getMe и не засорять лог.
+  if (process.env.BOT_DISABLED === '1') {
+    console.log('BOT_DISABLED=1: бот не запускается, работает только HTTP API');
+    return;
+  }
+
   await startBot();
 }
 

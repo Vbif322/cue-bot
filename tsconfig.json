@@ -46,6 +46,6 @@
 
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*", "test/**/*", "e2e/**/*"],
   "exclude": ["node_modules", "build"]
 }

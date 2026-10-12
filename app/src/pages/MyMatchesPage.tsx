@@ -46,6 +46,7 @@ function MatchRow({
     <button
       type="button"
       onClick={onClick}
+      data-match-id={match.id}
       className="cb-card-link"
       style={{
         textAlign: 'left',

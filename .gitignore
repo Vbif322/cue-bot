@@ -6,6 +6,9 @@
 /build
 /temp
 /coverage
+/e2e/.artifacts
+/playwright-report
+/test-results
 *.tsbuildinfo
 
 .env

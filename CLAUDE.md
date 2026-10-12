@@ -32,7 +32,22 @@ npm run test:unit
 npm run test:integration               # spins up a throwaway Postgres via testcontainers (needs docker)
 npm run test:unit -- test/unit/services/foo.test.ts   # single file
 npm run test:coverage
+npm run test:e2e                       # Playwright browser e2e (needs docker; `npx playwright install chromium` once)
+npm run test:e2e -- singleElimination  # single spec; test:e2e:headed / test:e2e:ui to watch
 ```
+
+**E2E** (`e2e/`, Playwright, not Vitest): `setup/globalSetup.ts` boots its own stack — a
+testcontainers Postgres, the API (`NODE_ENV=test`, `BOT_DISABLED=1`, no SMTP so login codes land
+in `e2e/.artifacts/server.log`) on :3100, admin/app Vite on :5183/:5184 (`VITE_API_PROXY`). Each
+user is its own `BrowserContext` with a signed `admin_token`/`app_token` cookie (`e2e/fixtures.ts`;
+only `auth.spec.ts` uses the real email-code login — the API rate-limits code requests per IP).
+Tests act **only through the UI**; the DB is read as an oracle (`e2e/helpers/tournamentFlow.ts`).
+`playOutTournament` plays only matches already called to a table (tables are handed out _after_
+the status / result commits, so helpers poll for the call rather than trusting a snapshot), and
+page objects wait for the post-success UI state, not for a button to vanish (buttons are
+relabelled «Обработка...»/«Отправка…» while a request runs). Selectors are Russian text/roles;
+the player's match rows carry `data-match-id`. Double elimination needs ≥8 players; the DE spec
+runs 16 snooker players (frame-by-frame reporting) on 4 tables with random pairing.
 
 Build / run:
 

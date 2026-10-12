@@ -167,6 +167,24 @@ Integration-тесты (`npm run test:integration`, часть `npm test`) по�
 через testcontainers и **требуют Docker**. Без Docker пройдут только unit-тесты
 (`npm run test:unit`).
 
+E2E-тесты (Playwright, `e2e/`) проводят турнир целиком через браузер: админ работает в
+админке, каждый игрок — в своей отдельной браузерной сессии на сайте игрока (регистрация,
+«Я у стола», ввод счёта, подтверждение соперником). Играются только матчи, уже вызванные
+к столу, — так проверяется и очередь столов. Сценарии: олимпийка, круговая,
+double elimination со случайными парами (16 игроков, снукер с вводом по фреймам, 4 стола),
+вход по коду из письма. Стек (Postgres в testcontainers, API на :3100,
+админка на :5183, сайт игрока на :5184) поднимается сам и не мешает запущенному `dev:all`.
+Нужен Docker; перед первым запуском — `npx playwright install chromium`.
+
+```bash
+npm run test:e2e                                   # все сценарии, headless
+npm run test:e2e:headed -- singleElimination       # смотреть окна игроков
+npm run test:e2e:ui                                # интерактивный режим Playwright
+```
+
+При падении: отчёт в `playwright-report/` (trace, видео, скриншоты), лог API —
+`e2e/.artifacts/server.log`.
+
 ### Туннель для Telegram Web App
 
 Для разработки Telegram Web App необходим публичный HTTPS-адрес. Используйте SSH-туннель для проброса локального Vite сервера на сервер:

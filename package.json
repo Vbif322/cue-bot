@@ -28,6 +28,9 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test -c e2e/playwright.config.ts",
+    "test:e2e:headed": "playwright test -c e2e/playwright.config.ts --headed",
+    "test:e2e:ui": "playwright test -c e2e/playwright.config.ts --ui",
     "dev": "nodemon",
     "dev:admin": "npm run dev --workspace admin",
     "dev:app": "npm run dev --workspace app",
@@ -60,6 +63,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.64.0",
     "@testcontainers/postgresql": "^12.0.1",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.10.1",

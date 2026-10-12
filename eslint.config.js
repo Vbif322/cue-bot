@@ -20,6 +20,9 @@ export default tseslint.config(
       'eslint.config.js',
       '*.config.ts', // vitest.config.ts, drizzle.config.ts
       'scripts/**', // .ts seed scripts not covered by the root tsconfig
+      'e2e/.artifacts/**',
+      'playwright-report/**',
+      'test-results/**',
     ],
   },
 
@@ -29,7 +32,7 @@ export default tseslint.config(
 
   // Type-aware linting needs project info; scope it to the files tsconfig includes.
   {
-    files: ['src/**/*.ts', 'test/**/*.ts'],
+    files: ['src/**/*.ts', 'test/**/*.ts', 'e2e/**/*.ts'],
     languageOptions: {
       parserOptions: {
         projectService: true,
