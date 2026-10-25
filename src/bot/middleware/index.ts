@@ -1,6 +1,6 @@
 export { authMiddleware } from './auth.js';
 export { chatScopeMiddleware, GROUP_COMMANDS } from './chatScope.js';
-export { wizardGuardMiddleware } from './wizardGuard.js';
+export { sessionGuardMiddleware } from '../sessions/textSessionMiddleware.js';
 export {
   rateLimitMiddleware,
   createRateLimitMiddleware,

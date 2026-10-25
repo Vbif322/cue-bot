@@ -1,4 +1,6 @@
-import { PgSessionStore } from '@/services/dialogSessionStore.js';
+import { TextSessionStore } from '@/bot/sessions/textSessionStore.js';
+import { TEXT_SESSION_TTL_MS } from '@/bot/sessions/textSession.const.js';
+import type { BotContext } from '@/bot/types.js';
 
 import type {
   ICreationData,
@@ -9,7 +11,7 @@ import type {
 // #region Types / Interfaces
 
 export interface ITournamentCreationStateStore {
-  start(userId: number): Promise<ICreationState>;
+  start(userId: number, ctx?: BotContext): Promise<ICreationState>;
 
   get(userId: number): Promise<ICreationState | undefined>;
   getOrThrow(userId: number): Promise<ICreationState>;
@@ -78,11 +80,12 @@ export function mergeCreationData(
  * `startDate` хранится в jsonb как ISO-строка; код-потребитель ждёт `Date`.
  * Нормализуем строку обратно в `Date` при чтении.
  *
- * @param {ICreationState} state Состояние из БД
+ * @param {unknown} raw Состояние из БД
  *
  * @returns {ICreationState} Состояние с восстановленными типами
  */
-function normalizeState(state: ICreationState): ICreationState {
+export function normalizeCreationState(raw: unknown): ICreationState {
+  const state = raw as ICreationState;
   const startDate = state.data.tournament?.startDate;
 
   if (typeof startDate === 'string') {
@@ -109,16 +112,23 @@ function normalizeState(state: ICreationState): ICreationState {
 export class TournamentCreationStateStore
   implements ITournamentCreationStateStore
 {
-  private readonly store = new PgSessionStore<ICreationState>('tc');
+  /** Текстовая сессия wizard'а (namespace `tc`); регистрируется в модуле. */
+  readonly session = new TextSessionStore<ICreationState>('tc', {
+    ttlMs: TEXT_SESSION_TTL_MS.tournamentCreation,
+    hydrate: normalizeCreationState,
+  });
 
   /**
    * Создание состояния создания турнира для пользователя
    *
+   * Сессии других текстовых флоу пользователя завершаются (с `ctx` — с их `onEnd`).
+   *
    * @param {number} userId ID пользователя
+   * @param {BotContext} [ctx] Контекст бота
    *
    * @returns {Promise<ICreationState>} Состояние создания
    */
-  async start(userId: number): Promise<ICreationState> {
+  async start(userId: number, ctx?: BotContext): Promise<ICreationState> {
     const state: ICreationState = {
       step: 'name',
       data: {
@@ -126,7 +136,7 @@ export class TournamentCreationStateStore
       },
     };
 
-    await this.store.set(userId, state);
+    await this.session.start(userId, state, ctx);
 
     return state;
   }
@@ -139,9 +149,7 @@ export class TournamentCreationStateStore
    * @returns {Promise<ICreationState | undefined>} Состояние или undefined
    */
   async get(userId: number): Promise<ICreationState | undefined> {
-    const state = await this.store.get(userId);
-
-    return state ? normalizeState(state) : undefined;
+    return this.session.get(userId);
   }
 
   /**
@@ -170,7 +178,7 @@ export class TournamentCreationStateStore
    * @returns {Promise<boolean>} true, если находится
    */
   async has(userId: number): Promise<boolean> {
-    return this.store.has(userId);
+    return (await this.get(userId)) !== undefined;
   }
 
   /**
@@ -229,7 +237,7 @@ export class TournamentCreationStateStore
       step,
     };
 
-    await this.store.set(userId, nextState);
+    await this.write(userId, nextState);
 
     return nextState;
   }
@@ -255,7 +263,7 @@ export class TournamentCreationStateStore
       data: mergeCreationData(state.data, patch),
     };
 
-    await this.store.set(userId, nextState);
+    await this.write(userId, nextState);
 
     return nextState;
   }
@@ -281,7 +289,7 @@ export class TournamentCreationStateStore
     if (patch.step) next = { ...next, step: patch.step };
     if (patch.data) next = { ...next, data: mergeCreationData(next.data, patch.data) };
 
-    await this.store.set(userId, next);
+    await this.write(userId, next);
 
     return next;
   }
@@ -294,7 +302,14 @@ export class TournamentCreationStateStore
    * @returns {Promise<boolean>} true, если сессия была удалена
    */
   async clear(userId: number): Promise<boolean> {
-    return this.store.delete(userId);
+    return this.session.end(userId);
+  }
+
+  /** Записать состояние активной сессии; сессия не воскрешается после отмены/вытеснения. */
+  private async write(userId: number, state: ICreationState): Promise<void> {
+    if (!(await this.session.update(userId, state))) {
+      throw new Error('Сессия не найдена');
+    }
   }
 }
 

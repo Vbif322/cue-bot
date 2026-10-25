@@ -51,6 +51,12 @@ export interface ITournamentCreationFlow {
 
   getCreationState(userId: number): Promise<ICreationState | undefined>;
 
+  handleTextInput(
+    ctx: BotContext,
+    state: ICreationState,
+    text: string,
+  ): Promise<void>;
+
   handleNameInput(ctx: BotContext, name: string): Promise<boolean>;
 
   handleStartDateInput(ctx: BotContext, startDate: string): Promise<boolean>;
@@ -154,7 +160,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
 
     if (!userId) return;
 
-    await this.stateStore.start(userId);
+    await this.stateStore.start(userId, ctx);
 
     await this.renderer.showNameStep(ctx);
   }
@@ -179,6 +185,39 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
    */
   async getCreationState(userId: number): Promise<ICreationState | undefined> {
     return this.stateStore.get(userId);
+  }
+
+  /**
+   * Текстовое сообщение во время мастера (из единого диспетчера текстовых сессий).
+   * Текст принимают только шаги названия и даты; на остальных шагах — подсказка
+   * выбрать вариант кнопкой.
+   *
+   * @param {BotContext} ctx Контекст бота
+   * @param {ICreationState} state Текущее состояние создания
+   * @param {string} text Текст сообщения
+   *
+   * @returns {Promise<void>}
+   */
+  async handleTextInput(
+    ctx: BotContext,
+    state: ICreationState,
+    text: string,
+  ): Promise<void> {
+    let handled: boolean;
+
+    switch (state.step) {
+      case 'name':
+        handled = await this.handleNameInput(ctx, text);
+        break;
+      case 'date':
+        handled = await this.handleStartDateInput(ctx, text);
+        break;
+      default:
+        await this.renderer.showUseButtonsHint(ctx);
+        return;
+    }
+
+    if (!handled) await this.renderer.showTextInputError(ctx);
   }
 
   /**

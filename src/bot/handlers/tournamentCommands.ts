@@ -53,22 +53,6 @@ tournamentCommands.command('create_tournament', adminOnly(), async (ctx) => {
   await tournamentCreationFlow.startCreationWizard(ctx);
 });
 
-/**
- * /cancel - Cancel tournament creation
- */
-tournamentCommands.command('cancel', async (ctx) => {
-  const userId = ctx.from?.id;
-  if (!userId) return;
-
-  const cancelStatus = await tournamentCreationFlow.cancelCreation(userId);
-
-  if (cancelStatus) {
-    await ctx.reply('Создание турнира отменено.');
-  } else {
-    await ctx.reply('Нет активного процесса создания турнира.');
-  }
-});
-
 /** Active (non-terminal) statuses shown under the «Текущие» tab. */
 const ACTIVE_STATUSES: TournamentStatus[] = [
   'registration_open',
@@ -781,31 +765,6 @@ tournamentCommands.callbackQuery('tc:tables_done', async (ctx) => {
 
 tournamentCommands.callbackQuery('tc:tables_skip', async (ctx) => {
   await tournamentCreationFlow.handleTableSelectionFinalize(ctx, true);
-});
-
-// ============================================================================
-// TEXT MESSAGE HANDLER - Tournament Creation Wizard
-// ============================================================================
-
-tournamentCommands.on('message:text', async (ctx, next) => {
-  const userId = ctx.from.id;
-  const state = await tournamentCreationFlow.getCreationState(userId);
-
-  if (!state) {
-    return next();
-  }
-
-  const text = ctx.message.text;
-
-  if (state.step === 'name') {
-    if (await tournamentCreationFlow.handleNameInput(ctx, text)) return;
-  }
-
-  if (state.step === 'date') {
-    if (await tournamentCreationFlow.handleStartDateInput(ctx, text)) return;
-  }
-
-  return next();
 });
 
 // ============================================================================

@@ -2,10 +2,14 @@ import { bot, useWebhook } from './bot/instance.js';
 import {
   authMiddleware,
   chatScopeMiddleware,
-  wizardGuardMiddleware,
+  sessionGuardMiddleware,
   rateLimitMiddleware,
   botFloodLimiter,
 } from './bot/middleware/index.js';
+import {
+  sessionCancelCommand,
+  textSessionDispatcher,
+} from './bot/sessions/textSessionMiddleware.js';
 import { RateLimiter } from './lib/rateLimiter.js';
 import {
   roleCommands,
@@ -63,9 +67,13 @@ bot.use(rateLimitMiddleware);
 // Отсекает групповые апдейты ДО upsert'а пользователя в authMiddleware.
 bot.use(chatScopeMiddleware);
 bot.use(authMiddleware);
-bot.use(wizardGuardMiddleware);
+// Текстовые сессии (src/bot/sessions/): guard блокирует посторонние действия во
+// время wizard'а и завершает мягкую сессию при уходе в команду/меню.
+bot.use(sessionGuardMiddleware);
 // Группы обслуживаются здесь; всё, что ниже, рассчитано на личку.
 bot.use(groupCommands);
+// Единственный /cancel — раньше всех хендлеров, чтобы его никто не перехватил.
+bot.use(sessionCancelCommand);
 bot.use(menuHandlers);
 bot.use(roleCommands);
 bot.use(inviteCommands);
@@ -162,6 +170,10 @@ bot.command('dashboard', async (ctx) => {
   );
   await ctx.reply('Ссылка действительна 5 минут', { reply_markup: keyboard });
 });
+
+// Единственный текстовый хендлер — ПОСЛЕДНИМ: команды и кнопки меню уже
+// обработаны выше, сюда доходит только произвольный текст для активной сессии.
+bot.use(textSessionDispatcher);
 
 bot.catch((err) => {
   console.error('Bot error:', err);

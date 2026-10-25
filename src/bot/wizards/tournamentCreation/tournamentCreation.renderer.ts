@@ -108,6 +108,8 @@ export interface ITournamentCreationRenderer {
   showIncorrectQualifiersPerGroup(ctx: BotContext): Promise<void>;
   showIncorrectWinScore(ctx: BotContext): Promise<void>;
   showSavedStateError(ctx: BotContext): Promise<void>;
+  showUseButtonsHint(ctx: BotContext): Promise<void>;
+  showTextInputError(ctx: BotContext): Promise<void>;
 
   showCreationSuccess(
     ctx: BotContext,
@@ -640,6 +642,18 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
       text: 'Некорректное значение для количества побед',
       show_alert: true,
     });
+  }
+
+  async showUseButtonsHint(ctx: BotContext): Promise<void> {
+    await ctx.reply(
+      'Сейчас нужно выбрать вариант кнопкой в сообщении выше. Для отмены — /cancel.',
+    );
+  }
+
+  async showTextInputError(ctx: BotContext): Promise<void> {
+    await ctx.reply(
+      `${getMatchStatusEmoji('cancelled')} Что-то пошло не так. Попробуйте ещё раз или /cancel.`,
+    );
   }
 
   async showSavedStateError(ctx: BotContext): Promise<void> {

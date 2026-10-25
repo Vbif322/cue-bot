@@ -81,12 +81,12 @@ cue-bot/
 │   ├── bot/
 │   │   ├── @types/                      # типы read-моделей для bot/UI/API
 │   │   ├── handlers/                    # команды и callback-обработчики grammY (+ helpers/)
-│   │   ├── middleware/                  # auth, wizardGuard, rateLimit middleware бота
+│   │   ├── middleware/                  # auth, chatScope, rateLimit middleware бота
 │   │   ├── ui/                          # форматирование сообщений и клавиатуры
+│   │   ├── sessions/                    # текстовые сессии: реестр, TextSessionStore, guard, единый /cancel и текстовый диспетчер
 │   │   ├── wizards/
 │   │   │   ├── tournamentCreation/      # wizard создания турнира (flow/renderer/keyboards/stateStore/module/const/d.ts)
-│   │   │   ├── profileEdit/             # wizard редактирования профиля
-│   │   │   └── wizardRegistry.ts        # реестр wizard-ов и определение активного по dialog_sessions
+│   │   │   └── profileEdit/             # wizard редактирования профиля
 │   │   ├── commands.ts                  # наборы команд бота для разных ролей
 │   │   ├── guards.ts                    # adminOnly / privateOnly guard-обёртки
 │   │   ├── instance.ts                  # создание экземпляра бота
@@ -134,7 +134,7 @@ cue-bot/
    Входящие Telegram-сообщения и callback query обрабатываются в `src/bot/handlers/*`. HTTP-запросы админки обслуживаются через Hono-маршруты в `src/admin/server/routes/*`.
 
 3. **Middleware / Guards**
-   - Бот: `rateLimitMiddleware` (флуд-защита, выполняется **первым**, до upsert пользователя) → `authMiddleware` (загружает/создаёт `ctx.dbUser`) → `wizardGuardMiddleware` (блокирует посторонние команды при активном wizard). Guard-обёртки `adminOnly` / `privateOnly` (`src/bot/guards.ts`) и проверки ролей/судейства в `permissions.ts`.
+   - Бот: `rateLimitMiddleware` (флуд-защита, выполняется **первым**, до upsert пользователя) → `authMiddleware` (загружает/создаёт `ctx.dbUser`) → `sessionGuardMiddleware` (блокирует посторонние действия во время wizard'а, завершает мягкую текстовую сессию при уходе в команду/меню) → единый `/cancel` → хендлеры → единый текстовый диспетчер (последним). Guard-обёртки `adminOnly` / `privateOnly` (`src/bot/guards.ts`) и проверки ролей/судейства в `permissions.ts`.
    - Admin API: `secureHeaders()` на всех ответах, CORS для Vite dev-сервера (только в dev), `requireAdmin` на защищённых роутерах (валидирует JWT-cookie и **перепроверяет роль в БД на каждом запросе**), IP-rate-limit на минтинге токена входа.
 
 4. **Service Layer**
@@ -374,7 +374,8 @@ erDiagram
 Персистентное диалоговое / wizard-состояние бота (заменяет module-level in-memory `Map`'ы — состояние переживает рестарт процесса).
 
 - составной ключ: `namespace + key`
-- `namespace`: разделяет независимые хранилища (`tc` | `profile-edit` | `invite` | `match-schedule`)
+- `namespace`: разделяет независимые хранилища (`tc` | `profile-edit` | `invite` | `match-schedule` | `match-report-frames`); источник истины — регистрации `registerTextSession` (`src/bot/sessions/`)
+- у пользователя не больше одной текстовой сессии: старт новой атомарно удаляет остальные
 - `key`: как правило, Telegram userId строкой
 - `data`: jsonb-полезная нагрузка
 - `expiresAt`: TTL, обновляется при каждой записи; чтения фильтруют просроченное, периодический sweep удаляет его из таблицы
@@ -424,11 +425,12 @@ erDiagram
 
 Особенности:
 
-- состояние wizard хранится в таблице `dialog_sessions` через `PgSessionStore` (namespace `tc`) — переживает рестарт процесса; TTL обновляется при каждой записи
+- состояние wizard хранится в таблице `dialog_sessions` через `TextSessionStore` (namespace `tc`) — переживает рестарт процесса; TTL обновляется при каждой записи
 - выбор площадки обязателен
 - если у площадки нет столов, шаг выбора столов завершается через `tc:tables_skip`
 - создание завершается вызовом `createTournamentDraft()` и сохранением турнира в статусе `draft`
-- `/cancel` очищает активную сессию создания
+- `/cancel` (единый для всех текстовых сессий) очищает активную сессию создания
+- текст на шагах с кнопками получает подсказку выбрать вариант кнопкой
 
 ### 3. Создание турнира в admin SPA
 
@@ -596,7 +598,7 @@ deep-link `/start join_<code>` (см. путь 1).
 | `/assign_referee`         | назначить судью турнира                          |
 | `/remove_referee`         | снять судью турнира                              |
 | `/dashboard`              | получить одноразовую ссылку на admin-панель      |
-| `/cancel`                 | отменить текущий wizard                          |
+| `/cancel`                 | отменить текущее действие (любую текстовую сессию) |
 
 > `/dashboard` ограничен per-admin лимитом (1 запрос в 30 с) через `dashboardLimiter`, чтобы таблица `login_tokens` не наполнялась спамом.
 
@@ -866,7 +868,8 @@ Race-safe случайное продвижение для турниров с �
 
 Персистентное хранилище диалоговых / wizard-сессий поверх таблицы `dialog_sessions`.
 
-- `PgSessionStore<T>` — generic namespaced key-value store с TTL
+- `PgSessionStore<T>` — generic namespaced key-value store с TTL; `claim` — эксклюзивный старт (в транзакции под advisory-lock удаляет сессии ключа в других namespace и пишет свою), `replace` — обновление только существующей сессии (без вставки)
+- `findActiveDialogSession()` — активная сессия ключа среди namespace одним запросом
 - `sweepExpiredDialogSessions()` — удаление просроченных строк (вызывается периодически из `src/index.ts`)
 
 ### timeoutService
@@ -888,9 +891,12 @@ Race-safe случайное продвижение для турниров с �
 
 - ищет пользователя по `telegram_id`, создаёт нового с ролью `user`, обновляет `username`, кладёт `ctx.dbUser` в контекст grammY
 
-#### wizardGuardMiddleware (бот)
+#### Текстовые сессии (бот, `src/bot/sessions/`)
 
-- при активной wizard-сессии (определяется по `dialog_sessions` через `getActiveWizard`) блокирует посторонние команды, пропуская только callback'и с префиксом активного wizard
+- каждый флоу, ждущий произвольный текст (создание турнира, приглашение, профиль, время матча, ввод фреймов), регистрируется через `registerTextSession`; у пользователя активна максимум одна такая сессия
+- `sessionGuardMiddleware`: во время blocking-сессии (wizard: `tc`, `invite`, `profile-edit`) блокирует чужие callback'и, команды и кнопки меню, пропуская свой callback-префикс, текст и `/cancel`; мягкую сессию (время матча, фреймы) завершает, когда пользователь уходит в команду или меню
+- единый `/cancel` завершает активную сессию (её `onEnd`) и отвечает её `cancelReply`
+- единый `message:text`-диспетчер (регистрируется последним) отдаёт текст активной сессии
 
 #### adminOnly / privateOnly / permissions (бот)
 
@@ -967,8 +973,8 @@ host-only cookie на разных хостах, — поэтому кнопка
 ## Особенности реализации
 
 - **Единый процесс**: один Node-процесс запускает grammY-бота и Hono API; в production Hono отдаёт собранную SPA. HTTP-сервер поднимается раньше бота, старт бота ретраится.
-- **Персистентные wizard-сессии**: состояние мастеров хранится в таблице `dialog_sessions` (`PgSessionStore`), переживает рестарт процесса; просроченное чистится периодическим sweep'ом. Активный wizard определяется единственным запросом в `wizardRegistry`.
-- **Модульные wizard'ы**: `tournamentCreation/` (flow/renderer/keyboards/stateStore/module/const) и `profileEdit/`; диспетчеризация — через `wizardRegistry.ts` по namespace и callback-префиксу.
+- **Персистентные текстовые сессии**: состояние мастеров и текстовых флоу хранится в таблице `dialog_sessions` (`TextSessionStore` поверх `PgSessionStore`), переживает рестарт процесса; просроченное чистится периодическим sweep'ом. Активная сессия определяется единственным запросом в `textSessionRegistry`.
+- **Модульные wizard'ы**: `tournamentCreation/` (flow/renderer/keyboards/stateStore/module/const) и `profileEdit/`; диспетчеризация текста, `/cancel` и guard — через `src/bot/sessions/` по namespace и callback-префиксу.
 - **Четыре формата + случайные пары**: SE/DE/RR/`groups_playoff`; `randomAdvancement` — отдельный boolean-флаг поверх формата (а не отдельный формат).
 - **Корректировка результатов**: завершённый матч можно пересчитать (`correctMatchResult`); при смене победителя зависимые матчи откатываются, история пишется в `matchCorrections`, есть dry-run (`previewCorrection`) и идемпотентное восстановление (`resyncAdvancement`).
 - **Rate limiting**: общий token-bucket (`src/lib/rateLimiter.ts`) используется и в боте (флуд-защита, лимит `/dashboard`), и в HTTP (лимит минтинга токена входа); неактивные бакеты периодически прунятся.

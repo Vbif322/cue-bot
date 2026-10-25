@@ -4,7 +4,6 @@ import { eq, inArray, and } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { PgSessionStore } from '@/services/dialogSessionStore.js';
 import { tournaments } from '@/db/schema.js';
 import {
   safeEditMessageText,
@@ -74,6 +73,13 @@ import {
   isAdmin,
 } from '../permissions.js';
 import { refreshMatchCard } from './helpers/matchCard.js';
+import { TextSessionStore } from '../sessions/textSessionStore.js';
+import {
+  registerTextSession,
+  type TextMessageContext,
+  type TextSessionEndReason,
+} from '../sessions/textSessionRegistry.js';
+import { TEXT_SESSION_TTL_MS } from '../sessions/textSession.const.js';
 import type { BotContext } from '../types.js';
 
 export const matchCommands = new Composer<BotContext>();
@@ -83,8 +89,9 @@ export const matchCommands = new Composer<BotContext>();
  * Set when an admin/referee presses «🗓 Назначить время»; consumed by the
  * text handler below. Переживает рестарт (хранится в Postgres).
  */
-const matchScheduleState = new PgSessionStore<{ matchId: UUID }>(
+const matchScheduleState = new TextSessionStore<{ matchId: UUID }>(
   'match-schedule',
+  { ttlMs: TEXT_SESSION_TTL_MS.matchSchedule },
 );
 
 /**
@@ -92,8 +99,9 @@ const matchScheduleState = new PgSessionStore<{ matchId: UUID }>(
  * (`FrameReportState` — UI only; the frames are the DB draft). Переживает
  * рестарт (хранится в Postgres).
  */
-const matchFrameState = new PgSessionStore<FrameReportState>(
+const matchFrameState = new TextSessionStore<FrameReportState>(
   'match-report-frames',
+  { ttlMs: TEXT_SESSION_TTL_MS.matchFrames },
 );
 
 /** Whether a tournament's discipline captures per-frame breaks (snooker only). */
@@ -225,7 +233,7 @@ async function closeFrameEntryIfNotInPlay(
   if (match.status === 'scheduled' || match.status === 'in_progress') {
     return false;
   }
-  await matchFrameState.delete(userId);
+  await matchFrameState.end(userId);
   await showMatchCardInPrompt(
     ctx,
     state,
@@ -266,7 +274,7 @@ async function finalizeFrameReport(
     return;
   }
 
-  await matchFrameState.delete(userId);
+  await matchFrameState.end(userId);
   const updatedMatch = await getMatch(state.matchId);
   const frames = await getMatchFrames(state.matchId);
   if (updatedMatch) {
@@ -491,7 +499,7 @@ matchCommands.callbackQuery(/^msch:set:(.+)$/, async (ctx) => {
     return;
   }
 
-  await matchScheduleState.set(ctx.from.id, { matchId: matchIdUUID });
+  await matchScheduleState.start(ctx.from.id, { matchId: matchIdUUID }, ctx);
   await ctx.answerCallbackQuery();
   await ctx.reply(
     'Введите дату и время матча (например 21.06.2026 18:30).\n\n' +
@@ -538,19 +546,13 @@ matchCommands.callbackQuery(/^msch:clear:(.+)$/, async (ctx) => {
   await refreshMatchCard(ctx, matchIdUUID);
 });
 
-// Ввод даты/времени для назначаемого матча
-matchCommands.on('message:text', async (ctx, next) => {
+/** Ввод даты/времени для назначаемого матча (из единого диспетчера текстовых сессий). */
+async function handleScheduleText(
+  ctx: TextMessageContext,
+  state: { matchId: UUID },
+): Promise<void> {
   const userId = ctx.from.id;
-
-  const state = await matchScheduleState.get(userId);
-  if (!state) return next();
-
   const text = ctx.message.text.trim();
-  // Let commands (e.g. /cancel) run, and stop waiting for a date.
-  if (text.startsWith('/')) {
-    await matchScheduleState.delete(userId);
-    return next();
-  }
 
   const parsed = DateTimeHelperInstance.toDate(text);
   if (!parsed.status) {
@@ -560,7 +562,7 @@ matchCommands.on('message:text', async (ctx, next) => {
     return; // keep state so the user can retry
   }
 
-  await matchScheduleState.delete(userId);
+  await matchScheduleState.end(userId);
 
   const result = await setMatchSchedule(state.matchId, parsed.datetime);
   if (!result.success) {
@@ -591,7 +593,7 @@ matchCommands.on('message:text', async (ctx, next) => {
       `Время матча назначено на ${DateTimeHelperInstance.formatDate(parsed.datetime)}.`,
     );
   }
-});
+}
 
 // Начать матч
 matchCommands.callbackQuery(/^match:start:(.+)$/, async (ctx) => {
@@ -826,7 +828,7 @@ matchCommands.callbackQuery(/^match:report:(.+)$/, async (ctx) => {
       promptChatId: msg.chat.id,
       promptMessageId: msg.message_id,
     };
-    await matchFrameState.set(ctx.from.id, state);
+    await matchFrameState.start(ctx.from.id, state, ctx);
     const view = buildFrameEntryView(state, savedFrames, match, tournament);
     await safeEditMessageText(ctx, {
       text: view.text,
@@ -935,23 +937,21 @@ matchCommands.callbackQuery(/^match:score:(.+):(\d+):(\d+)$/, async (ctx) => {
   }
 });
 
-// Снукер: ввод счёта фрейма / нового счёта фрейма / брейка текстом. Каждое
-// изменение сразу пишется в черновик фреймов в БД (общий с веб-формами).
-matchCommands.on('message:text', async (ctx, next) => {
+/**
+ * Снукер: ввод счёта фрейма / нового счёта фрейма / брейка текстом (из единого
+ * диспетчера текстовых сессий). Каждое изменение сразу пишется в черновик
+ * фреймов в БД (общий с веб-формами).
+ */
+async function handleFrameText(
+  ctx: TextMessageContext,
+  state: FrameReportState,
+): Promise<void> {
   const userId = ctx.from.id;
-  const state = await matchFrameState.get(userId);
-  if (!state) return next();
-
   const text = ctx.message.text.trim();
-  // Let commands (e.g. /cancel) run and leave the frame entry — the draft stays.
-  if (text.startsWith('/')) {
-    await matchFrameState.delete(userId);
-    return next();
-  }
 
   const loaded = await loadFrameContext(state.matchId);
   if (!loaded) {
-    await matchFrameState.delete(userId);
+    await matchFrameState.end(userId);
     await ctx.reply('Матч не найден, ввод результата отменён.');
     return;
   }
@@ -978,7 +978,8 @@ matchCommands.on('message:text', async (ctx, next) => {
       return; // keep the mode so the user can retry
     }
     state.mode = nextMode;
-    await matchFrameState.set(userId, state);
+    // The session ended meanwhile (/cancel, another flow) — don't revive it.
+    if (!(await matchFrameState.update(userId, state))) return;
     await renderFramePrompt(
       ctx.api,
       state,
@@ -1003,8 +1004,9 @@ matchCommands.on('message:text', async (ctx, next) => {
     const frame = frameAt(frames, mode.frameNumber);
     if (!frame) {
       state.mode = undefined;
-      await matchFrameState.set(userId, state);
-      await renderFramePrompt(ctx.api, state, loaded);
+      if (await matchFrameState.update(userId, state)) {
+        await renderFramePrompt(ctx.api, state, loaded);
+      }
       return;
     }
     const value = parseInt(text, 10);
@@ -1052,8 +1054,9 @@ matchCommands.on('message:text', async (ctx, next) => {
     const frame = frameAt(frames, mode.frameNumber);
     if (!frame) {
       state.mode = undefined;
-      await matchFrameState.set(userId, state);
-      await renderFramePrompt(ctx.api, state, loaded);
+      if (await matchFrameState.update(userId, state)) {
+        await renderFramePrompt(ctx.api, state, loaded);
+      }
       return;
     }
     const keep = (b: number | null | undefined, points: number) =>
@@ -1096,7 +1099,53 @@ matchCommands.on('message:text', async (ctx, next) => {
     { player1Points: p1, player2Points: p2 },
     undefined,
   );
-});
+}
+
+const FRAME_ENTRY_CLOSED = 'Ввод по фреймам закрыт';
+
+/**
+ * The frame-entry session of this user for exactly this match. A button on a
+ * stale prompt (session ended, expired, or now entering another match) gets
+ * undefined — it must never touch another match's session.
+ */
+async function getFrameSessionFor(
+  userId: number,
+  matchId: string,
+): Promise<FrameReportState | undefined> {
+  const state = await matchFrameState.get(userId);
+  return state?.matchId === matchId ? state : undefined;
+}
+
+/** A button pressed on a prompt whose session is gone: show the match card instead. */
+async function closeStaleFramePrompt(
+  ctx: BotContext,
+  matchId: string,
+): Promise<void> {
+  await ctx.answerCallbackQuery(FRAME_ENTRY_CLOSED);
+  await refreshMatchCard(ctx, matchId as UUID);
+}
+
+/** End frame entry (/cancel or another flow took over): prompt → match card. */
+async function endFrameEntry(
+  ctx: BotContext,
+  state: FrameReportState,
+  reason: TextSessionEndReason,
+): Promise<void> {
+  const loaded = await loadFrameContext(state.matchId);
+  if (!loaded) return;
+  const note =
+    reason === 'cancel'
+      ? 'ℹ️ Ввод по фреймам приостановлен — фреймы сохранены, «Внести результат» продолжит.'
+      : 'ℹ️ Ввод по фреймам прерван — фреймы сохранены, «Внести результат» продолжит.';
+  await showMatchCardInPrompt(
+    ctx,
+    state,
+    loaded.match,
+    loaded.tournament,
+    loaded.frames,
+    note,
+  );
+}
 
 /**
  * Shared shell of the frame-entry buttons: loads the session and the match
@@ -1105,6 +1154,7 @@ matchCommands.on('message:text', async (ctx, next) => {
  */
 async function handleFrameButton(
   ctx: BotContext,
+  matchId: string,
   apply: (
     state: FrameReportState,
     loaded: FrameContext,
@@ -1112,14 +1162,14 @@ async function handleFrameButton(
   answer?: string,
 ): Promise<void> {
   const userId = ctx.from?.id;
-  const state = userId ? await matchFrameState.get(userId) : undefined;
+  const state = userId ? await getFrameSessionFor(userId, matchId) : undefined;
   if (!userId || !state) {
-    await ctx.answerCallbackQuery();
+    await closeStaleFramePrompt(ctx, matchId);
     return;
   }
   const loaded = await loadFrameContext(state.matchId);
   if (!loaded) {
-    await matchFrameState.delete(userId);
+    await matchFrameState.end(userId);
     await ctx.answerCallbackQuery({
       text: 'Матч не найден, ввод результата отменён.',
       show_alert: true,
@@ -1135,14 +1185,17 @@ async function handleFrameButton(
     await ctx.answerCallbackQuery();
     return;
   }
-  await matchFrameState.set(userId, state);
+  if (!(await matchFrameState.update(userId, state))) {
+    await closeStaleFramePrompt(ctx, matchId);
+    return;
+  }
   await ctx.answerCallbackQuery(answer);
   await renderFramePrompt(ctx.api, state, loaded, errorLine);
 }
 
 // Снукер: удалить последний фрейм из черновика.
 matchCommands.callbackQuery(/^match:frame:undo:(.+)$/, async (ctx) => {
-  await handleFrameButton(ctx, async (state, loaded) => {
+  await handleFrameButton(ctx, ctx.match[1] ?? '', async (state, loaded) => {
     state.mode = undefined;
     const res = await deleteLastMatchFrame(state.matchId);
     if (!res.success) return res.error;
@@ -1153,7 +1206,7 @@ matchCommands.callbackQuery(/^match:frame:undo:(.+)$/, async (ctx) => {
 
 // Снукер: выбрать фрейм для правки.
 matchCommands.callbackQuery(/^match:frame:pick:(.+)$/, async (ctx) => {
-  await handleFrameButton(ctx, (state, loaded) => {
+  await handleFrameButton(ctx, ctx.match[1] ?? '', (state, loaded) => {
     state.mode = loaded.frames.length > 0 ? { kind: 'pick' } : undefined;
     return undefined;
   });
@@ -1162,7 +1215,7 @@ matchCommands.callbackQuery(/^match:frame:pick:(.+)$/, async (ctx) => {
 // Снукер: открыть правку фрейма N (новый счёт / брейки этого фрейма).
 matchCommands.callbackQuery(/^match:frame:edit:(.+):(\d+)$/, async (ctx) => {
   const frameNumber = parseInt(ctx.match[2] ?? '', 10);
-  await handleFrameButton(ctx, (state, loaded) => {
+  await handleFrameButton(ctx, ctx.match[1] ?? '', (state, loaded) => {
     state.mode = frameAt(loaded.frames, frameNumber)
       ? { kind: 'edit', frameNumber }
       : undefined;
@@ -1172,7 +1225,7 @@ matchCommands.callbackQuery(/^match:frame:edit:(.+):(\d+)$/, async (ctx) => {
 
 // Снукер: шаг назад (брейк → правка фрейма / ввод, правка → выбор, выбор → ввод).
 matchCommands.callbackQuery(/^match:frame:back:(.+)$/, async (ctx) => {
-  await handleFrameButton(ctx, (state) => {
+  await handleFrameButton(ctx, ctx.match[1] ?? '', (state) => {
     const mode = state.mode;
     if (mode?.kind === 'break' && mode.fromEdit) {
       state.mode = { kind: 'edit', frameNumber: mode.frameNumber };
@@ -1191,7 +1244,7 @@ matchCommands.callbackQuery(
   /^match:frame:break:(.+):(player1|player2)$/,
   async (ctx) => {
     const slot = ctx.match[2] as FrameSlot;
-    await handleFrameButton(ctx, (state, loaded) => {
+    await handleFrameButton(ctx, ctx.match[1] ?? '', (state, loaded) => {
       const fromEdit = state.mode?.kind === 'edit';
       const frameNumber =
         state.mode?.kind === 'edit'
@@ -1208,15 +1261,16 @@ matchCommands.callbackQuery(
 // Снукер: завершить ввод и отправить черновик фреймов как результат.
 matchCommands.callbackQuery(/^match:frame:finish:(.+)$/, async (ctx) => {
   const userId = ctx.from.id;
-  const state = await matchFrameState.get(userId);
+  const matchId = ctx.match[1] ?? '';
+  const state = await getFrameSessionFor(userId, matchId);
   if (!state) {
-    await ctx.answerCallbackQuery();
+    await closeStaleFramePrompt(ctx, matchId);
     return;
   }
   await ctx.answerCallbackQuery();
   const loaded = await loadFrameContext(state.matchId);
   if (!loaded) {
-    await matchFrameState.delete(userId);
+    await matchFrameState.end(userId);
     await ctx.reply('Матч не найден, ввод результата отменён.');
     return;
   }
@@ -1227,8 +1281,9 @@ matchCommands.callbackQuery(/^match:frame:finish:(.+)$/, async (ctx) => {
   // when the match is actually decided; otherwise just re-render the prompt.
   if (!isFramesDecided(loaded.frames, loaded.match, loaded.tournament)) {
     state.mode = undefined;
-    await matchFrameState.set(userId, state);
-    await renderFramePrompt(ctx.api, state, loaded);
+    if (await matchFrameState.update(userId, state)) {
+      await renderFramePrompt(ctx.api, state, loaded);
+    }
     return;
   }
 
@@ -1240,7 +1295,10 @@ matchCommands.callbackQuery(/^match:frame:finish:(.+)$/, async (ctx) => {
 matchCommands.callbackQuery(/^match:frame:cancel:(.+)$/, async (ctx) => {
   const matchId = ctx.match[1];
   if (!matchId) return;
-  await matchFrameState.delete(ctx.from.id);
+  // Only this match's session — a stale prompt must not end another match's entry.
+  if (await getFrameSessionFor(ctx.from.id, matchId)) {
+    await matchFrameState.end(ctx.from.id);
+  }
   await ctx.answerCallbackQuery('Фреймы сохранены — можно продолжить позже');
   await refreshMatchCard(ctx, matchId as UUID);
 });
@@ -1522,3 +1580,24 @@ async function showBracket(
     });
   }
 }
+
+// ============================================================================
+// Текстовые сессии (единый диспетчер — src/bot/sessions/)
+// ============================================================================
+
+registerTextSession({
+  store: matchScheduleState,
+  name: 'назначение времени матча',
+  blocking: false,
+  cancelReply: 'Назначение времени отменено.',
+  onText: handleScheduleText,
+});
+
+registerTextSession({
+  store: matchFrameState,
+  name: 'ввод результата по фреймам',
+  blocking: false,
+  cancelReply: 'Ввод результата приостановлен — фреймы сохранены.',
+  onText: handleFrameText,
+  onEnd: endFrameEntry,
+});

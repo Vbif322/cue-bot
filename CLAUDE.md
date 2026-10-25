@@ -73,7 +73,8 @@ Request flow (bot): `bot/middleware` → handler `Composer`s → `services/*` �
 
 - **bot/middleware** (`src/bot/middleware/`): `authMiddleware` looks up/creates the user by
   Telegram id and sets `ctx.dbUser` (relied on everywhere; see custom `BotContext` in
-  `src/bot/types.ts`). `wizardGuardMiddleware` blocks unrelated commands while a wizard is active.
+  `src/bot/types.ts`). `sessionGuardMiddleware` (`src/bot/sessions/`) blocks unrelated actions while
+  a wizard is active (see *Text sessions* below).
 - **handlers** (`src/bot/handlers/*.ts`): each file exports a grammY `Composer<BotContext>`; all are
   registered in order via `bot.use(...)` in `src/index.ts`. Callback queries are matched by regex.
   Keep handlers thin — delegate to services.
@@ -85,12 +86,22 @@ Request flow (bot): `bot/middleware` → handler `Composer`s → `services/*` �
   for `double_elimination_random`).
 - **ui** (`src/bot/ui/*.ts`): pure functions building message text + grammY keyboards from data.
 
-### Wizards
+### Wizards and text sessions
 Multi-step bot flows live in `src/bot/wizards/`. The tournament-creation wizard is the template:
-`tournamentCreation/` splits into `.module` (bootstrap + `registerWizard`), `.stateStore`
-(in-memory `Map<userId, state>` — **sessions are lost on restart**), `.flow` (step state machine),
-`.renderer`, `.keyboards`, `.const`, `.d.ts`. All wizard callbacks use a prefix (`tc:`) so
-`wizardGuard` recognizes them; wizards register in `src/bot/wizards/wizardRegistry.ts`.
+`tournamentCreation/` splits into `.module` (bootstrap + session registration), `.stateStore`,
+`.flow` (step state machine), `.renderer`, `.keyboards`, `.const`, `.d.ts`.
+
+Every flow that waits for free text (tournament creation, invite, profile edit, match time,
+snooker frame entry) is a **text session** (`src/bot/sessions/`): state in `dialog_sessions` via
+`TextSessionStore` (survives restarts, per-flow TTL), registered with `registerTextSession`
+(`onText`, optional `onEnd`, `cancelReply`). Invariants: **at most one active text session per
+user** — `start` atomically ends the others (their `onEnd(…, 'superseded')`), and `update` never
+re-inserts a session that was ended; **one `/cancel`** (registered before all handlers) and **one
+`message:text` dispatcher** (registered last). Handlers must not add their own `/cancel` or
+`on('message:text')`. `blocking: true` sessions (wizards) get `sessionGuardMiddleware`: foreign
+callbacks, commands and menu buttons are blocked; their callbacks use a prefix (`tc:`) that the
+guard lets through. Soft sessions (`blocking: false`) block nothing and end on any command or menu
+button.
 
 ### Admin web API + auth bridge
 `src/admin/server/` is the Hono app (`index.ts` = `createAdminServer()`), routes under

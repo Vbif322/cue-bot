@@ -14,6 +14,11 @@ import {
   updateUserProfile,
 } from '@/services/userService.js';
 import { profileEditStateStore } from '../wizards/profileEdit/profileEdit.module.js';
+import type { ProfileEditState } from '../wizards/profileEdit/profileEdit.stateStore.js';
+import {
+  registerTextSession,
+  type TextMessageContext,
+} from '../sessions/textSessionRegistry.js';
 
 export const profileCommands = new Composer<BotContext>();
 
@@ -100,7 +105,7 @@ const FIELD_LABELS: Record<'name' | 'surname', string> = {
 profileCommands.callbackQuery(/^pe:edit:(name|surname)$/, async (ctx) => {
   const userId = ctx.from.id;
   const field = ctx.match[1] as 'name' | 'surname';
-  await profileEditStateStore.start(userId, field);
+  await profileEditStateStore.start(userId, field, ctx);
 
   await ctx.answerCallbackQuery();
   await ctx.reply(
@@ -109,20 +114,11 @@ profileCommands.callbackQuery(/^pe:edit:(name|surname)$/, async (ctx) => {
   );
 });
 
-profileCommands.command('cancel', async (ctx) => {
-  const userId = ctx.from?.id;
-  if (!userId || !(await profileEditStateStore.has(userId))) return;
-
-  await profileEditStateStore.clear(userId);
-  await ctx.reply('Редактирование профиля отменено.');
-});
-
-profileCommands.on('message:text', async (ctx, next) => {
-  const userId = ctx.from.id;
-
-  const state = await profileEditStateStore.get(userId);
-  if (!state) return next();
-
+/** Новое значение поля профиля (из единого диспетчера текстовых сессий). */
+async function handleProfileEditText(
+  ctx: TextMessageContext,
+  state: ProfileEditState,
+): Promise<void> {
   const raw = ctx.message.text.trim();
   const value = raw === '-' ? null : raw;
 
@@ -131,7 +127,7 @@ profileCommands.on('message:text', async (ctx, next) => {
       [state.field]: value,
     });
     ctx.dbUser = updated;
-    await profileEditStateStore.clear(userId);
+    await profileEditStateStore.clear(ctx.from.id);
     await ctx.reply('✅ Профиль обновлён.');
     await showProfile(ctx);
   } catch (error) {
@@ -141,4 +137,13 @@ profileCommands.on('message:text', async (ctx, next) => {
     }
     throw error;
   }
+}
+
+registerTextSession({
+  store: profileEditStateStore.session,
+  name: 'редактирование профиля',
+  blocking: true,
+  callbackPrefix: 'pe:',
+  cancelReply: 'Редактирование профиля отменено.',
+  onText: handleProfileEditText,
 });
