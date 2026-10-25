@@ -28,7 +28,7 @@
 - **Admin SPA**: React + Vite + TanStack Query
 - **Аутентификация админки**: JWT в HttpOnly-cookie + одноразовые URL-токены входа
 - **Работа с датой и временем**: Luxon
-- **Dev tooling**: Nodemon, TSX, Prettier, ESLint 9 (`eslint-config-love`), Vitest
+- **Dev tooling**: TypeScript 7, Nodemon, TSX, Prettier, oxlint (type-aware, `oxlint-tsgolint`), Vitest
 
 ### Основные возможности
 
@@ -119,7 +119,7 @@ cue-bot/
 ├── CHANGELOG.md
 ├── README.md
 ├── drizzle.config.ts
-├── eslint.config.js
+├── .oxlintrc.json
 ├── nodemon.json
 ├── package.json
 └── tsconfig.json
@@ -165,7 +165,7 @@ cue-bot/
 | `npm run db:generate`       | генерация миграции из изменений схемы                     |
 | `npm run db:migrate`        | применение миграций                                       |
 | `npm run db:studio`         | запуск Drizzle Studio                                     |
-| `npm run lint` / `lint:fix` | ESLint (+ автопочинка)                                    |
+| `npm run lint` / `lint:fix` | oxlint с type-aware правилами (+ автопочинка)             |
 | `npm run format`            | форматирование через Prettier                             |
 | `npm test`                  | unit + integration (Vitest)                               |
 | `npm run test:unit`         | только unit-тесты (без БД)                                |
@@ -185,6 +185,7 @@ cue-bot/
 
 - Два tsconfig: `tsconfig.json` — только для редактора/typecheck (`noEmit`, включает `test/`); `tsconfig.build.json` — эмитящая сборка (`rootDir: src`).
 - Alias `@/* -> src/*` (резолвится `tsc-alias` при сборке и `vitest.config.ts` в тестах). NodeNext-импорты указывают `.js`-спецификаторы на `.ts`-исходники.
+- TypeScript 7 (нативный `tsc`). В TS 7 `types` по умолчанию `[]`, поэтому ambient-типы (`node`, `vite/client`) перечислены в каждом tsconfig явно.
 - Строгий TS, включая `noUncheckedIndexedAccess` и `exactOptionalPropertyTypes`.
 - Admin SPA собирается отдельно и использует собственный `admin/tsconfig.json`; API read-model типы шарятся через alias `@server/*`.
 - Схемы Drizzle экспортируют не только таблицы, но и прикладные типы (`ITournamentFormat`, `ITournamentWinScore`, `NotificationType` и т.д.).

@@ -23,7 +23,6 @@ import {
   validateGroupConfig,
   validateSportDiscipline,
   type ITournamentWinScore,
-  type IStageWinScores,
 } from '@/db/schema.js';
 import {
   createTournamentDraft,
@@ -310,7 +309,7 @@ export function createTournamentsRouter(botApi: Api) {
         scheduleMode: body.scheduleMode,
         maxParticipants: resolveMaxParticipants(body),
         winScore: body.winScore as ITournamentWinScore,
-        stageWinScores: (body.stageWinScores ?? null) as IStageWinScores | null,
+        stageWinScores: body.stageWinScores ?? null,
         mergeRound: body.mergeRound,
         groupsCount: body.groupsCount ?? null,
         participantsPerGroup: body.participantsPerGroup ?? null,
@@ -363,8 +362,7 @@ export function createTournamentsRouter(botApi: Api) {
           scheduleMode: body.scheduleMode,
           maxParticipants: resolveMaxParticipants(body),
           winScore: body.winScore as ITournamentWinScore,
-          stageWinScores: (body.stageWinScores ??
-            null) as IStageWinScores | null,
+          stageWinScores: body.stageWinScores ?? null,
           mergeRound: body.mergeRound,
           groupsCount: body.groupsCount ?? null,
           participantsPerGroup: body.participantsPerGroup ?? null,

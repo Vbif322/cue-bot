@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Eslint
+      - name: Lint (oxlint, type-aware)
         run: npm run lint
 
       - name: Typecheck

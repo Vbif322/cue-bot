@@ -31,11 +31,7 @@ const GROUP = { id: -100, type: 'supergroup', title: 'Клуб' };
 /** Настоящий grammY Context; ответы бота перехватываются шпионами. */
 function ctxOf(update: Partial<Update>) {
   const api = { raw: {} } as unknown as Api;
-  const ctx = new Context(
-    { update_id: 1, ...update } as Update,
-    api,
-    BOT,
-  ) as BotContext;
+  const ctx = new Context({ update_id: 1, ...update }, api, BOT) as BotContext;
   const reply = vi.fn().mockResolvedValue(undefined);
   const answerCallbackQuery = vi.fn().mockResolvedValue(true);
   Object.assign(ctx, { reply, answerCallbackQuery });

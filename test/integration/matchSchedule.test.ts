@@ -41,7 +41,7 @@ describe('setMatchSchedule', () => {
 
   it('returns an error for a non-existent match', async () => {
     const result = await setMatchSchedule(
-      '00000000-0000-0000-0000-000000000000' as never,
+      '00000000-0000-0000-0000-000000000000',
       new Date('2026-06-21T18:30:00Z'),
     );
     expect(result.success).toBe(false);

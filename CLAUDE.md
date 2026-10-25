@@ -24,7 +24,7 @@ npm run db:migrate     # apply migrations
 npm run db:studio      # Drizzle Studio
 
 # Quality
-npm run lint           # eslint (lint:fix to autofix); npm run format = prettier --write .
+npm run lint           # oxlint, type-aware (lint:fix to autofix); npm run format = prettier --write .
 
 # Tests (Vitest)
 npm test               # unit + integration
@@ -131,8 +131,14 @@ Change schema → `npm run db:generate` → `npm run db:migrate`.
   tests). NodeNext imports use `.js` specifiers pointing at `.ts` sources.
 - Two tsconfigs: `tsconfig.json` is editor/typecheck only (`noEmit`, includes `test/`);
   `tsconfig.build.json` is the emitting build (`rootDir: src`).
-- Strict TS incl. `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. ESLint uses
-  `eslint-config-love`.
+- TypeScript 7 (native `tsc`; there is **no JS compiler API** in the `typescript` package, so
+  tools that `require('typescript')` won't work). Strict TS incl. `noUncheckedIndexedAccess` and
+  `exactOptionalPropertyTypes`; TS 7 defaults `types` to `[]`, so each tsconfig lists its ambient
+  types explicitly (`node`, `vite/client`, …).
+- Linting is **oxlint** (`.oxlintrc.json`, migrated from typescript-eslint `strictTypeChecked` +
+  `stylisticTypeChecked`). Type-aware rules run via `oxlint-tsgolint` (`options.typeAware`);
+  `eslint-disable` comments are honoured. Same ignore set as before (`admin/`, `app/`, `packages/`,
+  `scripts/`, … are not linted).
 - **Error conventions** (intentionally split, not unified): services with user-facing outcomes
   (`matchService`) return `{ success, error }` result objects; `canStartTournament` returns
   `{ canStart, error }`; `tournamentService` throws `Error` for invalid states. Callers (bot

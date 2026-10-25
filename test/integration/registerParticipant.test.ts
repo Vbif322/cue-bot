@@ -130,7 +130,7 @@ describe('registerParticipant — atomic, cap-enforcing registration', () => {
   it('returns not_found for a missing tournament', async () => {
     const u = await createUser();
     const outcome = await registerParticipant(
-      '00000000-0000-0000-0000-000000000000' as UUID,
+      '00000000-0000-0000-0000-000000000000',
       u.id,
       { desiredStatus: 'pending', requireOpen: true },
     );
