@@ -33,16 +33,24 @@ const refereeCommands: BotCommand[] = [
   { command: 'referee_matches', description: 'Матчи турниров, где я судья' },
 ];
 
-const adminCommands: BotCommand[] = [
+// Организатор — член хотя бы одной федерации (см. authz.ts). Управляет
+// турнирами своих федераций из бота и панели; глобальные роли не трогает.
+const organizerCommands: BotCommand[] = [
   ...refereeCommands,
   { command: 'cancel', description: 'Отменить текущее действие' },
   { command: 'create_tournament', description: 'Создать турнир' },
-  { command: 'dashboard', description: 'Панель администратора' },
+  { command: 'dashboard', description: 'Панель управления' },
   { command: 'delete_tournament', description: 'Удалить турнир' },
-  { command: 'set_admin', description: 'Назначить администратора' },
-  { command: 'remove_admin', description: 'Снять администратора' },
+  { command: 'my_federations', description: 'Мои организации' },
+  { command: 'new_federation', description: 'Создать организацию' },
   { command: 'assign_referee', description: 'Назначить судью на турнир' },
   { command: 'remove_referee', description: 'Снять судью с турнира' },
+];
+
+const adminCommands: BotCommand[] = [
+  ...organizerCommands,
+  { command: 'set_admin', description: 'Назначить администратора' },
+  { command: 'remove_admin', description: 'Снять администратора' },
 ];
 
 export async function setupCommands(bot: Bot<BotContext>): Promise<void> {
@@ -77,6 +85,15 @@ export async function setAdminCommands(
   });
 }
 
+export async function setOrganizerCommands(
+  bot: Bot<BotContext>,
+  chatId: number,
+): Promise<void> {
+  await bot.api.setMyCommands(organizerCommands, {
+    scope: { type: 'chat', chat_id: chatId },
+  });
+}
+
 export async function setUserCommands(
   bot: Bot<BotContext>,
   chatId: number,
@@ -95,4 +112,10 @@ export async function setRefereeCommands(
   });
 }
 
-export { userCommands, groupCommands, refereeCommands, adminCommands };
+export {
+  userCommands,
+  groupCommands,
+  refereeCommands,
+  organizerCommands,
+  adminCommands,
+};

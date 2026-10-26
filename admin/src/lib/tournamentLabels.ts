@@ -81,6 +81,7 @@ export function playoffRoundName(round: number, maxRound: number): string {
 
 export const VISIBILITY_LABELS: Record<TournamentVisibility, string> = {
   public: 'Открытый',
+  unlisted: 'По ссылке (не в ленте)',
   private: 'Закрытый (по приглашению)',
 };
 

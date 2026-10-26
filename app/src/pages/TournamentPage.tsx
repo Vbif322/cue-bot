@@ -397,6 +397,10 @@ export default function TournamentPage() {
         <div
           style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 2 }}
         >
+          {t.federationName && (
+            <MetaCard label="Организатор" value={t.federationName} />
+          )}
+          {t.venueCity && <MetaCard label="Город" value={t.venueCity} />}
           <MetaCard
             label="Дата"
             value={t.startDate ? formatDateTime(t.startDate) : 'не назначена'}

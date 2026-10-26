@@ -1,9 +1,6 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { inArray } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
-import { db } from '@/db/db.js';
-import { tournaments } from '@/db/schema.js';
 import { FORMAT_LABELS, STATUS_LABELS } from '@/utils/constants.js';
 import { safeEditMessageText } from '@/utils/messageHelpers.js';
 import { getBracketStats } from '@/services/bracketGenerator.js';
@@ -26,8 +23,14 @@ import { announceRegistrationOpen } from '@/services/groupBroadcastService.js';
 import { errorMessage } from '@/utils/errors.js';
 import type { TournamentStatus } from '@/bot/@types/tournament.js';
 
-import { adminOnly } from '../guards.js';
-import { canViewTournament, isAdmin } from '../permissions.js';
+import { organizerOnly } from '../guards.js';
+import {
+  canAdministerTournament,
+  canOrganize,
+  canViewTournament,
+} from '../permissions.js';
+import { getActorScope } from '@/services/authz.js';
+import { visibilities } from '@/db/schema.js';
 import {
   getTournamentInfo,
   buildTournamentMessage,
@@ -49,9 +52,13 @@ export const tournamentCommands = new Composer<BotContext>();
 /**
  * /create_tournament - Start tournament creation wizard
  */
-tournamentCommands.command('create_tournament', adminOnly(), async (ctx) => {
-  await tournamentCreationFlow.startCreationWizard(ctx);
-});
+tournamentCommands.command(
+  'create_tournament',
+  organizerOnly(),
+  async (ctx) => {
+    await tournamentCreationFlow.startCreationWizard(ctx);
+  },
+);
 
 /** Active (non-terminal) statuses shown under the «Текущие» tab. */
 const ACTIVE_STATUSES: TournamentStatus[] = [
@@ -64,6 +71,7 @@ const TAB_HEADERS: Record<TournamentTab, string> = {
   current: 'Текущие турниры:\n\n',
   archive: '🏁 Завершённые турниры:\n\n',
   my: '👤 Мои турниры:\n\n',
+  organizing: '⚙️ Турниры, которые я организую:\n\n',
 };
 
 /**
@@ -85,24 +93,31 @@ export async function showTournamentsList(
 async function renderTournamentsList(
   ctx: BotContext,
   tab: TournamentTab,
-  { edit }: { edit: boolean },
+  { edit, allCities = false }: { edit: boolean; allCities?: boolean },
 ): Promise<void> {
-  const admin = isAdmin(ctx);
+  const organizer = await canOrganize(ctx);
+  // Публичная лента «Текущие» по умолчанию сужена до города игрока.
+  const city = ctx.dbUser.city;
+  const cityFilter = tab === 'current' && !allCities ? city : null;
 
   let rows;
   if (tab === 'my') {
     rows = await getUserTournaments(ctx.dbUser.id, { limit: 10 });
-  } else if (tab === 'archive') {
+  } else if (tab === 'organizing') {
     rows = await getTournaments({
       limit: 10,
-      statuses: ['completed'],
-      includePrivate: admin,
+      statuses: [...ACTIVE_STATUSES, 'draft'],
+      visibilityIn: visibilities,
+      scope: await getActorScope(ctx.dbUser),
     });
+  } else if (tab === 'archive') {
+    rows = await getTournaments({ limit: 10, statuses: ['completed'] });
   } else {
-    const statuses = admin
-      ? [...ACTIVE_STATUSES, 'draft' as TournamentStatus]
-      : ACTIVE_STATUSES;
-    rows = await getTournaments({ limit: 10, statuses, includePrivate: admin });
+    rows = await getTournaments({
+      limit: 10,
+      statuses: ACTIVE_STATUSES,
+      ...(cityFilter !== null ? { city: cityFilter } : {}),
+    });
   }
 
   const tournamentsInfo = await Promise.all(
@@ -110,15 +125,24 @@ async function renderTournamentsList(
   );
 
   let message = TAB_HEADERS[tab];
+  if (cityFilter !== null) message += `📍 ${cityFilter}\n\n`;
   if (tournamentsInfo.length === 0) {
-    message += 'В этой категории турниров нет.';
+    message +=
+      cityFilter !== null
+        ? 'В вашем городе сейчас нет турниров — посмотрите все города.'
+        : 'В этой категории турниров нет.';
   } else {
     for (const info of tournamentsInfo) {
-      message += buildTournamentListItemCompact(info, admin);
+      message += buildTournamentListItemCompact(info, tab === 'organizing');
     }
   }
 
-  const keyboard = buildTournamentTabsKeyboard(tab, tournamentsInfo);
+  const keyboard = buildTournamentTabsKeyboard(tab, tournamentsInfo, {
+    organizing: organizer,
+    ...(tab === 'current' && city !== null
+      ? { cityFilter: { city, mode: cityFilter !== null ? 'city' : 'all' } }
+      : {}),
+  });
 
   if (edit) {
     await safeEditMessageText(ctx, {
@@ -142,42 +166,48 @@ tournamentCommands.command('tournaments', (ctx) => showTournamentsList(ctx));
 /**
  * /delete_tournament [id] - Delete a tournament
  */
-tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
-  const args = ctx.message?.text.split(' ').slice(1) ?? [];
-  const firstArg = args[0];
+tournamentCommands.command(
+  'delete_tournament',
+  organizerOnly(),
+  async (ctx) => {
+    const args = ctx.message?.text.split(' ').slice(1) ?? [];
+    const firstArg = args[0];
 
-  // If no ID provided, show selection menu
-  if (!firstArg || firstArg.trim() === '') {
-    const deletableTournaments = await db.query.tournaments.findMany({
-      where: inArray(tournaments.status, ['draft', 'cancelled']),
-      orderBy: (t, { desc }) => [desc(t.createdAt)],
-      limit: 10,
-    });
+    // If no ID provided, show selection menu — only tournaments the user may
+    // administer (their federations; everything for a platform admin).
+    if (!firstArg || firstArg.trim() === '') {
+      const deletableTournaments = await getTournaments({
+        statuses: ['draft', 'cancelled'],
+        visibilityIn: visibilities,
+        scope: await getActorScope(ctx.dbUser),
+        limit: 10,
+      });
 
-    if (deletableTournaments.length === 0) {
-      await ctx.reply(
-        "Нет турниров, доступных для удаления.\n\nУдалить можно только турниры в статусе 'Черновик' или 'Отменён'.",
-      );
+      if (deletableTournaments.length === 0) {
+        await ctx.reply(
+          "Нет турниров, доступных для удаления.\n\nУдалить можно только турниры в статусе 'Черновик' или 'Отменён'.",
+        );
+        return;
+      }
+
+      const keyboard = new InlineKeyboard();
+      for (const t of deletableTournaments) {
+        const statusEmoji = t.status === 'draft' ? '📝' : '❌';
+        keyboard
+          .text(`${statusEmoji} ${t.name}`, `tournament_delete_confirm:${t.id}`)
+          .row();
+      }
+
+      await ctx.reply('Выберите турнир для удаления:', {
+        reply_markup: keyboard,
+      });
       return;
     }
 
-    const keyboard = new InlineKeyboard();
-    for (const t of deletableTournaments) {
-      const statusEmoji = t.status === 'draft' ? '📝' : '❌';
-      keyboard
-        .text(`${statusEmoji} ${t.name}`, `tournament_delete_confirm:${t.id}`)
-        .row();
-    }
-
-    await ctx.reply('Выберите турнир для удаления:', {
-      reply_markup: keyboard,
-    });
-    return;
-  }
-
-  // Delete tournament by ID
-  await handleTournamentDeletion(ctx, firstArg as UUID);
-});
+    // Delete tournament by ID
+    await handleTournamentDeletion(ctx, firstArg as UUID);
+  },
+);
 
 // ============================================================================
 // CALLBACK HANDLERS - Tournament Management
@@ -187,11 +217,12 @@ tournamentCommands.command('delete_tournament', adminOnly(), async (ctx) => {
  * Switch tournament list tab (Текущие / Завершённые / Мои) — edits in place.
  */
 tournamentCommands.callbackQuery(
-  /^tlist:(current|archive|my)$/,
+  /^tlist:(current|archive|my|organizing)(?::(all))?$/,
   async (ctx) => {
     await ctx.answerCallbackQuery();
     await renderTournamentsList(ctx, ctx.match[1] as TournamentTab, {
       edit: true,
+      allCities: ctx.match[2] === 'all',
     });
   },
 );
@@ -210,13 +241,12 @@ tournamentCommands.callbackQuery(/^tournament_info:(.+)$/, async (ctx) => {
  * Open tournament registration
  */
 tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) {
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
     await ctx.answerCallbackQuery('Недостаточно прав');
     return;
   }
-
-  const tournamentId = ctx.match[1];
-  if (!tournamentId) return;
 
   // Без этой проверки повторный тап переоткрывал бы уже открытый турнир —
   // раньше это было незаметно, а с анонсами означало бы второй залп по чатам.
@@ -259,13 +289,12 @@ tournamentCommands.callbackQuery(/^tournament_open_reg:(.+)$/, async (ctx) => {
  * Close tournament registration
  */
 tournamentCommands.callbackQuery(/^tournament_close_reg:(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) {
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
     await ctx.answerCallbackQuery('Недостаточно прав');
     return;
   }
-
-  const tournamentId = ctx.match[1];
-  if (!tournamentId) return;
 
   try {
     // Close registration and get participant count
@@ -291,13 +320,12 @@ tournamentCommands.callbackQuery(/^tournament_close_reg:(.+)$/, async (ctx) => {
  * Delete tournament (final confirmation)
  */
 tournamentCommands.callbackQuery(/^tournament_delete:(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) {
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
     await ctx.answerCallbackQuery('Недостаточно прав');
     return;
   }
-
-  const tournamentId = ctx.match[1];
-  if (!tournamentId) return;
   await deleteTournament(tournamentId as UUID);
 
   await ctx.answerCallbackQuery('Турнир удалён');
@@ -312,13 +340,12 @@ tournamentCommands.callbackQuery(/^tournament_delete:(.+)$/, async (ctx) => {
 tournamentCommands.callbackQuery(
   /^tournament_delete_confirm:(.+)$/,
   async (ctx) => {
-    if (!isAdmin(ctx)) {
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
+    if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
       await ctx.answerCallbackQuery('Недостаточно прав');
       return;
     }
-
-    const tournamentId = ctx.match[1];
-    if (!tournamentId) return;
     const tournament = await getTournament(tournamentId as UUID);
 
     if (!tournament) {
@@ -376,13 +403,12 @@ tournamentCommands.callbackQuery('tournament_delete_cancel', async (ctx) => {
 tournamentCommands.callbackQuery(
   /^tournament_cancel_confirm:(.+)$/,
   async (ctx) => {
-    if (!isAdmin(ctx)) {
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
+    if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
       await ctx.answerCallbackQuery('Недостаточно прав');
       return;
     }
-
-    const tournamentId = ctx.match[1];
-    if (!tournamentId) return;
     const tournament = await getTournament(tournamentId as UUID);
 
     if (!tournament) {
@@ -429,13 +455,12 @@ tournamentCommands.callbackQuery(
  * Cancel tournament (final confirmation)
  */
 tournamentCommands.callbackQuery(/^tournament_cancel:(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) {
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
     await ctx.answerCallbackQuery('Недостаточно прав');
     return;
   }
-
-  const tournamentId = ctx.match[1];
-  if (!tournamentId) return;
   const tournament = await getTournament(tournamentId as UUID);
 
   if (!tournament) {
@@ -485,13 +510,12 @@ tournamentCommands.callbackQuery('tournament_cancel_abort', async (ctx) => {
  * Show tournament start confirmation
  */
 tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) {
+  const tournamentId = ctx.match[1];
+  if (!tournamentId) return;
+  if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
     await ctx.answerCallbackQuery('Недостаточно прав');
     return;
   }
-
-  const tournamentId = ctx.match[1];
-  if (!tournamentId) return;
   const result = await canStartTournament(tournamentId as UUID);
 
   if (!result.canStart) {
@@ -563,13 +587,12 @@ tournamentCommands.callbackQuery(/^tournament_start:(.+)$/, async (ctx) => {
 tournamentCommands.callbackQuery(
   /^tournament_start_confirm:(.+)$/,
   async (ctx) => {
-    if (!isAdmin(ctx)) {
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
+    if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
       await ctx.answerCallbackQuery('Недостаточно прав');
       return;
     }
-
-    const tournamentId = ctx.match[1];
-    if (!tournamentId) return;
 
     // Double-check if tournament can be started
     const result = await canStartTournament(tournamentId as UUID);
@@ -626,6 +649,12 @@ tournamentCommands.callbackQuery(
 // ============================================================================
 // CALLBACK HANDLERS - Tournament Creation Wizard
 // ============================================================================
+
+tournamentCommands.callbackQuery(/^tc:fed:(.+)$/, async (ctx) => {
+  const val = ctx.match[1];
+  if (!val) return;
+  await tournamentCreationFlow.handleFederationSelection(ctx, val);
+});
 
 tournamentCommands.callbackQuery(/^tc:visibility:(.+)$/, async (ctx) => {
   const val = ctx.match[1];
@@ -797,8 +826,9 @@ export async function showTournamentDetails(
   }
 
   const info = await getTournamentInfo(tournament, ctx.dbUser.id);
-  const message = buildTournamentMessage(info, isAdmin(ctx));
-  const keyboard = buildTournamentKeyboard(info, isAdmin(ctx));
+  const canManage = await canAdministerTournament(ctx, tournament.id);
+  const message = buildTournamentMessage(info, canManage);
+  const keyboard = buildTournamentKeyboard(info, canManage);
 
   if (editMessage) {
     await safeEditMessageText(ctx, {

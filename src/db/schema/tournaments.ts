@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  index,
   integer,
   jsonb,
   text,
@@ -18,6 +19,7 @@ import {
   prodSchema,
   updatedAt,
 } from '../schemaHelpers.js';
+import { federations } from './federations.js';
 import { users } from './users.js';
 import { venues } from './venues.js';
 
@@ -89,7 +91,10 @@ export const statuses = [
 
 export type ITournamentStatus = (typeof statuses)[number];
 
-export const visibilities = ['public', 'private'] as const;
+// public — в общих лентах и анонсах; unlisted — только по прямой ссылке
+// (`t_<id>`, `/tournaments/:id`, инвайт-код), регистрация без приглашения;
+// private — только по приглашению, виден участникам/судьям/организаторам.
+export const visibilities = ['public', 'unlisted', 'private'] as const;
 
 export type ITournamentVisibility = (typeof visibilities)[number];
 
@@ -105,6 +110,12 @@ export const tournaments = prodSchema.table(
       .$type<UUID>()
       .notNull()
       .references(() => venues.id),
+    // Организатор турнира (ROADMAP M8). NULL = платформенный турнир: виден в
+    // управлении только глобальным админам. Скоуп организатора строится как
+    // inArray(federationId, ids) и NULL не захватывает — см. authz.getActorScope.
+    federationId: uuid('federation_id')
+      .$type<UUID>()
+      .references(() => federations.id),
 
     name: varchar({ length: 255 }).notNull(),
     description: text(),
@@ -192,6 +203,7 @@ export const tournaments = prodSchema.table(
     updatedAt,
   },
   (t) => [
+    index('tournaments_federation_idx').on(t.federationId),
     enumCheck('tournaments_sport_check', t.sport, sports),
     enumCheck('tournaments_discipline_check', t.discipline, disciplines),
     enumCheck('tournaments_format_check', t.format, formats),

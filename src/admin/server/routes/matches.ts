@@ -42,12 +42,14 @@ import {
   notifyResultPending,
 } from '@/services/notificationService.js';
 
-import { requireAdmin } from '../middleware.js';
+import { requireStaff } from '../middleware.js';
 import {
   validateParam,
   idParam,
   idFrameNumberParam,
   tournamentIdParam,
+  loadManagedTournament,
+  tournamentGuard,
 } from './_shared.js';
 
 const frameSchema = z.object({
@@ -71,7 +73,28 @@ function toFrameDto(f: MatchFrame) {
 export function createMatchesRouter(botApi: Api) {
   const router = new Hono();
 
-  router.use('/*', requireAdmin);
+  router.use('/*', requireStaff);
+  // Скоуп: матчи видны/правятся тем, кто может «manage» их турнир (админ,
+  // организатор федерации, судья). Для /tournament/:tournamentId — по параметру,
+  // для /:id — через турнир матча. Чужое — 404, как и у турниров.
+  router.use('/tournament/:tournamentId', tournamentGuard('tournamentId'));
+  router.use('/tournament/:tournamentId/*', tournamentGuard('tournamentId'));
+  const matchGuard = async (
+    c: Parameters<Parameters<typeof router.use>[1]>[0],
+    next: () => Promise<void>,
+  ) => {
+    if (c.get('tournament') !== undefined) return next();
+    const raw = c.req.param('id');
+    if (!raw || !z.uuid().safeParse(raw).success) return next();
+    const match = await getMatch(raw as UUID);
+    if (!match) return next(); // маршрут сам ответит 404
+    const res = await loadManagedTournament(c, match.tournamentId, 'manage');
+    if (res.error) return res.error;
+    c.set('tournament', res.tournament);
+    await next();
+  };
+  router.use('/:id', matchGuard);
+  router.use('/:id/*', matchGuard);
 
   // List all matches for a tournament
   router.get(

@@ -16,7 +16,7 @@ import { getParticipantsCount } from '@/services/tournamentService.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
 
-export type TournamentTab = 'current' | 'archive' | 'my';
+export type TournamentTab = 'current' | 'archive' | 'my' | 'organizing';
 
 export interface TournamentInfo {
   id: string;
@@ -260,9 +260,21 @@ export function buildTournamentKeyboard(
  * button per tournament that opens its card, regardless of status. The quick
  * «Участвовать» button is only added for `registration_open` tournaments.
  */
+export interface TournamentTabsOptions {
+  /** Показать вкладку «Организую» (организатор / админ). */
+  organizing?: boolean;
+  /**
+   * Переключатель города для вкладки «Текущие»: `city` — лента сужена до
+   * этого города (кнопка «Все города»), `'all'` — показаны все, кнопка
+   * возвращает к городу игрока. Отсутствует, если город не задан.
+   */
+  cityFilter?: { city: string; mode: 'city' | 'all' };
+}
+
 export function buildTournamentTabsKeyboard(
   activeTab: TournamentTab,
   tournaments: TournamentInfo[],
+  options: TournamentTabsOptions = {},
 ): InlineKeyboard {
   const mark = (label: string, tab: TournamentTab): string =>
     activeTab === tab ? `· ${label} ·` : label;
@@ -271,8 +283,24 @@ export function buildTournamentTabsKeyboard(
     .text(mark('Текущие', 'current'), 'tlist:current')
     .text(mark(' Завершённые', 'archive'), 'tlist:archive')
     .row()
-    .text(mark('👤 Мои турниры', 'my'), 'tlist:my')
-    .row();
+    .text(mark('👤 Мои турниры', 'my'), 'tlist:my');
+  if (options.organizing) {
+    keyboard.text(mark('⚙️ Организую', 'organizing'), 'tlist:organizing');
+  }
+  keyboard.row();
+
+  if (activeTab === 'current' && options.cityFilter) {
+    keyboard
+      .text(
+        options.cityFilter.mode === 'city'
+          ? '🌍 Все города'
+          : `📍 ${options.cityFilter.city}`,
+        options.cityFilter.mode === 'city'
+          ? 'tlist:current:all'
+          : 'tlist:current',
+      )
+      .row();
+  }
 
   for (const t of tournaments) {
     const lock = t.visibility === 'private' ? '🔒 ' : '';

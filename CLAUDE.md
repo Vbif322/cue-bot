@@ -86,6 +86,26 @@ Request flow (bot): `bot/middleware` → handler `Composer`s → `services/*` �
   for `double_elimination_random`).
 - **ui** (`src/bot/ui/*.ts`): pure functions building message text + grammY keyboards from data.
 
+### Federations and authorization (M8)
+A federation (`federations` + `federation_members`, roles `owner` | `organizer`) is an
+organizer entity; players never join one. `users.role` stays `user` | `admin` where `admin`
+is the platform super-admin. "Organizer" is derived (≥1 membership). Creating a federation
+is a **paid option**: it needs an active `users.organizerUntil` (granted by an admin via
+`PATCH /api/users/:id/organizer`), and a federation creates new tournaments only while one
+of its owners' grant is active (`assertFederationActive` in `createTournamentDraft`). `tournaments.federationId`
+/ `venues.federationId` / `group_chats.federationId` are nullable: **NULL = platform resource,
+admins only** — organizer scopes use `inArray(federationId, ids)` and never match NULL.
+All permission logic lives in `src/services/authz.ts`: pure `*With` predicates (unit-tested)
+and `*AsUser` loaders. Two levels: **administer** (admin ∨ federation member: lifecycle,
+participants, delete) and **manage** (administer ∨ tournament referee: matches, invites).
+Bot gates go through `src/bot/permissions.ts` (`canAdministerTournament`, `canManageTournament`,
+`canOrganize`) and `guards.ts` (`adminOnly`, `organizerOnly`) — never inline `role === 'admin'`.
+Admin API routers use `requireStaff` (admin or any member) and scope per request via
+`routes/_shared.ts` (`tournamentGuard`, `loadManagedTournament`, `scopeOf`, `canEditVenue`);
+`requireAdmin` only on global roles, user deletion, federation deletion. Tournament
+`visibility` is `public | unlisted | private` (`unlisted` = reachable by link, excluded from
+feeds via `getTournaments({ visibilityIn })`).
+
 ### Wizards and text sessions
 Multi-step bot flows live in `src/bot/wizards/`. The tournament-creation wizard is the template:
 `tournamentCreation/` splits into `.module` (bootstrap + session registration), `.stateStore`,

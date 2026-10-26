@@ -6,15 +6,26 @@ import { tournamentParticipants } from '@/db/schema.js';
 import type { ITournamentVisibility } from '@/db/schema.js';
 import { isTournamentVisibleTo } from '@/services/tournamentService.js';
 import {
+  canAdministerTournamentAsUser,
   canManageTournamentAsUser,
+  canOrganizeAsUser,
+} from '@/services/authz.js';
+import { getMembership } from '@/services/federationService.js';
+import {
   getUserRefereeTournamentIds,
   isTournamentRefereeUser,
 } from '@/services/refereeService.js';
 
 import type { BotContext } from './types.js';
 
+/** Платформенный супер-админ (`users.role = 'admin'`). */
 export function isAdmin(ctx: BotContext): boolean {
   return ctx.dbUser.role === 'admin';
+}
+
+/** Может организовывать турниры: админ или член хотя бы одной федерации. */
+export async function canOrganize(ctx: BotContext): Promise<boolean> {
+  return canOrganizeAsUser(ctx.dbUser);
 }
 
 export async function isTournamentReferee(
@@ -24,6 +35,18 @@ export async function isTournamentReferee(
   return isTournamentRefereeUser(ctx.dbUser.id, tournamentId);
 }
 
+/**
+ * Жизненный цикл турнира, участники, удаление, судьи: админ или член
+ * федерации турнира. Судьи этого права НЕ имеют (см. `authz.ts`).
+ */
+export async function canAdministerTournament(
+  ctx: BotContext,
+  tournamentId: UUID,
+): Promise<boolean> {
+  return canAdministerTournamentAsUser(ctx.dbUser, tournamentId);
+}
+
+/** Матчи, инвайты, пульт: administer ∨ судья турнира. */
 export async function canManageTournament(
   ctx: BotContext,
   tournamentId: UUID,
@@ -32,16 +55,22 @@ export async function canManageTournament(
 }
 
 /**
- * Whether the current user is allowed to view a tournament. Public tournaments
- * are visible to everyone; private (invite-only) ones only to admins, referees,
- * participants (incl. invited) and the creator. Used to hide private brackets/
+ * Whether the current user is allowed to view a tournament. Public and unlisted
+ * tournaments are visible to everyone who has the link; private (invite-only)
+ * ones only to admins, referees, participants (incl. invited), the creator and
+ * the organizers of the tournament's federation. Used to hide private brackets/
  * cards from users who would otherwise reach them by a guessed id.
  */
 export async function canViewTournament(
   ctx: BotContext,
-  tournament: { id: UUID; visibility: ITournamentVisibility; createdBy: UUID },
+  tournament: {
+    id: UUID;
+    visibility: ITournamentVisibility;
+    createdBy: UUID;
+    federationId: UUID | null;
+  },
 ): Promise<boolean> {
-  if (tournament.visibility === 'public') return true;
+  if (tournament.visibility !== 'private') return true;
 
   const isAdminViewer = isAdmin(ctx);
   const isCreator = tournament.createdBy === ctx.dbUser.id;
@@ -49,7 +78,7 @@ export async function canViewTournament(
   // Cheap, no-DB checks short-circuit the participant/referee lookups.
   if (isAdminViewer || isCreator) return true;
 
-  const [isReferee, participation] = await Promise.all([
+  const [isReferee, participation, membership] = await Promise.all([
     isTournamentReferee(ctx, tournament.id),
     db.query.tournamentParticipants.findFirst({
       where: and(
@@ -57,6 +86,9 @@ export async function canViewTournament(
         eq(tournamentParticipants.userId, ctx.dbUser.id),
       ),
     }),
+    tournament.federationId === null
+      ? Promise.resolve(null)
+      : getMembership(ctx.dbUser.id, tournament.federationId),
   ]);
 
   const isParticipant =
@@ -69,6 +101,7 @@ export async function canViewTournament(
     isReferee,
     isParticipant,
     isCreator,
+    isOrganizer: membership !== null,
   });
 }
 

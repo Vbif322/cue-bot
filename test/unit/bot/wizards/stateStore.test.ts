@@ -10,14 +10,20 @@ const VENUE_1 = '00000000-0000-0000-0000-00000000000a';
 
 describe('mergeCreationData', () => {
   it('deep-merges tournament fields across successive patches', () => {
-    const a = mergeCreationData({ tables: [] }, { tournament: { name: 'Cup' } });
+    const a = mergeCreationData(
+      { tables: [] },
+      { tournament: { name: 'Cup' } },
+    );
     const b = mergeCreationData(a, { tournament: { winScore: 3 } });
 
     expect(b.tournament).toMatchObject({ name: 'Cup', winScore: 3 });
   });
 
   it('keeps a previously set venue when the patch omits it', () => {
-    const prev: ICreationData = { venue: { id: VENUE_1, name: 'Hall' }, tables: [] };
+    const prev: ICreationData = {
+      venue: { id: VENUE_1, name: 'Hall' },
+      tables: [],
+    };
     const merged = mergeCreationData(prev, { tournament: { name: 'Cup' } });
 
     expect(merged.venue).toEqual({ id: VENUE_1, name: 'Hall' });
@@ -46,5 +52,21 @@ describe('mergeCreationData', () => {
     expect(
       mergeCreationData(empty, { tournament: { name: 'Cup' } }).tables,
     ).toEqual([]);
+  });
+});
+
+describe('mergeCreationData — federation', () => {
+  it('replaces the federation when provided and keeps it otherwise', () => {
+    const FED = '00000000-0000-0000-0000-00000000000f';
+    const a = mergeCreationData({}, { federation: { id: FED, name: 'Лига' } });
+    expect(a.federation).toEqual({ id: FED, name: 'Лига' });
+
+    const b = mergeCreationData(a, { tournament: { name: 'Cup' } });
+    expect(b.federation).toEqual({ id: FED, name: 'Лига' });
+
+    const c = mergeCreationData(b, {
+      federation: { id: null, name: 'Платформа' },
+    });
+    expect(c.federation).toEqual({ id: null, name: 'Платформа' });
   });
 });

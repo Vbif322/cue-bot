@@ -14,9 +14,14 @@ import {
   matchCorrections,
   notifications,
   tournaments,
+  federations,
+  federationMembers,
 } from '@/db/schema.js';
 import type { DbUser } from '@/bot/types.js';
-import type { ApiUser } from '@/bot/@types/user.js';
+import type { ApiUser, ApiUserPublic } from '@/bot/@types/user.js';
+import { normalizeCity } from '@/shared/city.js';
+
+import { isStaffUser, transferMemberships } from './federationService.js';
 
 export const MAX_NAME_LENGTH = 50;
 export const MAX_SURNAME_LENGTH = 100;
@@ -38,6 +43,28 @@ export function toApiUser(u: DbUser): ApiUser {
     name: u.name,
     surname: u.surname,
     role: u.role,
+    city: u.city,
+    createdByFederationId: u.createdByFederationId,
+    organizerUntil: u.organizerUntil,
+    deletedAt: u.deletedAt,
+  };
+}
+
+/**
+ * Вид пользователя для организатора (не платформенного админа) в панели
+ * управления: без контактов (`email`, `phone`, `telegram_id`) — организатору они
+ * не нужны, а чужие игроки не должны утекать между федерациями.
+ */
+export function toApiUserPublic(u: DbUser): ApiUserPublic {
+  return {
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    surname: u.surname,
+    role: u.role,
+    city: u.city,
+    createdByFederationId: u.createdByFederationId,
+    telegramLinked: u.telegram_id !== null,
     deletedAt: u.deletedAt,
   };
 }
@@ -49,22 +76,36 @@ export interface AppUser {
   name: string | null;
   surname: string | null;
   email: string | null;
+  city: string | null;
   isAdmin: boolean;
+  /** Открыт вход в панель управления: админ или член хотя бы одной федерации. */
+  isStaff: boolean;
 }
 
 /**
  * Проекция строки `users` на публичный вид для приложения игрока. В отличие от
  * {@link toApiUser} не отдаёт `role`/`telegram_id`/`deletedAt` — приложение игрока
- * этих полей не показывает; от роли остаётся только флаг `isAdmin` (кнопка «Админка»).
+ * этих полей не показывает; от роли остаётся только флаг `isAdmin`. `isStaff`
+ * (кнопка «Админка») требует запроса членств, поэтому передаётся вызывающим
+ * (`federationService.isStaffUser`); по умолчанию равен `isAdmin`.
  */
-export function toAppUser(u: DbUser): AppUser {
+export async function buildAppUser(u: DbUser): Promise<AppUser> {
+  return toAppUser(u, { isStaff: await isStaffUser(u) });
+}
+
+export function toAppUser(
+  u: DbUser,
+  access: { isStaff: boolean } = { isStaff: u.role === 'admin' },
+): AppUser {
   return {
     id: u.id,
     username: u.username,
     name: u.name,
     surname: u.surname,
     email: u.email,
+    city: u.city,
     isAdmin: u.role === 'admin',
+    isStaff: access.isStaff || u.role === 'admin',
   };
 }
 
@@ -376,10 +417,11 @@ export function normalizeProfileValue(
 export interface ProfileUpdate {
   name?: string | null | undefined;
   surname?: string | null | undefined;
+  city?: string | null | undefined;
 }
 
 /**
- * Обновляет имя/фамилию пользователя. Значения нормализуются через
+ * Обновляет имя/фамилию/город пользователя. Значения нормализуются через
  * {@link normalizeProfileValue}; передавайте только те поля, которые нужно
  * изменить. Бросает {@link ProfileValidationError} при некорректной длине.
  */
@@ -400,6 +442,15 @@ export async function updateUserProfile(
       fields.surname === null
         ? null
         : normalizeProfileValue(fields.surname, MAX_SURNAME_LENGTH, 'Фамилия');
+  }
+  if (fields.city !== undefined) {
+    try {
+      patch.city = fields.city === null ? null : normalizeCity(fields.city);
+    } catch (e) {
+      throw new ProfileValidationError(
+        e instanceof Error ? e.message : 'Некорректный город',
+      );
+    }
   }
 
   const [updated] = await db
@@ -442,14 +493,19 @@ export async function anonymizeUser(userId: UUID): Promise<void> {
         phone: null,
         email: null,
         role: 'user',
+        organizerUntil: null,
         deletedAt: new Date(),
       })
       .where(eq(users.id, userId));
 
     await tx.delete(loginTokens).where(eq(loginTokens.userId, userId));
+    await tx.delete(userIdentities).where(eq(userIdentities.userId, userId));
+    // Членства в федерациях: удалённый аккаунт не организует. Если он был
+    // единственным владельцем, федерация остаётся без owner — её подхватывает
+    // платформенный админ (назначает нового владельца из админки).
     await tx
-      .delete(userIdentities)
-      .where(eq(userIdentities.userId, userId));
+      .delete(federationMembers)
+      .where(eq(federationMembers.userId, userId));
 
     // Обрываем активные wizard/диалоговые сессии этого telegram-аккаунта.
     if (existing?.telegram_id != null) {
@@ -625,6 +681,12 @@ export async function mergeAccountIntoTelegram(
       .update(tournaments)
       .set({ createdBy: survivorId })
       .where(eq(tournaments.createdBy, losingId));
+    await tx
+      .update(federations)
+      .set({ createdBy: survivorId })
+      .where(eq(federations.createdBy, losingId));
+    // Членства (составной PK) — с разрешением конфликта в пользу старшей роли.
+    await transferMemberships(tx, losingId, survivorId);
 
     // 3. Переносим email-identity на survivor (у него email-identity нет — см. выше,
     // коллизии по (user_id, provider) не будет). Делаем ДО тумбстона, иначе удаление
@@ -640,13 +702,21 @@ export async function mergeAccountIntoTelegram(
       );
 
     // Проставляем email/роль на survivor: email — если пуст; роль — поднимаем до
-    // admin, чтобы слияние не разжаловало админа.
+    // admin, чтобы слияние не разжаловало админа; право организатора — дольший срок.
     const survivorPatch: Partial<typeof users.$inferInsert> = {};
     if (survivor.email === null && losing.email !== null) {
       survivorPatch.email = losing.email;
     }
     if (losing.role === 'admin' && survivor.role !== 'admin') {
       survivorPatch.role = 'admin';
+    }
+    // Платное право организатора — больший из двух сроков.
+    if (
+      losing.organizerUntil !== null &&
+      (survivor.organizerUntil === null ||
+        losing.organizerUntil > survivor.organizerUntil)
+    ) {
+      survivorPatch.organizerUntil = losing.organizerUntil;
     }
     if (Object.keys(survivorPatch).length > 0) {
       await tx.update(users).set(survivorPatch).where(eq(users.id, survivorId));
@@ -665,6 +735,7 @@ export async function mergeAccountIntoTelegram(
         phone: null,
         email: null,
         role: 'user',
+        organizerUntil: null,
         deletedAt: new Date(),
       })
       .where(eq(users.id, losingId));

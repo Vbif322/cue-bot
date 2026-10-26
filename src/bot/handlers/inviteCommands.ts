@@ -21,7 +21,10 @@ import {
   buildTournamentMessage,
   getTournamentInfo,
 } from '../ui/tournamentUI.js';
-import { canManageTournament } from '../permissions.js';
+import {
+  canAdministerTournament,
+  canManageTournament,
+} from '../permissions.js';
 import {
   registerTextSession,
   type TextMessageContext,
@@ -50,8 +53,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type StartPayload =
-  | { kind: 'join'; code: string }
-  | { kind: 'tournament'; tournamentId: UUID };
+  { kind: 'join'; code: string } | { kind: 'tournament'; tournamentId: UUID };
 
 /**
  * Parse a `/start` deep-link payload. Two forms:
@@ -90,7 +92,7 @@ async function renderTournamentCard(
   tournament: TournamentReadModel,
   edit: boolean,
 ): Promise<void> {
-  const isAdmin = ctx.dbUser.role === 'admin';
+  const isAdmin = await canAdministerTournament(ctx, tournament.id);
   const info = await getTournamentInfo(tournament, ctx.dbUser.id);
   const text = buildTournamentMessage(info, isAdmin);
   const keyboard = buildTournamentKeyboard(info, isAdmin);
@@ -116,7 +118,7 @@ export async function joinViaInvite(
   tournament: TournamentReadModel,
 ): Promise<void> {
   const userId = ctx.dbUser.id;
-  const isAdmin = ctx.dbUser.role === 'admin';
+  const isAdmin = await canAdministerTournament(ctx, tournament.id);
 
   const outcome = await registerParticipant(tournament.id, userId, {
     desiredStatus: isAdmin ? 'confirmed' : 'pending',

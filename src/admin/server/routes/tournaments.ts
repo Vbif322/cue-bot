@@ -65,7 +65,13 @@ import {
 } from '@/services/groupPhaseService.js';
 import { clinchedUserIds } from '@/services/standingsService.js';
 import { getTournamentTables } from '@/services/tableService.js';
-import { requireAdmin } from '../middleware.js';
+import { requireStaff } from '../middleware.js';
+import {
+  scopeOf,
+  tournamentGuard,
+  federationFilterFromQuery,
+  resolveFederationForWrite,
+} from './_shared.js';
 import { validateParam, idParam, idUserIdParam } from './_shared.js';
 
 // Entry fee + prize split. Shape only — the semantic checks (contiguous places,
@@ -131,6 +137,9 @@ const tournamentBodySchema = z
     startDate: z.string().optional(),
     venueId: z.uuid(),
     tableIds: z.array(z.uuid()).optional(),
+    // Организатор. Для платформенного админа null = платформенный турнир; для
+    // организатора обязателен и должен быть одной из его федераций (403 иначе).
+    federationId: z.uuid().nullable().default(null),
   })
   .superRefine((data, ctx) => {
     const sportError = validateSportDiscipline(data.sport, data.discipline);
@@ -182,13 +191,22 @@ function resolveMaxParticipants(
 export function createTournamentsRouter(botApi: Api) {
   const router = new Hono();
 
-  router.use('/*', requireAdmin);
+  router.use('/*', requireStaff);
+  // Всё под /:id — только турниры в скоупе актора (GET → manage, иначе administer).
+  router.use('/:id', tournamentGuard());
+  router.use('/:id/*', tournamentGuard());
 
   router.get('/', async (c) => {
+    const filter = federationFilterFromQuery(c);
+    if (filter.error) return filter.error;
     const list = await getTournaments({
       limit: 100,
       includesDrafts: true,
-      includePrivate: true,
+      visibilityIn: visibilities,
+      scope: scopeOf(c),
+      ...(filter.federationId !== undefined
+        ? { federationId: filter.federationId }
+        : {}),
     });
     return c.json({ data: list });
   });
@@ -296,8 +314,17 @@ export function createTournamentsRouter(botApi: Api) {
     const body = c.req.valid('json');
     const admin = c.get('adminUser');
 
+    const federationId = resolveFederationForWrite(
+      admin,
+      body.federationId as UUID | null,
+    );
+    if (federationId === undefined) {
+      return c.json({ error: 'Укажите свою организацию' }, 403);
+    }
+
     try {
       const tournament = await createTournamentDraft({
+        federationId,
         name: body.name,
         description: body.description ?? null,
         rules: body.rules ?? null,
@@ -523,11 +550,14 @@ export function createTournamentsRouter(botApi: Api) {
       let userId: UUID;
 
       if (body.type === 'external') {
+        // Гость принадлежит федерации турнира: попадает в её ростер и
+        // редактируется её организаторами (см. users.ts).
         const [newUser] = await db
           .insert(users)
           .values({
             username: body.username ?? body.name.slice(0, 255),
             name: body.name,
+            createdByFederationId: c.get('tournament')?.federationId ?? null,
           })
           .returning({ id: users.id });
 

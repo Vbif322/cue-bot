@@ -8,6 +8,7 @@ const HOUR_MS = 60 * MINUTE_MS;
  */
 export const TEXT_SESSION_TTL_MS = {
   tournamentCreation: 24 * HOUR_MS,
+  federationCreate: HOUR_MS,
   profileEdit: HOUR_MS,
   invite: 30 * MINUTE_MS,
   matchSchedule: 30 * MINUTE_MS,

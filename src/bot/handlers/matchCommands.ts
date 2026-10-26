@@ -70,7 +70,6 @@ import {
   canManageTournament,
   canViewTournament,
   getUserRefereeTournaments,
-  isAdmin,
 } from '../permissions.js';
 import { refreshMatchCard } from './helpers/matchCard.js';
 import { TextSessionStore } from '../sessions/textSessionStore.js';
@@ -142,12 +141,10 @@ async function renderFramePrompt(
     );
   } catch (error) {
     // Ignore the "message is not modified" no-op; propagate anything else.
-    if (
-      !(
-        error instanceof GrammyError &&
-        error.description.includes('message is not modified')
-      )
-    ) {
+    if (!(
+      error instanceof GrammyError &&
+      error.description.includes('message is not modified')
+    )) {
       throw error;
     }
   }
@@ -1310,11 +1307,17 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   const matchIdUUID = matchId as UUID;
   const userId = ctx.dbUser.id;
 
+  const match = await getMatch(matchIdUUID);
+  if (!match) {
+    await ctx.answerCallbackQuery({ text: 'Матч не найден', show_alert: true });
+    return;
+  }
+
   const result = await confirmResult(
     matchIdUUID,
     userId,
     ctx.api,
-    isAdmin(ctx),
+    await canManageTournament(ctx, match.tournamentId),
   );
 
   if (!result.success) {
@@ -1328,11 +1331,11 @@ matchCommands.callbackQuery(/^match:confirm:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery('Результат подтверждён!');
 
   // Show updated match and send notifications
-  const match = await getMatch(matchIdUUID);
-  if (match) {
+  const confirmed = await getMatch(matchIdUUID);
+  if (confirmed) {
     // Send notification to both players
     try {
-      await notifyResultConfirmed(ctx.api, match);
+      await notifyResultConfirmed(ctx.api, confirmed);
     } catch (error) {
       console.error('Failed to send result confirmed notification:', error);
       // Don't fail the whole operation if notification fails

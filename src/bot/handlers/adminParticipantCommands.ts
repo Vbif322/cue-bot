@@ -1,23 +1,24 @@
-import { Composer, InlineKeyboard } from "grammy";
-import type { UUID } from "crypto";
-import type { BotContext } from "../types.js";
+import { Composer, InlineKeyboard } from 'grammy';
+import type { UUID } from 'crypto';
+import type { BotContext } from '../types.js';
+import { canAdministerTournament } from '../permissions.js';
 import {
   confirmParticipant,
   rejectParticipant,
   deleteParticipant,
   getParticipantsByStatus,
   getTournament,
-} from "@/services/tournamentService.js";
+} from '@/services/tournamentService.js';
 import {
   notifyRegistrationConfirmed,
   notifyRegistrationRejected,
-} from "@/services/notificationService.js";
+} from '@/services/notificationService.js';
 import {
   escapeMarkdown,
   formatFullName,
   safeEditMessageText,
-} from "@/utils/messageHelpers.js";
-import { bot } from "../instance.js";
+} from '@/utils/messageHelpers.js';
+import { bot } from '../instance.js';
 
 export const adminParticipantCommands = new Composer<BotContext>();
 
@@ -44,10 +45,11 @@ async function showParticipantManagement(
   tournamentId: string,
   cachedTournament?: Awaited<ReturnType<typeof getTournament>>,
 ): Promise<void> {
-  const tournament = cachedTournament ?? (await getTournament(tournamentId as UUID));
+  const tournament =
+    cachedTournament ?? (await getTournament(tournamentId as UUID));
   if (!tournament) {
     await ctx.answerCallbackQuery({
-      text: "Турнир не найден",
+      text: 'Турнир не найден',
       show_alert: true,
     });
     return;
@@ -55,11 +57,11 @@ async function showParticipantManagement(
 
   const pending = await getParticipantsByStatus(
     tournamentId as UUID,
-    "pending",
+    'pending',
   );
   const confirmed = await getParticipantsByStatus(
     tournamentId as UUID,
-    "confirmed",
+    'confirmed',
   );
 
   // Clear old keys for this tournament and populate fresh ones
@@ -69,10 +71,10 @@ async function showParticipantManagement(
   let message = `*${escapeMarkdown(tournament.name)}*\n`;
 
   if (pending.length === 0 && confirmed.length === 0) {
-    await ctx.answerCallbackQuery({ text: "Нет участников" });
+    await ctx.answerCallbackQuery({ text: 'Нет участников' });
     await safeEditMessageText(ctx, {
       text: `${message}\nНет участников.`,
-      parse_mode: "Markdown",
+      parse_mode: 'Markdown',
     });
     return;
   }
@@ -80,16 +82,15 @@ async function showParticipantManagement(
   if (pending.length > 0) {
     message += `\n*Ожидают подтверждения (${String(pending.length)}):*\n`;
     for (const p of pending) {
-      const displayName =
-        formatFullName(p.name, p.surname) ?? p.username;
-      const handle = p.username ? ` (@${escapeMarkdown(p.username)})` : "";
+      const displayName = formatFullName(p.name, p.surname) ?? p.username;
+      const handle = p.username ? ` (@${escapeMarkdown(p.username)})` : '';
       message += `${escapeMarkdown(displayName)}${handle}\n`;
 
       const key = generateKey();
       participantActionsMap.set(key, { tournamentId, userId: p.userId });
       keyboard
-        .text("✅ Подтвердить", `adm:c:${key}`)
-        .text("❌ Отклонить", `adm:r:${key}`)
+        .text('✅ Подтвердить', `adm:c:${key}`)
+        .text('❌ Отклонить', `adm:r:${key}`)
         .row();
     }
   }
@@ -97,9 +98,8 @@ async function showParticipantManagement(
   if (confirmed.length > 0) {
     message += `\n*Подтверждённые (${String(confirmed.length)}):*\n`;
     for (const p of confirmed) {
-      const displayName =
-        formatFullName(p.name, p.surname) ?? p.username;
-      const handle = p.username ? ` (@${escapeMarkdown(p.username)})` : "";
+      const displayName = formatFullName(p.name, p.surname) ?? p.username;
+      const handle = p.username ? ` (@${escapeMarkdown(p.username)})` : '';
       message += `${escapeMarkdown(displayName)}${handle}\n`;
 
       const key = generateKey();
@@ -111,7 +111,7 @@ async function showParticipantManagement(
   await ctx.answerCallbackQuery();
   await safeEditMessageText(ctx, {
     text: message,
-    parse_mode: "Markdown",
+    parse_mode: 'Markdown',
     reply_markup: keyboard,
   });
 }
@@ -120,40 +120,38 @@ async function showParticipantManagement(
 adminParticipantCommands.callbackQuery(
   /^adm:pending_list:(.+)$/,
   async (ctx) => {
-    if (ctx.dbUser.role !== "admin") {
+    const tournamentId = ctx.match[1];
+    if (!tournamentId) return;
+    if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
       await ctx.answerCallbackQuery({
-        text: "Нет доступа",
+        text: 'Нет доступа',
         show_alert: true,
       });
       return;
     }
-
-    const tournamentId = ctx.match[1];
-    if (!tournamentId) return;
     await showParticipantManagement(ctx, tournamentId);
   },
 );
 
 // Confirm participant
 adminParticipantCommands.callbackQuery(/^adm:c:(.+)$/, async (ctx) => {
-  if (ctx.dbUser.role !== "admin") {
-    await ctx.answerCallbackQuery({ text: "Нет доступа", show_alert: true });
-    return;
-  }
-
   const key = ctx.match[1];
   if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {
     await ctx.answerCallbackQuery({
-      text: "Список устарел. Откройте снова.",
+      text: 'Список устарел. Откройте снова.',
       show_alert: true,
     });
     return;
   }
 
   const { tournamentId, userId } = entry;
+  if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
+    await ctx.answerCallbackQuery({ text: 'Нет доступа', show_alert: true });
+    return;
+  }
   const tournament = await getTournament(tournamentId as UUID);
   const updated = await confirmParticipant(tournamentId, userId);
 
@@ -171,24 +169,23 @@ adminParticipantCommands.callbackQuery(/^adm:c:(.+)$/, async (ctx) => {
 
 // Reject participant
 adminParticipantCommands.callbackQuery(/^adm:r:(.+)$/, async (ctx) => {
-  if (ctx.dbUser.role !== "admin") {
-    await ctx.answerCallbackQuery({ text: "Нет доступа", show_alert: true });
-    return;
-  }
-
   const key = ctx.match[1];
   if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {
     await ctx.answerCallbackQuery({
-      text: "Список устарел. Откройте снова.",
+      text: 'Список устарел. Откройте снова.',
       show_alert: true,
     });
     return;
   }
 
   const { tournamentId, userId } = entry;
+  if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
+    await ctx.answerCallbackQuery({ text: 'Нет доступа', show_alert: true });
+    return;
+  }
   const tournament = await getTournament(tournamentId as UUID);
   const updated = await rejectParticipant(tournamentId, userId);
 
@@ -206,24 +203,23 @@ adminParticipantCommands.callbackQuery(/^adm:r:(.+)$/, async (ctx) => {
 
 // Remove confirmed participant
 adminParticipantCommands.callbackQuery(/^adm:rm:(.+)$/, async (ctx) => {
-  if (ctx.dbUser.role !== "admin") {
-    await ctx.answerCallbackQuery({ text: "Нет доступа", show_alert: true });
-    return;
-  }
-
   const key = ctx.match[1];
   if (!key) return;
   const entry = participantActionsMap.get(key);
 
   if (!entry) {
     await ctx.answerCallbackQuery({
-      text: "Список устарел. Откройте снова.",
+      text: 'Список устарел. Откройте снова.',
       show_alert: true,
     });
     return;
   }
 
   const { tournamentId, userId } = entry;
+  if (!(await canAdministerTournament(ctx, tournamentId as UUID))) {
+    await ctx.answerCallbackQuery({ text: 'Нет доступа', show_alert: true });
+    return;
+  }
   const tournament = await getTournament(tournamentId as UUID);
 
   await deleteParticipant(tournamentId, userId);

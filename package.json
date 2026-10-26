@@ -47,7 +47,8 @@
     "db:migrate": "tsx --env-file=.env node_modules/drizzle-kit/bin.cjs migrate",
     "db:studio": "tsx --env-file=.env node_modules/drizzle-kit/bin.cjs studio",
     "seed:de": "tsx --env-file=.env scripts/seed-double-elim.ts",
-    "dev:login": "tsx --env-file=.env scripts/dev-login.ts"
+    "dev:login": "tsx --env-file=.env scripts/dev-login.ts",
+    "dev:organizer": "tsx --env-file=.env scripts/dev-organizer.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

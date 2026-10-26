@@ -211,12 +211,16 @@ function DesktopSidebar({ unread }: { unread: number }) {
               {displayName(user)}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-              {user.isAdmin ? 'Администратор' : 'Игрок'}
+              {user.isAdmin
+                ? 'Администратор'
+                : user.isStaff
+                  ? 'Организатор'
+                  : 'Игрок'}
             </div>
           </div>
         </div>
       )}
-      {user?.isAdmin === true && <AdminSwitch block />}
+      {user?.isStaff === true && <AdminSwitch block />}
     </aside>
   );
 }

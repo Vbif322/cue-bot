@@ -4,9 +4,22 @@
 export type {
   UserRole,
   ApiUser,
+  ApiUserPublic,
   ApiUserStats,
   ApiMaxBreakLeaderboardEntry,
 } from '../../bot/@types/user.js';
+export type {
+  FederationRole,
+  ApiFederation,
+  ApiFederationSummary,
+  ApiFederationDetail,
+  ApiFederationMember,
+  ApiFederationChat,
+  ApiUserFederation,
+  ApiPublicFederation,
+} from '../../bot/@types/federation.js';
+export { federationRoles } from '../../db/schema/federationMembers.js';
+export { visibilities } from '../../db/schema/tournaments.js';
 export type {
   TournamentStatus,
   TournamentFormat,

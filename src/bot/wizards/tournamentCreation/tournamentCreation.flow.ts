@@ -16,6 +16,14 @@ import {
   matchLengthStages,
 } from '@/db/schema.js';
 import { getVenue, getVenues } from '@/services/venueService.js';
+import {
+  getMembership,
+  getUserFederations,
+} from '@/services/federationService.js';
+import {
+  canCreateFederationWith,
+  isFederationActive,
+} from '@/services/authz.js';
 import { getTablesByVenue } from '@/services/tableService.js';
 import { createTournamentDraft } from '@/services/tournamentService.js';
 import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
@@ -56,6 +64,8 @@ export interface ITournamentCreationFlow {
     state: ICreationState,
     text: string,
   ): Promise<void>;
+
+  handleFederationSelection(ctx: BotContext, value: string): Promise<boolean>;
 
   handleNameInput(ctx: BotContext, name: string): Promise<boolean>;
 
@@ -155,14 +165,132 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
    *
    * @returns {Promise<void>}
    */
+  /**
+   * Запуск мастера. Первый (ненумерованный) шаг — от чьего имени турнир:
+   * федерации пользователя; платформенному админу доступен ещё «Платформа»
+   * (турнир без организации). Если вариант ровно один — выбирается молча.
+   */
   async startCreationWizard(ctx: BotContext): Promise<void> {
     const userId = this.getUserId(ctx);
 
     if (!userId) return;
 
-    await this.stateStore.start(userId, ctx);
+    const { options, expired } = await this.federationOptionsFor(ctx);
 
-    await this.renderer.showNameStep(ctx);
+    if (options.length === 0) {
+      await ctx.reply(
+        expired > 0
+          ? 'Срок права организатора у владельцев ваших организаций истёк — ' +
+              'новые турниры недоступны. Текущие турниры можно доиграть. ' +
+              'Для продления обратитесь к администратору платформы.'
+          : canCreateFederationWith(ctx.dbUser)
+            ? 'Чтобы создавать турниры, нужна своя организация: /new_federation'
+            : 'Создание турниров — платная опция. Обратитесь к администратору платформы.',
+      );
+      return;
+    }
+
+    if (options.length === 1) {
+      const only = options[0];
+      if (!only) return;
+      await this.stateStore.start(userId, ctx, {
+        step: 'name',
+        data: { federation: only },
+      });
+      await ctx.reply(`Организатор: ${only.name}`);
+      await this.renderer.showNameStep(ctx);
+      return;
+    }
+
+    await this.stateStore.start(userId, ctx, { step: 'federation' });
+
+    await this.renderer.showFederationStep(ctx, options);
+  }
+
+  /**
+   * Варианты организатора для пользователя: его федерации с действующим правом
+   * владельцев (+ «Платформа» для глобального админа). `expired` — сколько его
+   * федераций пропущено из-за истёкшего срока.
+   */
+  private async federationOptionsFor(ctx: BotContext): Promise<{
+    options: { id: UUID | null; name: string }[];
+    expired: number;
+  }> {
+    const memberships = await getUserFederations(ctx.dbUser.id);
+    const active = memberships.filter((f) => isFederationActive(f.activeUntil));
+    const options: { id: UUID | null; name: string }[] = active.map((f) => ({
+      id: f.id,
+      name: f.name,
+    }));
+    if (ctx.dbUser.role === 'admin') {
+      options.push({ id: null, name: 'Платформа (без организации)' });
+    }
+    return { options, expired: memberships.length - active.length };
+  }
+
+  /**
+   * Выбор организатора (`tc:fed:<uuid|platform>`). Членство перепроверяется:
+   * кнопка могла остаться от старого сообщения.
+   */
+  async handleFederationSelection(
+    ctx: BotContext,
+    value: string,
+  ): Promise<boolean> {
+    const { status: hasStep, userId } = await this.getUserIfOnCreationStep(
+      ctx,
+      'federation',
+    );
+
+    if (!hasStep) return false;
+
+    let federation: { id: UUID | null; name: string };
+    if (value === 'platform') {
+      if (ctx.dbUser.role !== 'admin') {
+        await ctx.answerCallbackQuery({
+          text: 'Недостаточно прав',
+          show_alert: true,
+        });
+        return true;
+      }
+      federation = { id: null, name: 'Платформа (без организации)' };
+    } else {
+      const federationId = value as UUID;
+      const [membership, mine] = await Promise.all([
+        getMembership(ctx.dbUser.id, federationId),
+        getUserFederations(ctx.dbUser.id),
+      ]);
+      const row = mine.find((f) => f.id === federationId);
+      if ((membership === null && ctx.dbUser.role !== 'admin') || !row) {
+        await ctx.answerCallbackQuery({
+          text: 'Вы не состоите в этой организации',
+          show_alert: true,
+        });
+        return true;
+      }
+      if (!isFederationActive(row.activeUntil)) {
+        await ctx.answerCallbackQuery({
+          text: 'Срок права организатора истёк — новые турниры недоступны',
+          show_alert: true,
+        });
+        return true;
+      }
+      federation = { id: row.id, name: row.name };
+    }
+
+    const state = await this.stateStore.update(userId, {
+      step: 'name',
+      data: { federation },
+    });
+
+    if (state.step !== 'name' || state.data.federation?.id !== federation.id) {
+      await this.renderer.showSavedStateError(ctx);
+      return false;
+    }
+
+    await ctx.answerCallbackQuery();
+    await this.renderer.showNameStep(ctx, federation.name);
+
+    return true;
   }
 
   /**
@@ -425,7 +553,10 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
       return false;
     }
 
-    const venues = await getVenues();
+    // Площадки организатора: общие плюс его собственные.
+    const venues = await getVenues({
+      federationId: state.data.federation?.id ?? null,
+    });
 
     if (venues.length === 0) {
       await this.stateStore.clear(userId);
@@ -464,6 +595,15 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     const venue = await getVenue(venueId);
 
     if (venue === null) {
+      await this.renderer.showVenueNotFound(ctx);
+
+      return true;
+    }
+
+    // Защита от устаревшей кнопки: площадка должна быть общей или своей.
+    const current = await this.stateStore.get(userId);
+    const federationId = current?.data.federation?.id ?? null;
+    if (venue.federationId !== null && venue.federationId !== federationId) {
       await this.renderer.showVenueNotFound(ctx);
 
       return true;
@@ -1386,6 +1526,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     try {
       const created = await createTournamentDraft({
         venueId: state.data.venue.id,
+        federationId: state.data.federation.id,
 
         name: state.data.tournament.name,
         sport: state.data.tournament.sport,
@@ -1500,6 +1641,7 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     data: ICreationData,
   ): data is IRequiredCreationData {
     const isValidVenue = data.venue !== undefined;
+    const isValidFederation = data.federation !== undefined;
 
     const isValidTournament =
       data.tournament?.name !== undefined &&
@@ -1523,7 +1665,11 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     const isValidTables = Array.isArray(data.tables);
 
     return (
-      isValidVenue && isValidTournament && isValidGroupConfig && isValidTables
+      isValidFederation &&
+      isValidVenue &&
+      isValidTournament &&
+      isValidGroupConfig &&
+      isValidTables
     );
   }
 }

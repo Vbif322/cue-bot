@@ -2,15 +2,23 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   activateGroupChat,
+  bindGroupChat,
   deactivateGroupChat,
   getGroupChat,
   listActiveGroupChats,
+  listGroupChatsForFederation,
   registerGroupChat,
   resolveAnnouncementTargets,
+  unbindGroupChat,
 } from '@/services/groupChatService.js';
 import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 
-import { createTournament, createUser } from '../helpers/factories.js';
+import {
+  createFederation,
+  createOrganizer,
+  createTournament,
+  createUser,
+} from '../helpers/factories.js';
 import { truncateAll } from '../helpers/truncate.js';
 
 beforeEach(truncateAll);
@@ -160,5 +168,108 @@ describe('resolveAnnouncementTargets', () => {
     );
 
     expect(targets.map((c) => c.chatId)).toEqual(['-1']);
+  });
+});
+
+describe('resolveAnnouncementTargets — привязка к федерации (M8)', () => {
+  it('привязанный чат слышит только свою федерацию; непривязанный — всё публичное', async () => {
+    const fedA = await createFederation();
+    const fedB = await createFederation();
+    const tA = await createTournament({
+      status: 'registration_open',
+      federationId: fedA.id,
+    });
+    const tB = await createTournament({
+      status: 'registration_open',
+      federationId: fedB.id,
+    });
+    const platform = await createTournament({ status: 'registration_open' });
+
+    await registerGroupChat({
+      chatId: '-10',
+      type: 'group',
+      title: null,
+      addedBy: null,
+    });
+    await registerGroupChat({
+      chatId: '-11',
+      type: 'group',
+      title: null,
+      addedBy: null,
+    });
+    await registerGroupChat({
+      chatId: '-12',
+      type: 'group',
+      title: null,
+      addedBy: null,
+    });
+    await bindGroupChat('-11', fedA.id);
+    await bindGroupChat('-12', fedB.id);
+
+    const ids = async (t: typeof tA) =>
+      (await resolveAnnouncementTargets(t as unknown as TournamentReadModel))
+        .map((c) => c.chatId)
+        .sort();
+
+    expect(await ids(tA)).toEqual(['-10', '-11']);
+    expect(await ids(tB)).toEqual(['-10', '-12']);
+    expect(await ids(platform)).toEqual(['-10']);
+
+    await unbindGroupChat('-11');
+    expect(await ids(tB)).toEqual(['-10', '-11', '-12']);
+  });
+
+  it('повторная регистрация чата не сбрасывает привязку', async () => {
+    const fed = await createFederation();
+    await registerGroupChat({
+      chatId: '-20',
+      type: 'group',
+      title: 'a',
+      addedBy: null,
+    });
+    await bindGroupChat('-20', fed.id);
+    await registerGroupChat({
+      chatId: '-20',
+      type: 'supergroup',
+      title: 'b',
+      addedBy: null,
+    });
+    expect((await getGroupChat('-20'))?.federationId).toBe(fed.id);
+  });
+
+  it('listGroupChatsForFederation: свои привязанные + непривязанные, добавленные командой', async () => {
+    const fed = await createFederation();
+    const other = await createFederation();
+    const organizer = await createOrganizer(fed.id);
+    const stranger = await createUser();
+    await registerGroupChat({
+      chatId: '-30',
+      type: 'group',
+      title: null,
+      addedBy: organizer.id,
+    });
+    await registerGroupChat({
+      chatId: '-31',
+      type: 'group',
+      title: null,
+      addedBy: stranger.id,
+    });
+    await registerGroupChat({
+      chatId: '-32',
+      type: 'group',
+      title: null,
+      addedBy: null,
+    });
+    await registerGroupChat({
+      chatId: '-33',
+      type: 'group',
+      title: null,
+      addedBy: organizer.id,
+    });
+    await bindGroupChat('-32', fed.id);
+    await bindGroupChat('-33', other.id); // добавил наш, но уже привязан к другой
+
+    const list = await listGroupChatsForFederation(fed.id);
+    expect(list.map((c) => c.chatId).sort()).toEqual(['-30', '-32']);
   });
 });

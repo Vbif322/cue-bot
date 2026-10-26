@@ -3,6 +3,7 @@ import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import {
+  federationMembers,
   matches,
   tournamentParticipants,
   tournamentReferees,
@@ -11,13 +12,17 @@ import {
 } from '@/db/schema.js';
 import type { IUserRole } from '@/db/schema.js';
 
+import { getFederationIdsOf } from './federationService.js';
+
 /**
  * Referee permissions and read-models, shared by the bot and the player-site
  * referee section. A referee is not a role: it is a per-tournament row in
- * `tournament_referees`. Admins may manage every tournament.
+ * `tournament_referees`. Admins may manage every tournament; federation
+ * members manage their federation's tournaments (see `authz.ts`, which owns the
+ * `canManageTournamentAsUser` / `canAdministerTournamentAsUser` checks).
  *
- * Imports only `db` + schema on purpose, so notificationService / matchService
- * can depend on it without an import cycle.
+ * Imports only `db` + schema (+ federationService, same constraint) on purpose,
+ * so notificationService / matchService can depend on it without an import cycle.
  */
 
 type Tournament = typeof tournaments.$inferSelect;
@@ -59,15 +64,6 @@ export async function isTournamentRefereeUser(
   return row !== undefined;
 }
 
-/** Admin, or a referee of this tournament. */
-export async function canManageTournamentAsUser(
-  user: RefereeActor,
-  tournamentId: UUID,
-): Promise<boolean> {
-  if (user.role === 'admin') return true;
-  return isTournamentRefereeUser(user.id, tournamentId);
-}
-
 export async function getUserRefereeTournamentIds(
   userId: UUID,
 ): Promise<UUID[]> {
@@ -80,9 +76,9 @@ export async function getUserRefereeTournamentIds(
 
 /**
  * Who decides a match-level incident (no-show, disputed result): the
- * tournament's referees, or its creator when no referee is assigned.
- * `byReferees` tells the two apart, so player-facing text can say whom to
- * turn to.
+ * tournament's referees; otherwise the organizers (members of the tournament's
+ * federation); otherwise its creator (platform tournaments). `byReferees` tells
+ * the first case apart, so player-facing text can say whom to turn to.
  */
 export async function getMatchDecisionMakers(
   tournamentId: UUID,
@@ -96,13 +92,24 @@ export async function getMatchDecisionMakers(
   }
 
   const [tournament] = await db
-    .select({ createdBy: tournaments.createdBy })
+    .select({
+      createdBy: tournaments.createdBy,
+      federationId: tournaments.federationId,
+    })
     .from(tournaments)
     .where(eq(tournaments.id, tournamentId));
-  return {
-    userIds: tournament ? [tournament.createdBy] : [],
-    byReferees: false,
-  };
+  if (!tournament) return { userIds: [], byReferees: false };
+
+  if (tournament.federationId !== null) {
+    const members = await db
+      .select({ userId: federationMembers.userId })
+      .from(federationMembers)
+      .where(eq(federationMembers.federationId, tournament.federationId));
+    if (members.length > 0) {
+      return { userIds: members.map((m) => m.userId), byReferees: false };
+    }
+  }
+  return { userIds: [tournament.createdBy], byReferees: false };
 }
 
 export async function getMatchDecisionRecipients(
@@ -142,23 +149,35 @@ const EMPTY_COUNTS: RefereeTournamentCounts = {
   disputed: 0,
 };
 
-/** Tournament ids a user may referee right now (see REFEREE_TOURNAMENT_STATUSES). */
+/**
+ * Tournaments a user may referee right now (see REFEREE_TOURNAMENT_STATUSES):
+ * the ones they are assigned to, plus — for organizers — every tournament of
+ * their federations. Admins see every running tournament.
+ */
 async function refereeTournamentScope(
   user: RefereeActor,
 ): Promise<Tournament[]> {
-  const refereeIds = await getUserRefereeTournamentIds(user.id);
+  const [refereeIds, federationIds] = await Promise.all([
+    getUserRefereeTournamentIds(user.id),
+    user.role === 'admin' ? Promise.resolve([]) : getFederationIdsOf(user.id),
+  ]);
+  const inRefereeStatuses = inArray(
+    tournaments.status,
+    REFEREE_TOURNAMENT_STATUSES,
+  );
   const own =
     refereeIds.length > 0
-      ? and(
-          inArray(tournaments.id, refereeIds),
-          inArray(tournaments.status, REFEREE_TOURNAMENT_STATUSES),
-        )
+      ? and(inArray(tournaments.id, refereeIds), inRefereeStatuses)
+      : undefined;
+  const organized =
+    federationIds.length > 0
+      ? and(inArray(tournaments.federationId, federationIds), inRefereeStatuses)
       : undefined;
   // Admins see every running tournament, plus the ones they referee.
   const where =
     user.role === 'admin'
       ? or(eq(tournaments.status, 'in_progress'), own)
-      : own;
+      : or(own, organized);
   if (!where) return [];
 
   return db
@@ -278,13 +297,11 @@ export async function getRefereeAttention(
     )
     .orderBy(asc(matches.disputedAt), asc(matches.callDeadlineAt));
 
-  const items = rows.map(
-    (r): RefereeAttentionItem => ({
-      matchId: r.matchId,
-      tournamentId: r.tournamentId,
-      reason: r.disputedAt ? 'disputed' : 'overdue_call',
-    }),
-  );
+  const items = rows.map((r): RefereeAttentionItem => ({
+    matchId: r.matchId,
+    tournamentId: r.tournamentId,
+    reason: r.disputedAt ? 'disputed' : 'overdue_call',
+  }));
   // Stable: disputes keep their disputedAt order, calls their deadline order.
   return [
     ...items.filter((i) => i.reason === 'disputed'),

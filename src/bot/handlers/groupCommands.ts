@@ -3,6 +3,7 @@ import type { UUID } from 'crypto';
 
 import {
   activateGroupChat,
+  bindGroupChat,
   classifyMyChatMember,
   deactivateGroupChat,
   getGroupChat,
@@ -12,6 +13,7 @@ import type { IGroupChatType } from '@/db/schema.js';
 import { errorMessage } from '@/utils/errors.js';
 
 import { isAdmin } from '../permissions.js';
+import { getUserFederations } from '@/services/federationService.js';
 import type { BotContext } from '../types.js';
 
 export const groupCommands = new Composer<BotContext>();
@@ -120,19 +122,38 @@ groupCommands.command('start_announcements', async (ctx) => {
 
   const chatId = String(chat.id);
   const existing = await getGroupChat(chatId);
+  const actorId = actorIdOf(ctx);
 
   if (existing === undefined) {
     await registerGroupChat({
       chatId,
       type: chat.type,
       title: chat.title,
-      addedBy: actorIdOf(ctx),
+      addedBy: actorId,
     });
   } else {
     await activateGroupChat(chatId);
   }
 
-  await ctx.reply('Анонсы турниров включены для этого чата.');
+  // Привязка к организации (M8): если включивший состоит ровно в одной
+  // федерации, а чат ещё не привязан — привязываем молча. Несколько федераций
+  // — выбор делается в панели управления; ноль — чат слышит все турниры.
+  let bound = existing?.federationId ?? null;
+  let hint = '';
+  if (bound === null && actorId !== null) {
+    const mine = await getUserFederations(actorId);
+    const only = mine[0];
+    if (mine.length === 1 && only) {
+      await bindGroupChat(chatId, only.id);
+      bound = only.id;
+      hint = `\nЧат привязан к организации «${only.name}»: сюда придут только её турниры. Изменить — в панели управления.`;
+    } else if (mine.length > 1) {
+      hint =
+        '\nВы состоите в нескольких организациях — привяжите чат к нужной в панели управления (Организации → Чаты). Пока сюда приходят все публичные турниры.';
+    }
+  }
+
+  await ctx.reply(`Анонсы турниров включены для этого чата.${hint}`);
 });
 
 groupCommands.command('stop_announcements', async (ctx) => {

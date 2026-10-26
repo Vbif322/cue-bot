@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { tournamentsApi, tablesApi, venuesApi } from '../lib/api.ts';
+import { useFederation } from '../lib/federation.tsx';
 import {
   formats,
   maxParticipants,
@@ -61,6 +62,12 @@ function TournamentFormModal({
   const tournament =
     modeProps.mode === 'edit' ? modeProps.tournament : undefined;
   const isEdit = tournament !== undefined;
+  const { federations, isPlatformAdmin, writeFederationId } = useFederation();
+  // Организатор турнира: при редактировании — как сохранено; при создании —
+  // текущая организация панели ('' = платформенный, только для админа).
+  const [federationId, setFederationId] = useState<string>(
+    isEdit ? (tournament.federationId ?? '') : (writeFederationId ?? ''),
+  );
 
   const [form, setForm] = useState({
     name: tournament?.name ?? '',
@@ -113,6 +120,13 @@ function TournamentFormModal({
     }
   }, [assignedTables]);
 
+  // Площадки под выбранного организатора: общие (без организации) плюс его свои.
+  const venuesForFederation = venues.filter(
+    (v) =>
+      v.federationId === null ||
+      (federationId !== '' && v.federationId === federationId),
+  );
+
   const venueTables = form.venueId
     ? existingTables.filter((table) => table.venueId === form.venueId)
     : [];
@@ -147,7 +161,10 @@ function TournamentFormModal({
       };
       return isEdit
         ? tournamentsApi.update(tournament.id, payload)
-        : tournamentsApi.create(payload);
+        : tournamentsApi.create({
+            ...payload,
+            federationId: federationId === '' ? null : federationId,
+          });
     },
     onSuccess: () => {
       if (isEdit) {
@@ -163,7 +180,11 @@ function TournamentFormModal({
     onError: (e: Error) => setError(e.message),
   });
 
-  const canSubmit = venues.length > 0 && form.venueId !== '' && !save.isPending;
+  const canSubmit =
+    venuesForFederation.length > 0 &&
+    form.venueId !== '' &&
+    (isPlatformAdmin || federationId !== '') &&
+    !save.isPending;
 
   const toggleTable = (id: string) => {
     setSelectedTableIds((prev) =>
@@ -196,7 +217,33 @@ function TournamentFormModal({
           }}
           className="p-5 space-y-4"
         >
-          {venues.length === 0 && (
+          {!isEdit && (isPlatformAdmin || federations.length > 1) && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Организатор *
+              </label>
+              <select
+                value={federationId}
+                onChange={(e) => {
+                  setFederationId(e.target.value);
+                  setForm({ ...form, venueId: '' });
+                  setSelectedTableIds([]);
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {isPlatformAdmin && (
+                  <option value="">Платформа (без организации)</option>
+                )}
+                {federations.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {venuesForFederation.length === 0 && (
             <div className="p-3 bg-amber-50 text-amber-800 text-sm rounded-lg border border-amber-200">
               Для создания турнира нужна хотя бы одна площадка.{' '}
               <Link to="/venues" className="underline font-medium">
@@ -238,12 +285,28 @@ function TournamentFormModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Выберите площадку</option>
-              {venues.map((venue) => (
+              {venuesForFederation.map((venue) => (
                 <option key={venue.id} value={venue.id}>
                   {venue.name}
                 </option>
               ))}
             </select>
+            {form.venueId !== '' &&
+              (() => {
+                const v = venuesForFederation.find(
+                  (x) => x.id === form.venueId,
+                );
+                if (!v) return null;
+                const parts = [
+                  v.city ?? 'город не указан',
+                  v.federationId === null ? 'общая площадка' : null,
+                ].filter(Boolean);
+                return (
+                  <p className="mt-1 text-xs text-gray-500">
+                    {parts.join(' · ')}
+                  </p>
+                );
+              })()}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

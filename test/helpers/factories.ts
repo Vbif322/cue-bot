@@ -1,10 +1,12 @@
 import type { UUID } from 'crypto';
 
 import type { Api } from 'grammy';
-import { and, asc, eq, isNotNull, or } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, or } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
 import {
+  federationMembers,
+  federations,
   loginTokens,
   matches,
   tournamentParticipants,
@@ -55,6 +57,62 @@ export async function createAdminUser(
   overrides: Partial<typeof users.$inferInsert> = {},
 ) {
   return createUser({ role: 'admin', ...overrides });
+}
+
+/** A future `users.organizerUntil` — an active paid organizer grant. */
+export function grantUntil(days = 365): Date {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * A federation (organizer entity) with `ownerId` as its owner. Creates the owner
+ * when none is given. Returns the federation row plus the owner id.
+ *
+ * `active` (default true) gives the owner an organizer grant (`organizerUntil`
+ * a year ahead) when they have none, so the federation can create tournaments;
+ * pass `active: false` to model a federation whose paid term never started.
+ */
+export async function createFederation(
+  overrides: Partial<typeof federations.$inferInsert> & {
+    ownerId?: UUID;
+    active?: boolean;
+  } = {},
+) {
+  const { ownerId: givenOwner, active = true, ...rest } = overrides;
+  const ownerId = givenOwner ?? (await createUser()).id;
+  const [row] = await db
+    .insert(federations)
+    .values({
+      name: `Federation ${uniq()}`,
+      city: 'Москва',
+      createdBy: rest.createdBy ?? ownerId,
+      ...rest,
+    })
+    .returning();
+  if (!row) throw new Error('insert returned no rows');
+  await db
+    .insert(federationMembers)
+    .values({ federationId: row.id, userId: ownerId, role: 'owner' });
+  if (active) {
+    await db
+      .update(users)
+      .set({ organizerUntil: grantUntil() })
+      .where(and(eq(users.id, ownerId), isNull(users.organizerUntil)));
+  }
+  return { ...row, ownerId };
+}
+
+/** A user who is a member (default `organizer`) of `federationId`. */
+export async function createOrganizer(
+  federationId: UUID,
+  role: 'owner' | 'organizer' = 'organizer',
+  overrides: Partial<typeof users.$inferInsert> = {},
+) {
+  const user = await createUser(overrides);
+  await db
+    .insert(federationMembers)
+    .values({ federationId, userId: user.id, role });
+  return user;
 }
 
 /**

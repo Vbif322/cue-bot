@@ -27,8 +27,8 @@ import {
   setMatchTable,
   setTechnicalResult,
 } from '@/services/matchService.js';
+import { canManageTournamentAsUser } from '@/services/authz.js';
 import {
-  canManageTournamentAsUser,
   getMatchDecisionRecipients,
   getRefereeAttention,
   getRefereeTournaments,

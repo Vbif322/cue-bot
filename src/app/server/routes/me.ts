@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
+import { MAX_CITY_LENGTH } from '@/shared/city.js';
 import { z } from 'zod';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
 import { userIdentities, tournamentParticipants } from '@/db/schema.js';
 import {
-  toAppUser,
+  buildAppUser,
   updateUserProfile,
   ProfileValidationError,
   MAX_NAME_LENGTH,
@@ -28,11 +29,13 @@ import { readMergeIntent } from './auth.js';
 const profileBody = z.object({
   name: z.string().max(MAX_NAME_LENGTH).nullable().optional(),
   surname: z.string().max(MAX_SURNAME_LENGTH).nullable().optional(),
+  city: z.string().max(MAX_CITY_LENGTH).nullable().optional(),
 });
 
 const PROFILE_MESSAGES = {
   name: 'Некорректное имя',
   surname: 'Некорректная фамилия',
+  city: 'Некорректный город',
 } as const;
 
 export function createAppMeRouter() {
@@ -63,8 +66,7 @@ export function createAppMeRouter() {
     // истории survivor'а — чтобы карточка на /profile показала, с чем сливаемся.
     const mergeIntent = await readMergeIntent(c);
     let pendingMerge:
-      | { survivorTournaments: number; survivorMatches: number }
-      | undefined;
+      { survivorTournaments: number; survivorMatches: number } | undefined;
     if (mergeIntent?.losingUserId === user.id) {
       const survivorId = mergeIntent.survivorUserId;
       const [[participation], stats] = await Promise.all([
@@ -82,7 +84,7 @@ export function createAppMeRouter() {
 
     return c.json({
       data: {
-        ...toAppUser(user),
+        ...(await buildAppUser(user)),
         emailVerified: emailIdentity != null,
         telegramLinked: telegramIdentity != null,
         ...(pendingMerge ? { pendingMerge } : {}),
@@ -98,7 +100,7 @@ export function createAppMeRouter() {
     const body = c.req.valid('json');
     try {
       const updated = await updateUserProfile(c.get('appUser').id, body);
-      return c.json({ data: toAppUser(updated) });
+      return c.json({ data: await buildAppUser(updated) });
     } catch (error) {
       if (error instanceof ProfileValidationError) {
         return c.json({ error: error.message }, 400);

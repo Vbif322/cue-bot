@@ -20,7 +20,7 @@ export type TournamentFormat =
   | 'round_robin'
   | 'groups_playoff';
 
-export type TournamentVisibility = 'public' | 'private';
+export type TournamentVisibility = 'public' | 'unlisted' | 'private';
 
 export type TournamentScheduleMode = 'single_day' | 'per_match';
 
@@ -38,16 +38,24 @@ export interface AppUser {
   name: string | null;
   surname: string | null;
   email: string | null;
+  /** Город игрока — дефолт фильтра ленты; null, если не указан. */
+  city: string | null;
   isAdmin: boolean;
+  /** Открыт вход в панель управления: админ или организатор (член федерации). */
+  isStaff: boolean;
+}
+
+/** Организатор (федерация, клуб) — публичная карточка для фильтра ленты. */
+export interface AppFederation {
+  id: string;
+  name: string;
+  city: string;
+  description: string | null;
 }
 
 /** Статус участия (prod.tournament_participants.status). */
 export type ParticipationStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'cancelled'
-  | 'disqualified'
-  | 'invited';
+  'pending' | 'confirmed' | 'cancelled' | 'disqualified' | 'invited';
 
 export type Discipline = 'snooker';
 
@@ -81,6 +89,11 @@ export interface AppTournament {
   createdAt: string;
   updatedAt: string;
   venueName: string | null;
+  /** Город площадки (null у площадок без города). */
+  venueCity: string | null;
+  /** Организатор; null = платформенный турнир. */
+  federationId: string | null;
+  federationName: string | null;
   /** Живой счётчик участников со статусом confirmed. */
   confirmedCount: number;
   /** Живой счётчик участников со статусом pending. */

@@ -1,18 +1,39 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq, getTableColumns, inArray, isNull, or } from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { tables, tournamentTables } from '@/db/schema.js';
+import { tables, tournamentTables, venues } from '@/db/schema.js';
+
+import type { ActorScope } from './authz.js';
 
 export type Table = typeof tables.$inferSelect;
 
 /**
- * Извлекает все столы из базы данных и возвращает их в порядке возрастания по имени
+ * Все столы в порядке по имени. Со `scope` организатора — только столы общих
+ * площадок и площадок его федераций (как `getVenues`).
  *
  * @returns {Promise<Table[]>} Массив столов
  */
-export async function getTables(): Promise<Table[]> {
-  return db.query.tables.findMany({ orderBy: [asc(tables.name)] });
+export async function getTables(options?: {
+  scope?: ActorScope;
+}): Promise<Table[]> {
+  const scope = options?.scope;
+  if (scope?.kind !== 'federations') {
+    return db.query.tables.findMany({ orderBy: [asc(tables.name)] });
+  }
+  return db
+    .select(getTableColumns(tables))
+    .from(tables)
+    .innerJoin(venues, eq(tables.venueId, venues.id))
+    .where(
+      scope.ids.length > 0
+        ? or(
+            isNull(venues.federationId),
+            inArray(venues.federationId, scope.ids),
+          )
+        : isNull(venues.federationId),
+    )
+    .orderBy(asc(tables.name));
 }
 
 /**

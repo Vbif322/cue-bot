@@ -1,4 +1,4 @@
-import { boolean, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { boolean, index, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import type { UUID } from 'crypto';
 
 import {
@@ -7,6 +7,7 @@ import {
   prodSchema,
   updatedAt,
 } from '../schemaHelpers.js';
+import { federations } from './federations.js';
 import { users } from './users.js';
 
 export const groupChatTypes = ['group', 'supergroup'] as const;
@@ -45,13 +46,22 @@ export const groupChats = prodSchema.table(
     // Переключение на модель «явный bind командой» — это смена дефолта здесь
     // и текста приветствия, больше ничего.
     isActive: boolean('is_active').notNull().default(true),
+    // Привязка к федерации (M8). NULL = чат слышит ВСЕ публичные турниры (как
+    // до M8); привязанный — только турниры своей федерации. Читает это только
+    // resolveAnnouncementTargets. Удаление федерации отвязывает чат, не убивает.
+    federationId: uuid('federation_id')
+      .$type<UUID>()
+      .references(() => federations.id, { onDelete: 'set null' }),
     // Ops-хлебные крошки: `my_chat_member:kicked`, `403: bot was kicked`, …
     deactivatedAt: timestamp('deactivated_at'),
     deactivatedReason: varchar('deactivated_reason', { length: 255 }),
     createdAt,
     updatedAt,
   },
-  (table) => [enumCheck('group_chats_type_check', table.type, groupChatTypes)],
+  (table) => [
+    index('group_chats_federation_idx').on(table.federationId),
+    enumCheck('group_chats_type_check', table.type, groupChatTypes),
+  ],
 );
 
 export type IGroupChat = typeof groupChats.$inferSelect;

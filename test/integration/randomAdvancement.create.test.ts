@@ -22,6 +22,7 @@ describe('randomAdvancement persistence (createTournamentDraft)', () => {
 
     const t = await createTournamentDraft({
       venueId: venue.id,
+      federationId: null,
       name: 'dbl random',
       sport: 'snooker',
       discipline: 'snooker_15_red',
@@ -45,6 +46,7 @@ describe('randomAdvancement persistence (createTournamentDraft)', () => {
 
     const t = await createTournamentDraft({
       venueId: venue.id,
+      federationId: null,
       name: 'plain',
       sport: 'snooker',
       discipline: 'snooker_15_red',
@@ -65,6 +67,7 @@ describe('randomAdvancement persistence (createTournamentDraft)', () => {
 
       const t = await createTournamentDraft({
         venueId: venue.id,
+        federationId: null,
         name: 'no random here',
         sport: 'snooker',
         discipline: 'snooker_15_red',

@@ -2,7 +2,7 @@ import { TextSessionStore } from '@/bot/sessions/textSessionStore.js';
 import { TEXT_SESSION_TTL_MS } from '@/bot/sessions/textSession.const.js';
 import type { BotContext } from '@/bot/types.js';
 
-export type ProfileEditField = 'name' | 'surname';
+export type ProfileEditField = 'name' | 'surname' | 'city';
 
 export interface ProfileEditState {
   field: ProfileEditField;

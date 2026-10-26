@@ -9,16 +9,19 @@ import {
   FORMAT_LABELS_SHORT,
   formatParticipants,
 } from '../lib/tournamentLabels.ts';
+import { useFederation } from '../lib/federation.tsx';
 
 export default function TournamentsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { param, current } = useFederation();
+  const showOrganizer = current === 'all';
   const [filter, setFilter] = useState<TournamentStatus | 'all'>('all');
   const [showCreate, setShowCreate] = useState(false);
 
   const { data: tournaments, isLoading } = useQuery({
-    queryKey: ['tournaments'],
-    queryFn: tournamentsApi.list,
+    queryKey: ['tournaments', param ?? 'all'],
+    queryFn: () => tournamentsApi.list(param),
   });
 
   const deleteMutation = useMutation({
@@ -92,6 +95,14 @@ export default function TournamentsPage() {
                   <TournamentStatusBadge status={t.status} />
                 </div>
                 <dl className="space-y-1 text-sm">
+                  {showOrganizer && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Организатор</dt>
+                      <dd className="text-gray-700">
+                        {t.federationName ?? 'Платформа'}
+                      </dd>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <dt className="text-gray-500">Формат</dt>
                     <dd className="text-gray-700">
@@ -137,6 +148,11 @@ export default function TournamentsPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Название
                   </th>
+                  {showOrganizer && (
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">
+                      Организатор
+                    </th>
+                  )}
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Формат
                   </th>
@@ -156,7 +172,7 @@ export default function TournamentsPage() {
                 {filtered?.length === 0 && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={showOrganizer ? 7 : 6}
                       className="px-4 py-8 text-center text-gray-400"
                     >
                       Турниры не найдены
@@ -174,6 +190,11 @@ export default function TournamentsPage() {
                         {t.name}
                       </span>
                     </td>
+                    {showOrganizer && (
+                      <td className="px-4 py-3 text-gray-600">
+                        {t.federationName ?? 'Платформа'}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-gray-600">
                       {FORMAT_LABELS_SHORT[t.format]}
                     </td>

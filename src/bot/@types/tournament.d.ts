@@ -7,11 +7,17 @@ import type { Serialize } from './helpers.ts';
 
 export type TournamentStatus = (typeof tournaments.$inferSelect)['status'];
 export type TournamentFormat = (typeof tournaments.$inferSelect)['format'];
-export type TournamentVisibility = (typeof tournaments.$inferSelect)['visibility'];
-export type TournamentScheduleMode = (typeof tournaments.$inferSelect)['scheduleMode'];
+export type TournamentVisibility =
+  (typeof tournaments.$inferSelect)['visibility'];
+export type TournamentScheduleMode =
+  (typeof tournaments.$inferSelect)['scheduleMode'];
 export type Tournament = typeof tournaments.$inferSelect;
 export type TournamentReadModel = Tournament & {
   venueName: string | null;
+  /** City of the venue — the tournament's city (venues created before M8 have none). */
+  venueCity: string | null;
+  /** Organizer name; null for platform tournaments (`federationId` null). */
+  federationName: string | null;
   /** Live count of participants with status 'confirmed' (not the stored snapshot). */
   confirmedCount: number;
   /** Live count of participants with status 'pending'. */
@@ -21,6 +27,8 @@ export type TournamentReadModel = Tournament & {
 /** Serialized tournament row for JSON responses (timestamps → string), without updatedAt */
 export type ApiTournament = Omit<Serialize<Tournament>, 'updatedAt'> & {
   venueName: string | null;
+  venueCity: string | null;
+  federationName: string | null;
   confirmedCount: number;
   pendingCount: number;
 };

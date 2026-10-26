@@ -6,11 +6,18 @@ import {
   type ApiVenue,
   type ApiTable,
 } from '../lib/api.ts';
+import { useFederation } from '../lib/federation.tsx';
 
-type EditState = { name: string; address: string; image: string };
+type EditState = { name: string; address: string; city: string; image: string };
 
+/**
+ * Площадки. Общие (без организации) видят все организаторы, но правит их только
+ * платформенный админ; свои площадки организация создаёт и правит сама.
+ */
 export default function VenuesPage() {
   const qc = useQueryClient();
+  const { federations, isPlatformAdmin, writeFederationId, current } =
+    useFederation();
   const { data: venues = [], isLoading } = useQuery({
     queryKey: ['venues'],
     queryFn: () => venuesApi.list(),
@@ -20,13 +27,36 @@ export default function VenuesPage() {
     queryFn: () => tablesApi.list(),
   });
 
-  const [form, setForm] = useState({ name: '', address: '', image: '' });
+  const [form, setForm] = useState({
+    name: '',
+    address: '',
+    city: '',
+    image: '',
+    federationId: writeFederationId ?? '',
+  });
   const [editId, setEditId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState>({
     name: '',
     address: '',
+    city: '',
     image: '',
   });
+
+  const canEdit = (venue: ApiVenue): boolean =>
+    isPlatformAdmin ||
+    (venue.federationId !== null &&
+      federations.some((f) => f.id === venue.federationId));
+  const federationName = (id: string | null): string | null =>
+    id === null ? null : (federations.find((f) => f.id === id)?.name ?? null);
+  // В режиме конкретной организации показываем общие + её площадки.
+  const visibleVenues =
+    current === 'all'
+      ? venues
+      : venues.filter(
+          (v) =>
+            v.federationId === null ||
+            (current !== 'platform' && v.federationId === current),
+        );
   const [newTableNames, setNewTableNames] = useState<Record<string, string>>(
     {},
   );
@@ -42,11 +72,13 @@ export default function VenuesPage() {
       venuesApi.create({
         name: form.name.trim(),
         address: form.address.trim(),
+        city: form.city.trim(),
         image: form.image.trim() || undefined,
+        federationId: form.federationId === '' ? null : form.federationId,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['venues'] });
-      setForm({ name: '', address: '', image: '' });
+      setForm((s) => ({ ...s, name: '', address: '', city: '', image: '' }));
       setError('');
     },
     onError: (e: Error) => setError(e.message),
@@ -57,6 +89,7 @@ export default function VenuesPage() {
       venuesApi.update(id, {
         name: editState.name.trim(),
         address: editState.address.trim(),
+        city: editState.city.trim(),
         image: editState.image.trim() || null,
       }),
     onSuccess: () => {
@@ -98,6 +131,7 @@ export default function VenuesPage() {
     setEditState({
       name: venue.name,
       address: venue.address,
+      city: venue.city ?? '',
       image: venue.image ?? '',
     });
     setError('');
@@ -117,11 +151,31 @@ export default function VenuesPage() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (form.name.trim() && form.address.trim()) createVenue.mutate();
+          if (form.name.trim() && form.address.trim() && form.city.trim())
+            createVenue.mutate();
         }}
         className="bg-white border border-gray-200 rounded-lg p-4 mb-6 space-y-3"
       >
         <h2 className="text-sm font-semibold text-gray-700">Новая площадка</h2>
+        {(isPlatformAdmin || federations.length > 1) && (
+          <select
+            aria-label="Организация площадки"
+            value={form.federationId}
+            onChange={(e) =>
+              setForm((s) => ({ ...s, federationId: e.target.value }))
+            }
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {isPlatformAdmin && (
+              <option value="">Общая площадка (без организации)</option>
+            )}
+            {federations.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        )}
         <input
           value={form.name}
           onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))}
@@ -135,6 +189,12 @@ export default function VenuesPage() {
           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <input
+          value={form.city}
+          onChange={(e) => setForm((s) => ({ ...s, city: e.target.value }))}
+          placeholder="Город *"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <input
           value={form.image}
           onChange={(e) => setForm((s) => ({ ...s, image: e.target.value }))}
           placeholder="URL изображения (необязательно)"
@@ -143,7 +203,11 @@ export default function VenuesPage() {
         <button
           type="submit"
           disabled={
-            !form.name.trim() || !form.address.trim() || createVenue.isPending
+            !form.name.trim() ||
+            !form.address.trim() ||
+            !form.city.trim() ||
+            (!isPlatformAdmin && form.federationId === '') ||
+            createVenue.isPending
           }
           className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
         >
@@ -154,11 +218,11 @@ export default function VenuesPage() {
       {/* Venues list */}
       {isLoading ? (
         <div className="text-gray-500 text-sm">Загрузка...</div>
-      ) : venues.length === 0 ? (
+      ) : visibleVenues.length === 0 ? (
         <div className="text-gray-500 text-sm">Площадок пока нет</div>
       ) : (
         <div className="space-y-4">
-          {venues.map((venue) =>
+          {visibleVenues.map((venue) =>
             editId === venue.id ? (
               <div
                 key={venue.id}
@@ -181,6 +245,14 @@ export default function VenuesPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <input
+                  value={editState.city}
+                  onChange={(e) =>
+                    setEditState((s) => ({ ...s, city: e.target.value }))
+                  }
+                  placeholder="Город *"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
                   value={editState.image}
                   onChange={(e) =>
                     setEditState((s) => ({ ...s, image: e.target.value }))
@@ -194,6 +266,7 @@ export default function VenuesPage() {
                     disabled={
                       !editState.name.trim() ||
                       !editState.address.trim() ||
+                      !editState.city.trim() ||
                       updateVenue.isPending
                     }
                     className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
@@ -229,23 +302,39 @@ export default function VenuesPage() {
                     </div>
                     <div className="text-sm text-gray-500 mt-0.5">
                       {venue.address}
+                      {venue.city ? ` · ${venue.city}` : ''}
+                    </div>
+                    <div className="mt-1 flex gap-1 flex-wrap">
+                      {!venue.city && (
+                        <span className="inline-flex px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700">
+                          Город не указан
+                        </span>
+                      )}
+                      <span className="inline-flex px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
+                        {venue.federationId === null
+                          ? 'Общая'
+                          : (federationName(venue.federationId) ??
+                            'Другая организация')}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => startEdit(venue)}
-                      className="text-sm text-blue-500 hover:text-blue-700"
-                    >
-                      Изменить
-                    </button>
-                    <button
-                      onClick={() => removeVenue.mutate(venue.id)}
-                      disabled={removeVenue.isPending}
-                      className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50"
-                    >
-                      Удалить
-                    </button>
-                  </div>
+                  {canEdit(venue) && (
+                    <div className="flex flex-col gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => startEdit(venue)}
+                        className="text-sm text-blue-500 hover:text-blue-700"
+                      >
+                        Изменить
+                      </button>
+                      <button
+                        onClick={() => removeVenue.mutate(venue.id)}
+                        disabled={removeVenue.isPending}
+                        className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Tables section */}
@@ -265,46 +354,50 @@ export default function VenuesPage() {
                           <span className="text-sm text-gray-700">
                             {table.name}
                           </span>
-                          <button
-                            onClick={() => removeTable.mutate(table.id)}
-                            disabled={removeTable.isPending}
-                            className="text-xs text-red-400 hover:text-red-600 disabled:opacity-50"
-                          >
-                            Удалить
-                          </button>
+                          {canEdit(venue) && (
+                            <button
+                              onClick={() => removeTable.mutate(table.id)}
+                              disabled={removeTable.isPending}
+                              className="text-xs text-red-400 hover:text-red-600 disabled:opacity-50"
+                            >
+                              Удалить
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
                   )}
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const name = newTableNames[venue.id]?.trim();
-                      if (name) addTable.mutate({ name, venueId: venue.id });
-                    }}
-                    className="flex gap-2"
-                  >
-                    <input
-                      value={newTableNames[venue.id] ?? ''}
-                      onChange={(e) =>
-                        setNewTableNames((s) => ({
-                          ...s,
-                          [venue.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Название стола..."
-                      className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      type="submit"
-                      disabled={
-                        !newTableNames[venue.id]?.trim() || addTable.isPending
-                      }
-                      className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  {canEdit(venue) && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const name = newTableNames[venue.id]?.trim();
+                        if (name) addTable.mutate({ name, venueId: venue.id });
+                      }}
+                      className="flex gap-2"
                     >
-                      Добавить
-                    </button>
-                  </form>
+                      <input
+                        value={newTableNames[venue.id] ?? ''}
+                        onChange={(e) =>
+                          setNewTableNames((s) => ({
+                            ...s,
+                            [venue.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Название стола..."
+                        className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button
+                        type="submit"
+                        disabled={
+                          !newTableNames[venue.id]?.trim() || addTable.isPending
+                        }
+                        className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Добавить
+                      </button>
+                    </form>
+                  )}
                 </div>
               </div>
             ),

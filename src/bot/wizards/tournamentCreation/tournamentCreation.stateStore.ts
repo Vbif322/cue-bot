@@ -11,7 +11,11 @@ import type {
 // #region Types / Interfaces
 
 export interface ITournamentCreationStateStore {
-  start(userId: number, ctx?: BotContext): Promise<ICreationState>;
+  start(
+    userId: number,
+    ctx?: BotContext,
+    initial?: Partial<ICreationState>,
+  ): Promise<ICreationState>;
 
   get(userId: number): Promise<ICreationState | undefined>;
   getOrThrow(userId: number): Promise<ICreationState>;
@@ -55,6 +59,8 @@ export function mergeCreationData(
 ): ICreationData {
   return {
     ...prev,
+
+    ...(patch.federation ? { federation: patch.federation } : {}),
 
     ...(patch.venue
       ? { venue: prev.venue ? { ...prev.venue, ...patch.venue } : patch.venue }
@@ -109,9 +115,7 @@ export function normalizeCreationState(raw: unknown): ICreationState {
 // #region Class
 
 /** Хранение сессии создания турнира (persistent, поверх Postgres). */
-export class TournamentCreationStateStore
-  implements ITournamentCreationStateStore
-{
+export class TournamentCreationStateStore implements ITournamentCreationStateStore {
   /** Текстовая сессия wizard'а (namespace `tc`); регистрируется в модуле. */
   readonly session = new TextSessionStore<ICreationState>('tc', {
     ttlMs: TEXT_SESSION_TTL_MS.tournamentCreation,
@@ -128,11 +132,16 @@ export class TournamentCreationStateStore
    *
    * @returns {Promise<ICreationState>} Состояние создания
    */
-  async start(userId: number, ctx?: BotContext): Promise<ICreationState> {
+  async start(
+    userId: number,
+    ctx?: BotContext,
+    initial?: Partial<ICreationState>,
+  ): Promise<ICreationState> {
     const state: ICreationState = {
-      step: 'name',
+      step: initial?.step ?? 'name',
       data: {
         tables: [],
+        ...initial?.data,
       },
     };
 
@@ -287,7 +296,8 @@ export class TournamentCreationStateStore
     let next = current;
 
     if (patch.step) next = { ...next, step: patch.step };
-    if (patch.data) next = { ...next, data: mergeCreationData(next.data, patch.data) };
+    if (patch.data)
+      next = { ...next, data: mergeCreationData(next.data, patch.data) };
 
     await this.write(userId, next);
 

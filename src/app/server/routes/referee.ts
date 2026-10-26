@@ -31,11 +31,11 @@ import {
 } from '@/services/matchCallService.js';
 import {
   ACTIVE_MATCH_STATUSES,
-  canManageTournamentAsUser,
   getAbsentParticipants,
   getRefereeAttention,
   getRefereeTournaments,
 } from '@/services/refereeService.js';
+import { canManageTournamentAsUser } from '@/services/authz.js';
 import { getTournament } from '@/services/tournamentService.js';
 import { getTournamentTables } from '@/services/tableService.js';
 import {

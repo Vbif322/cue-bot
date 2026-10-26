@@ -7,6 +7,7 @@ import {
 } from '@/services/userStatsService.js';
 import { formatStats } from '../ui/profileUI.js';
 import { getUserRefereeTournaments } from '../permissions.js';
+import { getFederationIdsOf } from '@/services/federationService.js';
 import type { BotContext } from '../types.js';
 import { formatFullName } from '@/utils/messageHelpers.js';
 import {
@@ -19,6 +20,8 @@ import {
   registerTextSession,
   type TextMessageContext,
 } from '../sessions/textSessionRegistry.js';
+import { hasOrganizerGrant } from '@/services/authz.js';
+import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 
 export const profileCommands = new Composer<BotContext>();
 
@@ -27,7 +30,11 @@ function pluralizeTournaments(n: number): string {
   return isSingular ? 'турнире' : 'турнирах';
 }
 
-function formatProfileHeader(ctx: BotContext, refereeCount: number): string {
+function formatProfileHeader(
+  ctx: BotContext,
+  refereeCount: number,
+  federationCount: number,
+): string {
   const user = ctx.dbUser;
   const displayName = formatFullName(user.name, user.surname) ?? user.username;
   const usernameLine = user.username ? ` (@${user.username})` : '';
@@ -35,13 +42,25 @@ function formatProfileHeader(ctx: BotContext, refereeCount: number): string {
   let role: string;
   if (user.role === 'admin') {
     role = 'Админ';
+  } else if (federationCount > 0 || hasOrganizerGrant(user)) {
+    role = 'Организатор';
   } else if (refereeCount > 0) {
     role = `Судья на ${String(refereeCount)} ${pluralizeTournaments(refereeCount)}`;
   } else {
     role = 'Игрок';
   }
 
-  return `👤 *${displayName}*${usernameLine}\n🎭 Роль: ${role}`;
+  const cityLine = user.city ? `\n📍 Город: ${user.city}` : '';
+  return `👤 *${displayName}*${usernameLine}\n🎭 Роль: ${role}${cityLine}${formatGrantLine(user.organizerUntil)}`;
+}
+
+/** Срок платного права организатора (`users.organizerUntil`), если выдавалось. */
+function formatGrantLine(until: Date | null): string {
+  if (until === null) return '';
+  const day = DateTimeHelperInstance.formatDate(until, 'DD.MM.YYYY');
+  return until > new Date()
+    ? `\n🏛 Право организатора до ${day}`
+    : `\n🏛 Право организатора истекло ${day}`;
 }
 
 function formatHistory(history: UserTournamentHistoryItem[]): string {
@@ -59,14 +78,19 @@ function formatHistory(history: UserTournamentHistoryItem[]): string {
 export async function showProfile(ctx: BotContext): Promise<void> {
   const userId = ctx.dbUser.id;
 
-  const [stats, history, refereeTournaments] = await Promise.all([
-    getUserMatchStats(userId),
-    getUserCompletedTournaments(userId, 5),
-    getUserRefereeTournaments(userId),
-  ]);
+  const [stats, history, refereeTournaments, federationIds] = await Promise.all(
+    [
+      getUserMatchStats(userId),
+      getUserCompletedTournaments(userId, 5),
+      getUserRefereeTournaments(userId),
+      getFederationIdsOf(userId),
+    ],
+  );
 
   const blocks: string[] = [];
-  blocks.push(formatProfileHeader(ctx, refereeTournaments.length));
+  blocks.push(
+    formatProfileHeader(ctx, refereeTournaments.length, federationIds.length),
+  );
   blocks.push(formatStats(stats));
 
   const historyBlock = formatHistory(history);
@@ -84,6 +108,11 @@ export async function showProfile(ctx: BotContext): Promise<void> {
   keyboard
     .text('✏️ Изменить имя', 'pe:edit:name')
     .text('✏️ Изменить фамилию', 'pe:edit:surname')
+    .row()
+    .text(
+      ctx.dbUser.city ? `📍 Город: ${ctx.dbUser.city}` : '📍 Указать город',
+      'pe:edit:city',
+    )
     .row();
   for (const t of history) {
     keyboard.text(`📊 ${t.name}`, `bracket:view:${t.id}`).row();
@@ -97,14 +126,15 @@ export async function showProfile(ctx: BotContext): Promise<void> {
 
 profileCommands.command('me', (ctx) => showProfile(ctx));
 
-const FIELD_LABELS: Record<'name' | 'surname', string> = {
+const FIELD_LABELS: Record<'name' | 'surname' | 'city', string> = {
   name: 'имя',
   surname: 'фамилию',
+  city: 'город',
 };
 
-profileCommands.callbackQuery(/^pe:edit:(name|surname)$/, async (ctx) => {
+profileCommands.callbackQuery(/^pe:edit:(name|surname|city)$/, async (ctx) => {
   const userId = ctx.from.id;
-  const field = ctx.match[1] as 'name' | 'surname';
+  const field = ctx.match[1] as 'name' | 'surname' | 'city';
   await profileEditStateStore.start(userId, field, ctx);
 
   await ctx.answerCallbackQuery();

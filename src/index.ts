@@ -20,6 +20,7 @@ import {
   matchCommands,
   helpCommands,
   profileCommands,
+  federationCommands,
   menuHandlers,
   groupCommands,
 } from './bot/handlers/index.js';
@@ -33,10 +34,11 @@ import { sendOnboarding } from './bot/handlers/helpCommand.js';
 import {
   setupCommands,
   setAdminCommands,
+  setOrganizerCommands,
   setRefereeCommands,
   setUserCommands,
 } from './bot/commands.js';
-import { getUserRefereeTournaments } from './bot/permissions.js';
+import { canOrganize, getUserRefereeTournaments } from './bot/permissions.js';
 import { buildMainMenuKeyboard } from './bot/ui/mainMenu.js';
 import { createAdminServer } from './admin/server/index.js';
 import { serve, type ServerType } from '@hono/node-server';
@@ -83,6 +85,7 @@ bot.use(matchCommands);
 bot.use(adminParticipantCommands);
 bot.use(helpCommands);
 bot.use(profileCommands);
+bot.use(federationCommands);
 
 bot.command('start', async (ctx) => {
   if (!ctx.from) return;
@@ -90,6 +93,8 @@ bot.command('start', async (ctx) => {
 
   if (ctx.dbUser.role === 'admin') {
     await setAdminCommands(bot, chatId);
+  } else if (await canOrganize(ctx)) {
+    await setOrganizerCommands(bot, chatId);
   } else {
     const refereeTournamentIds = await getUserRefereeTournaments(ctx.dbUser.id);
     if (refereeTournamentIds.length > 0) {
@@ -144,7 +149,7 @@ const publicBaseUrl = process.env.PUBLIC_BASE_URL;
 const adminBaseUrl = process.env.ADMIN_BASE_URL;
 
 bot.command('dashboard', async (ctx) => {
-  if (ctx.dbUser.role !== 'admin') {
+  if (!(await canOrganize(ctx))) {
     return;
   }
 

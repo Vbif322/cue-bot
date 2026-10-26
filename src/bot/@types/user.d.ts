@@ -5,6 +5,18 @@ export type UserRole = (typeof users.$inferSelect)['role'];
 /** User row shape returned by the admin API (allow-listed via `toApiUser`). */
 export type ApiUser = typeof users.$inferSelect;
 
+/**
+ * User as seen by a federation organizer in the admin API: no contact fields
+ * (`email`, `phone`, `telegram_id`) and no billing (`organizerUntil`), only
+ * whether a Telegram account is linked.
+ */
+export type ApiUserPublic = Omit<
+  ApiUser,
+  'email' | 'phone' | 'telegram_id' | 'organizerUntil'
+> & {
+  telegramLinked: boolean;
+};
+
 /** Aggregated statistics for a single user, shown on the admin user page. */
 export interface ApiUserStats {
   matches: {

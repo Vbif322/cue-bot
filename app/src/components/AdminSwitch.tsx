@@ -1,6 +1,6 @@
-// Переход «сайт игрока → админка» для администраторов. Сессии раздельные, поэтому
-// кнопка запрашивает одноразовую ссылку входа и уходит по ней (редим ставит
-// admin-сессию на хосте админки). Для не-админов ничего не рендерит.
+// Переход «сайт игрока → панель управления» для админов и организаторов (isStaff).
+// Сессии раздельные, поэтому кнопка запрашивает одноразовую ссылку входа и уходит
+// по ней (редим ставит admin-сессию на хосте админки). Остальным ничего не рендерит.
 import { useMutation } from '@tanstack/react-query';
 import { useMe } from '../lib/useAuth.ts';
 import { appAuth } from '../lib/api.ts';
@@ -15,7 +15,7 @@ export default function AdminSwitch({ block = false }: { block?: boolean }) {
     },
   });
 
-  if (me?.user?.isAdmin !== true) return null;
+  if (me?.user?.isStaff !== true) return null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -26,7 +26,7 @@ export default function AdminSwitch({ block = false }: { block?: boolean }) {
         disabled={mut.isPending || mut.isSuccess}
         onClick={() => mut.mutate()}
       >
-        Админка
+        Панель управления
       </Btn>
       {mut.error && (
         <span style={{ fontSize: 11, color: 'var(--color-red-500, #ef4444)' }}>

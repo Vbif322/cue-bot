@@ -26,6 +26,7 @@ import {
   notifyResultDisputed,
 } from '@/services/notificationService.js';
 import { isTournamentRefereeUser } from '@/services/refereeService.js';
+import { getMembership } from '@/services/federationService.js';
 import { requireUser } from '@/admin/server/middleware.js';
 
 import { validateParam, validateJson } from './_shared.js';
@@ -93,9 +94,12 @@ async function canViewMatch(
 ): Promise<boolean> {
   const tournament = await getTournament(match.tournamentId);
   if (!tournament) return false;
-  const [participation, isReferee] = await Promise.all([
+  const [participation, isReferee, membership] = await Promise.all([
     getUserParticipation(tournament.id, userId),
     isTournamentRefereeUser(userId, tournament.id),
+    tournament.federationId === null
+      ? Promise.resolve(null)
+      : getMembership(userId, tournament.federationId),
   ]);
   return isTournamentVisibleTo(tournament, {
     isAdmin: false,
@@ -103,6 +107,7 @@ async function canViewMatch(
     isParticipant:
       participation != null && participation.status !== 'cancelled',
     isCreator: tournament.createdBy === userId,
+    isOrganizer: membership !== null,
   });
 }
 

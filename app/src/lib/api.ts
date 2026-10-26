@@ -2,6 +2,7 @@
 // ответам /api/app/*), запросы — через fetch с кукой сессии (app_token).
 import type {
   AppUser,
+  AppFederation,
   AppTournament,
   AppParticipant,
   AppMatch,
@@ -78,7 +79,9 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
-const jsonBody = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
+const jsonBody = (body: unknown): RequestInit => ({
+  body: JSON.stringify(body),
+});
 
 // ── Auth (беспарольный вход по коду на почту) ─────────────────────────────────
 
@@ -104,10 +107,13 @@ export const appAuth = {
    * кука в WebView не сохранилась.
    */
   miniAppLogin: (initData: string) =>
-    apiFetch<{ user: AppUser; token: string }>('/api/app/auth/telegram/miniapp', {
-      method: 'POST',
-      ...jsonBody({ initData }),
-    }),
+    apiFetch<{ user: AppUser; token: string }>(
+      '/api/app/auth/telegram/miniapp',
+      {
+        method: 'POST',
+        ...jsonBody({ initData }),
+      },
+    ),
 
   // Привязка email к текущему (обычно Telegram-only) аккаунту: два шага —
   // запросить код на адрес, затем подтвердить. Успех обновляет email-identity,
@@ -171,7 +177,14 @@ export const configApi = {
 // ── Tournaments ───────────────────────────────────────────────────────────────
 
 export const tournamentsApi = {
-  list: () => apiFetch<AppTournament[]>('/api/app/tournaments'),
+  /** Публичная лента; `city` — по городу площадки, `federationId` — один организатор. */
+  list: (filters?: { city?: string; federationId?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.city) params.set('city', filters.city);
+    if (filters?.federationId) params.set('federationId', filters.federationId);
+    const qs = params.size > 0 ? `?${params.toString()}` : '';
+    return apiFetch<AppTournament[]>(`/api/app/tournaments${qs}`);
+  },
 
   get: (id: string) => apiFetch<TournamentDetail>(`/api/app/tournaments/${id}`),
 
@@ -195,16 +208,14 @@ export const tournamentsApi = {
     }),
 
   acceptInvitation: (id: string) =>
-    apiFetch<{ ok: boolean }>(
-      `/api/app/tournaments/${id}/invitation/accept`,
-      { method: 'POST' },
-    ),
+    apiFetch<{ ok: boolean }>(`/api/app/tournaments/${id}/invitation/accept`, {
+      method: 'POST',
+    }),
 
   declineInvitation: (id: string) =>
-    apiFetch<{ ok: boolean }>(
-      `/api/app/tournaments/${id}/invitation/decline`,
-      { method: 'POST' },
-    ),
+    apiFetch<{ ok: boolean }>(`/api/app/tournaments/${id}/invitation/decline`, {
+      method: 'POST',
+    }),
 
   byInviteCode: (code: string) =>
     apiFetch<AppTournament>(
@@ -289,7 +300,11 @@ export const matchesApi = {
 export const meApi = {
   get: () => apiFetch<MeProfile>('/api/app/me'),
 
-  update: (body: { name?: string | null; surname?: string | null }) =>
+  update: (body: {
+    name?: string | null;
+    surname?: string | null;
+    city?: string | null;
+  }) =>
     apiFetch<AppUser>('/api/app/me', { method: 'PATCH', ...jsonBody(body) }),
 
   // Привязка Telegram — тоже редиректный OIDC-поток:
@@ -302,6 +317,18 @@ export const meApi = {
   matches: () =>
     apiFetch<{ active: AppMatch[]; history: AppMatch[] }>(
       '/api/app/me/matches',
+    ),
+};
+
+// ── Federations / организаторы ────────────────────────────────────────────────
+
+export const federationsApi = {
+  /** Публичный список организаторов (для фильтра ленты), опционально по городу. */
+  list: (city?: string) =>
+    apiFetch<AppFederation[]>(
+      city
+        ? `/api/app/federations?city=${encodeURIComponent(city)}`
+        : '/api/app/federations',
     ),
 };
 

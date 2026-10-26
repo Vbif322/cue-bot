@@ -15,6 +15,7 @@ import type { UUID } from 'crypto';
 import { db } from '@/db/db.js';
 import type { Executor } from '@/db/db.js';
 import {
+  federations,
   matches,
   tournamentTables,
   tournaments,
@@ -46,6 +47,8 @@ import type {
   TournamentReadModel,
 } from '@/bot/@types/tournament.js';
 
+import { assertFederationActive } from './federationService.js';
+import type { ActorScope } from './authz.js';
 import { shuffleArray } from './bracketGenerator.js';
 import { validateTableIdsForVenue } from './tableService.js';
 
@@ -65,6 +68,8 @@ export interface GroupConfigInput {
 
 export interface CreateTournamentDraftInput extends GroupConfigInput {
   venueId: UUID;
+  /** Организатор. `null` = платформенный турнир (только глобальные админы). */
+  federationId: UUID | null;
 
   name: string;
   description?: string | null;
@@ -122,6 +127,8 @@ const pendingParticipantsLive = sql<number>`(
 const tournamentReadColumns = {
   ...getTableColumns(tournaments),
   venueName: venues.name,
+  venueCity: venues.city,
+  federationName: federations.name,
   confirmedCount: confirmedParticipantsLive,
   pendingCount: pendingParticipantsLive,
 };
@@ -131,14 +138,18 @@ export interface TournamentViewer {
   isReferee: boolean;
   isParticipant: boolean;
   isCreator: boolean;
+  /** Member (owner/organizer) of the tournament's federation. */
+  isOrganizer: boolean;
 }
 
 /**
  * Pure visibility predicate: can the given viewer see this tournament?
  *
- * Public tournaments are visible to everyone. A private (invite-only)
- * tournament is visible only to admins, its referees, its participants
- * (incl. invited) and its creator. Kept side-effect free so it can be unit
+ * Public and unlisted tournaments are visible to everyone who reaches them —
+ * `unlisted` is only excluded from listings (see `getTournaments`), not from
+ * direct access. A private (invite-only) tournament is visible only to admins,
+ * its referees, its participants (incl. invited), its creator and the
+ * organizers of its federation. Kept side-effect free so it can be unit
  * tested; the DB lookups for the viewer flags live in the calling layer
  * (see `canViewTournament` in bot/permissions).
  */
@@ -146,14 +157,36 @@ export function isTournamentVisibleTo(
   tournament: { visibility: ITournamentVisibility },
   viewer: TournamentViewer,
 ): boolean {
-  if (tournament.visibility === 'public') return true;
+  if (tournament.visibility !== 'private') return true;
 
   return (
     viewer.isAdmin ||
     viewer.isReferee ||
     viewer.isParticipant ||
-    viewer.isCreator
+    viewer.isCreator ||
+    viewer.isOrganizer
   );
+}
+
+/**
+ * Площадка годится для турнира федерации `federationId`, если она общая
+ * (`venues.federationId IS NULL`) или принадлежит той же федерации.
+ * Платформенный турнир (`null`) может проходить только на общей площадке.
+ *
+ * @throws {Error} Если площадка не найдена или принадлежит другой организации.
+ */
+async function requireVenueFor(
+  venueId: UUID,
+  federationId: UUID | null,
+): Promise<typeof venues.$inferSelect> {
+  const venue = await db.query.venues.findFirst({
+    where: eq(venues.id, venueId),
+  });
+  if (!venue) throw new Error('Площадка не найдена');
+  if (venue.federationId !== null && venue.federationId !== federationId) {
+    throw new Error('Площадка принадлежит другой организации');
+  }
+  return venue;
 }
 
 /**
@@ -395,11 +428,12 @@ export async function startTournament(
 export async function createTournamentDraft(
   input: CreateTournamentDraftInput,
 ): Promise<TournamentReadModel> {
-  const venue = await db.query.venues.findFirst({
-    where: eq(venues.id, input.venueId),
-  });
-
-  if (!venue) throw new Error('Площадка не найдена');
+  // Новые турниры федерации — только пока у её владельцев действует платное
+  // право организатора; текущие турниры доигрываются и после истечения.
+  if (input.federationId !== null) {
+    await assertFederationActive(input.federationId);
+  }
+  await requireVenueFor(input.venueId, input.federationId);
 
   const sportError = validateSportDiscipline(input.sport, input.discipline);
   if (sportError) throw new Error(sportError);
@@ -413,6 +447,7 @@ export async function createTournamentDraft(
       .insert(tournaments)
       .values({
         venueId: input.venueId,
+        federationId: input.federationId,
 
         name: input.name,
         description: input.description ?? null,
@@ -491,11 +526,7 @@ export async function updateTournamentDraft(
     throw new Error('Турнир уже стартовал — редактирование недоступно');
   }
 
-  const venue = await db.query.venues.findFirst({
-    where: eq(venues.id, input.venueId),
-  });
-
-  if (!venue) throw new Error('Площадка не найдена');
+  await requireVenueFor(input.venueId, existing.federationId);
 
   const uniqueTableIds = Array.from(new Set(input.tableIds ?? []));
 
@@ -626,6 +657,7 @@ export async function getTournament(
     .select(tournamentReadColumns)
     .from(tournaments)
     .leftJoin(venues, eq(tournaments.venueId, venues.id))
+    .leftJoin(federations, eq(tournaments.federationId, federations.id))
     .where(eq(tournaments.id, tournamentId));
 
   return rows ?? null;
@@ -642,6 +674,7 @@ export async function getTournamentByInviteCode(
     .select(tournamentReadColumns)
     .from(tournaments)
     .leftJoin(venues, eq(tournaments.venueId, venues.id))
+    .leftJoin(federations, eq(tournaments.federationId, federations.id))
     .where(eq(tournaments.inviteCode, code));
 
   return rows ?? null;
@@ -829,22 +862,37 @@ export async function randomizeSeeds(tournamentId: UUID): Promise<void> {
 /**
  * Get tournaments with optional filtering.
  *
- * `statuses` (when provided) restricts the result to those statuses at the DB
- * level. It takes precedence over `includesDrafts`. Capped at `limit` (default
- * 10) — there is no pagination, so callers relying on the cap should be aware
- * older rows beyond the limit are not returned.
+ * - `statuses` (when provided) restricts the result at the DB level and takes
+ *   precedence over `includesDrafts`.
+ * - `visibilityIn` — which visibilities to list; default `['public']`, so
+ *   unlisted/private tournaments never leak into feeds. Management views pass
+ *   `[...visibilities]`.
+ * - `scope` — the actor's management scope (`authz.getActorScope`):
+ *   `federations` restricts to those federation ids (an empty list yields
+ *   nothing; platform tournaments with NULL never match), `all` = no filter.
+ * - `federationId` — one organizer; `null` means platform tournaments only.
+ * - `city` — venue city, compared case-insensitively.
+ *
+ * Capped at `limit` (default 10) — there is no pagination, so callers relying on
+ * the cap should be aware older rows beyond the limit are not returned.
  */
 export async function getTournaments(options?: {
   limit?: number;
   includesDrafts?: boolean;
   statuses?: TournamentStatus[];
-  includePrivate?: boolean;
+  visibilityIn?: readonly ITournamentVisibility[];
+  scope?: ActorScope;
+  federationId?: UUID | null;
+  city?: string;
 }): Promise<TournamentReadModel[]> {
   const {
     limit = 10,
     includesDrafts = true,
     statuses,
-    includePrivate = false,
+    visibilityIn = ['public'],
+    scope,
+    federationId,
+    city,
   } = options ?? {};
 
   const statusWhere = statuses
@@ -853,17 +901,29 @@ export async function getTournaments(options?: {
       ? undefined
       : sql`${tournaments.status} <> 'draft'`;
 
-  // Private (invite-only) tournaments are hidden from general listings unless
-  // explicitly requested (admin views, dashboard). They surface for their
-  // participants via getUserTournaments instead.
-  const where = includePrivate
-    ? statusWhere
-    : and(statusWhere, eq(tournaments.visibility, 'public'));
+  if (scope?.kind === 'federations' && scope.ids.length === 0) return [];
+
+  const where = and(
+    statusWhere,
+    inArray(tournaments.visibility, [...visibilityIn]),
+    scope?.kind === 'federations'
+      ? inArray(tournaments.federationId, scope.ids)
+      : undefined,
+    federationId === undefined
+      ? undefined
+      : federationId === null
+        ? isNull(tournaments.federationId)
+        : eq(tournaments.federationId, federationId),
+    city === undefined
+      ? undefined
+      : sql`lower(${venues.city}) = lower(${city})`,
+  );
 
   return db
     .select(tournamentReadColumns)
     .from(tournaments)
     .leftJoin(venues, eq(tournaments.venueId, venues.id))
+    .leftJoin(federations, eq(tournaments.federationId, federations.id))
     .where(where)
     .orderBy(desc(tournaments.createdAt))
     .limit(limit);
@@ -883,6 +943,7 @@ export async function getUserTournaments(
     .select(tournamentReadColumns)
     .from(tournaments)
     .leftJoin(venues, eq(tournaments.venueId, venues.id))
+    .leftJoin(federations, eq(tournaments.federationId, federations.id))
     .innerJoin(
       tournamentParticipants,
       eq(tournamentParticipants.tournamentId, tournaments.id),
@@ -1130,10 +1191,7 @@ export type RegisterOutcome =
   | {
       ok: false;
       reason:
-        | 'not_found'
-        | 'registration_closed'
-        | 'already_registered'
-        | 'full';
+        'not_found' | 'registration_closed' | 'already_registered' | 'full';
     };
 
 /**
@@ -1369,8 +1427,7 @@ export async function inviteParticipant(
 }
 
 export type AcceptInvitationOutcome =
-  | { ok: true }
-  | { ok: false; reason: 'not_found' | 'not_invited' | 'full' };
+  { ok: true } | { ok: false; reason: 'not_found' | 'not_invited' | 'full' };
 
 /**
  * Accept a pending invitation (`invited → confirmed`), enforcing the cap under a
@@ -1434,8 +1491,7 @@ export async function acceptInvitation(
 }
 
 export type DeclineInvitationOutcome =
-  | { ok: true }
-  | { ok: false; reason: 'not_found' | 'not_invited' };
+  { ok: true } | { ok: false; reason: 'not_found' | 'not_invited' };
 
 /**
  * Decline a pending invitation (`invited → cancelled`, clearing the seed).

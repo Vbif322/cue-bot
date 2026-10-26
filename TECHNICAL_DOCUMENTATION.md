@@ -205,6 +205,12 @@ erDiagram
     users ||--o{ notifications : receives
     users ||--o{ matchCorrections : corrects
     users ||--o{ loginTokens : authenticates
+    users ||--o{ federationMembers : organizes
+
+    federations ||--o{ federationMembers : has
+    federations ||--o{ tournaments : organizes
+    federations ||--o{ venues : owns
+    federations ||--o{ groupChats : bound
 
     venues ||--o{ tables : contains
     venues ||--o{ tournaments : hosts
@@ -236,9 +242,32 @@ erDiagram
 - `telegram_id`: Telegram ID (`unique`, nullable — у гостевых записей `null`)
 - `username`: отображаемый идентификатор (`not null`)
 - `phone`, `email`, `name`, `surname`: опциональные поля профиля
-- `role`: `user` | `admin`
+- `role`: `user` | `admin` — глобальная роль; `admin` = супер-админ платформы. Роли «организатор» в этой колонке нет: она производная (членство в `federation_members`)
+- `city`: город игрока — дефолт фильтра ленты турниров (нормализуется `normalizeCity`)
+- `createdByFederationId`: для гостевых записей, созданных организатором из панели — какая федерация их завела (гость попадает в её ростер)
+- `organizerUntil`: срок платного права организатора (выдаёт платформенный админ). Пока он в будущем, пользователь может создавать свои организации, а организации, где он `owner`, — новые турниры. `null` — права нет. При слиянии аккаунтов берётся больший срок, при удалении обнуляется
 - `deletedAt`: маркер мягкого удаления; `null` = активен. При установке строка превращается в tombstone — персональные данные затираются, `telegram_id` обнуляется, запись скрыта из списка админки, но FK-ссылки и история сохраняются (отображается как «Удалённый аккаунт»)
 - частичный `unique`-индекс на `username` действует только для записей с непустым `telegram_id` (гостевые записи от него освобождены)
+
+#### federations
+
+Федерация = организатор (ROADMAP M8): любая организация, проводящая турниры — федерация, клуб,
+частный организатор. Игроки в федерации **не вступают**: они находят турниры через ленту с
+фильтрами по городу и организатору. Турниры/площадки/чаты с `federationId IS NULL` —
+«платформенные»: ими распоряжаются только глобальные админы.
+
+- `id`: UUID primary key
+- `name`, `city` (`not null`), `description`
+- `createdBy`: кто создал запись (`users.id`)
+
+#### federation_members
+
+Команда федерации; «организатор» в системе = пользователь хотя бы с одной строкой здесь.
+
+- PK (`federationId`, `userId`), обе FK с каскадом
+- `role`: `owner` (настройки и состав) | `organizer` (турниры). Инвариант «≥1 owner» держит
+  `federationService` (`removeMember` / `setMemberRole`)
+- судья — не роль федерации, а строка `tournament_referees` на конкретном турнире
 
 #### venues
 
@@ -247,6 +276,8 @@ erDiagram
 - `id`: UUID primary key
 - `name`: отображаемое название площадки
 - `address`: адрес площадки
+- `city`: город площадки — единственный источник «города турнира» (`null` только у площадок до M8)
+- `federationId`: владелец; `null` = общая (платформенная) площадка — видна всем организаторам, редактируется только админом
 - `image`: опциональная ссылка на изображение
 - `tablesCount`: вычисляемое поле read-модели API, не хранится в таблице напрямую
 
@@ -264,13 +295,14 @@ erDiagram
 Турниры.
 
 - `id`: UUID primary key
-- `venueId`: обязательная ссылка на площадку проведения
+- `venueId`: обязательная ссылка на площадку проведения (площадка должна быть общей или принадлежать федерации турнира)
+- `federationId`: организатор; `null` = платформенный турнир (только глобальные админы). Скоуп организатора — `inArray(federationId, ids)`, `NULL` в него не попадает
 - `name`: название турнира (`not null`); `description`, `rules`: опциональные тексты
 - `discipline`: сейчас поддерживается `snooker`
 - `format`: `single_elimination` | `double_elimination` | `round_robin` | `groups_playoff`
 - `randomAdvancement`: режим случайных пар (boolean, default `false`)
 - `status`: `draft` → `registration_open` → `registration_closed` → `in_progress` → `completed` / `cancelled`
-- `visibility`: `public` | `private` (default `public`)
+- `visibility`: `public` (в лентах и анонсах) | `unlisted` (только по прямой ссылке / инвайт-коду, регистрация без приглашения) | `private` (только по приглашению; видят участники, судьи, создатель и организаторы федерации). Default `public`
 - `scheduleMode`: `single_day` | `per_match` (default `single_day`)
 - `startDate`: опциональная дата старта
 - `confirmedParticipants`: число подтверждённых участников, фиксируется при закрытии регистрации
@@ -559,9 +591,34 @@ deep-link `/start join_<code>` (см. путь 1).
 
 ### 9. Управление ролями
 
-- `/set_admin @username` — назначить администратора
-- `/remove_admin @username` — снять роль администратора
-- `/assign_referee {tournament_id} @username` — назначить судью турнира
+Модель прав — `src/services/authz.ts` (чистые предикаты + `*AsUser` с загрузкой фактов):
+
+- **платформенный админ** (`users.role = 'admin'`) — видит и правит всё, включая платформенные
+  ресурсы (`federationId IS NULL`), глобальные роли и удаление пользователей;
+- **владелец / организатор** федерации (`federation_members.role`) — **administer** на турниры
+  своей федерации (жизненный цикл, участники, удаление, судьи) и на её площадки; владелец
+  дополнительно управляет настройками и составом;
+- **судья** (`tournament_referees`) — только **manage** (матчи, инвайты, пульт), без
+  administer: судья по-прежнему не открывает регистрацию и не стартует турнир.
+
+**Право организатора — платная опция.** Самостоятельно стать организатором нельзя: платформенный
+админ выдаёт пользователю срок (`users.organizerUntil`, панель → пользователь → «Право
+организатора»). Пока срок действует, пользователь создаёт свои организации (`/new_federation`,
+`POST /api/federations`; не больше трёх). Организация «активна», пока хотя бы у одного её
+владельца срок не истёк (`activeUntil` = максимум `organizerUntil` владельцев): только в активной
+можно создать новый турнир (`createTournamentDraft` → `assertFederationActive`). По истечении
+текущие турниры доигрываются, команда сохраняет доступ к панели. Владелец по-прежнему бесплатно
+добавляет в свою организацию организаторов; права платформенного админа от срока не зависят.
+
+Вход в панель управления (`requireStaff`) открыт админам, членам хотя бы одной федерации и
+обладателям действующего права организатора; `requireAdmin` остаётся на ролях, праве
+организатора, удалении пользователей и удалении федераций.
+
+- `/new_federation` — создать свою организацию (нужно действующее право организатора; владелец = автор)
+- `/my_federations` — состав, добавление организатора по `@username`
+- `/set_admin @username` — назначить администратора (только админ)
+- `/remove_admin @username` — снять роль администратора (только админ)
+- `/assign_referee {tournament_id} @username` — назначить судью турнира (админ или организатор его федерации)
 - `/remove_referee {tournament_id} @username` — снять судью турнира
 
 ---
@@ -588,18 +645,29 @@ deep-link `/start join_<code>` (см. путь 1).
 
 > Управление участниками (подтверждение / отклонение заявок) доступно админам не отдельной командой, а инлайн-кнопкой из карточки турнира (`adm:pending_list`).
 
-### Команды для администраторов
+### Команды для организаторов
+
+Доступны членам хотя бы одной федерации (`organizerCommands`); первый шаг мастера
+создания — выбор организации (пропускается, если она одна).
 
 | Команда                   | Назначение                                       |
 | ------------------------- | ------------------------------------------------ |
 | `/create_tournament`      | запуск мастера создания турнира                  |
-| `/delete_tournament [id]` | удаление турнира в статусе `draft` / `cancelled` |
-| `/set_admin`              | выдать роль администратора                       |
-| `/remove_admin`           | снять роль администратора                        |
-| `/assign_referee`         | назначить судью турнира                          |
-| `/remove_referee`         | снять судью турнира                              |
-| `/dashboard`              | получить одноразовую ссылку на admin-панель      |
+| `/delete_tournament [id]` | удаление своего турнира в статусе `draft` / `cancelled` |
+| `/my_federations`         | мои организации: состав, добавить организатора   |
+| `/assign_referee`         | назначить судью своего турнира                   |
+| `/remove_referee`         | снять судью своего турнира                       |
+| `/dashboard`              | одноразовая ссылка на панель управления          |
 | `/cancel`                 | отменить текущее действие (любую текстовую сессию) |
+
+### Команды для администраторов
+
+Все команды организатора плюс:
+
+| Команда         | Назначение                 |
+| --------------- | -------------------------- |
+| `/set_admin`    | выдать роль администратора |
+| `/remove_admin` | снять роль администратора  |
 
 > `/dashboard` ограничен per-admin лимитом (1 запрос в 30 с) через `dashboardLimiter`, чтобы таблица `login_tokens` не наполнялась спамом.
 
@@ -672,22 +740,32 @@ deep-link `/start join_<code>` (см. путь 1).
 ### Admin API (Hono)
 
 `secureHeaders()` применяется ко всем ответам (включая статику SPA). В dev для `/api/*`
-включается CORS на `http://localhost:5173`. Защищённые роутеры применяют `requireAdmin`
-ко всем своим маршрутам (`router.use('/*', requireAdmin)`); открыты `/api/auth/*` и
-`/api/health`. Маршрут минтинга токена входа дополнительно ограничен IP-rate-limit (10/мин).
+включается CORS на `http://localhost:5173`. Защищённые роутеры применяют `requireStaff`
+(админ или организатор) ко всем своим маршрутам; ресурсы скоупятся по федерациям актора
+(`adminUser.federationIds`): чужой турнир/матч отдаёт 404, общие площадки для организатора
+read-only, список пользователей — ростер его федераций. `requireAdmin` — точечно (роли,
+удаление пользователей, удаление федераций). Открыты `/api/auth/*` и `/api/health`. Маршрут минтинга токена входа дополнительно ограничен IP-rate-limit (10/мин).
 
 #### Служебные маршруты и аутентификация
 
 - `GET /api/health`
 - `GET /api/auth/token?t={token}` — обмен одноразового токена на JWT-cookie (rate limit по IP)
 - `POST /api/auth/logout` — удаление cookie
-- `GET /api/auth/me` — проверка сессии без `requireAdmin`; всегда отдаёт `playerUrl` (ссылка «Сайт игрока»: `PUBLIC_BASE_URL` в production, `http://localhost:5174` в dev)
+- `GET /api/auth/me` — проверка сессии: `{ user, isPlatformAdmin, federations: [{id,name,city,role}], playerUrl }`; `playerUrl` — ссылка «Сайт игрока» (`PUBLIC_BASE_URL` в production, `http://localhost:5174` в dev)
+
+#### Федерации
+
+- `GET /api/federations` — админ: все со счётчиками; организатор: свои с ролью
+- `POST /api/federations` (`{name, city, description?, ownerUsername?}`; владельца может задать только админ, остальные создают только себе и только при действующем праве организатора)
+- `GET /api/federations/:id`, `PATCH /api/federations/:id` (owner / админ), `DELETE /api/federations/:id` (админ; 409 при турнирах/площадках)
+- `GET /api/federations/:id/members`, `POST /api/federations/:id/members` (`{username|userId, role}`), `PATCH|DELETE /api/federations/:id/members/:userId` (last-owner → 409)
+- `GET /api/federations/:id/chats`, `POST|DELETE /api/federations/:id/chats/:chatId/bind` — привязка групповых чатов к анонсам федерации
 
 #### Турниры
 
-- `GET /api/tournaments`
+- `GET /api/tournaments` (`?federationId=<uuid>|platform` — фильтр внутри скоупа)
 - `GET /api/tournaments/:id`
-- `POST /api/tournaments`
+- `POST /api/tournaments` (body `+ federationId`: организатор — обязательно своя; админ — `null` = платформенный)
 - `PATCH /api/tournaments/:id` (редактирование черновика)
 - `PATCH /api/tournaments/:id/status`
 - `POST /api/tournaments/:id/start`
@@ -725,19 +803,20 @@ deep-link `/start join_<code>` (см. путь 1).
 
 #### Пользователи
 
-- `GET /api/users`
+- `GET /api/users` (`?federationId=`, `?q=@username`): админ — все; организатор — ростер своих федераций (участники их турниров, команда, заведённые гости) без контактов
 - `GET /api/users/:id`
 - `GET /api/users/:id/stats`
-- `PATCH /api/users/:id` (профиль: имя / фамилия)
-- `PATCH /api/users/:id/role`
-- `DELETE /api/users/:id` (мягкое удаление — анонимизация)
+- `PATCH /api/users/:id` (профиль: имя / фамилия / город; организатор — только гостей своей федерации)
+- `PATCH /api/users/:id/role` (только админ)
+- `PATCH /api/users/:id/organizer` (`{until: ISO | null}`; только админ) — выдать, продлить или снять право организатора; при выдаче бот присылает уведомление и меню организатора
+- `DELETE /api/users/:id` (мягкое удаление — анонимизация; только админ)
 - `POST /api/users/:id/referee`
 - `DELETE /api/users/:id/referee/:tournamentId`
 
 #### Площадки и столы
 
-- `GET /api/venues`
-- `POST /api/venues`
+- `GET /api/venues` (организатор — общие + свои)
+- `POST /api/venues` (`city` обязателен; `federationId`: организатор — своя, админ — `null` = общая)
 - `PATCH /api/venues/:id`
 - `DELETE /api/venues/:id`
 - `GET /api/tables`
