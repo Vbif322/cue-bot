@@ -88,7 +88,7 @@ function OrganizerNotice() {
 export default function Layout({ children }: { children: ReactNode }) {
   const { data } = useMe();
   const { mutate: logout } = useLogout();
-  const { currentRole, isPlatformAdmin } = useFederation();
+  const { currentRole, isPlatformAdmin, federations } = useFederation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const roleLabel = isPlatformAdmin
     ? 'администратор'
@@ -140,9 +140,11 @@ export default function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <div className="shrink-0 p-3 border-b border-gray-200">
-          <FederationSwitcher />
-        </div>
+        {(isPlatformAdmin || federations.length > 0) && (
+          <div className="shrink-0 p-3 border-b border-gray-200">
+            <FederationSwitcher />
+          </div>
+        )}
 
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems.map((item) => (

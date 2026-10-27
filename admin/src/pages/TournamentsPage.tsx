@@ -14,8 +14,10 @@ import { useFederation } from '../lib/federation.tsx';
 export default function TournamentsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { param, current } = useFederation();
+  const { param, current, federations, isPlatformAdmin } = useFederation();
   const showOrganizer = current === 'all';
+  // Без своей организации турнир создать негде (админ создаёт платформенные).
+  const canCreate = isPlatformAdmin || federations.length > 0;
   const [filter, setFilter] = useState<TournamentStatus | 'all'>('all');
   const [showCreate, setShowCreate] = useState(false);
 
@@ -48,7 +50,9 @@ export default function TournamentsPage() {
         <h2 className="text-xl font-semibold text-gray-900">Турниры</h2>
         <button
           onClick={() => setShowCreate(true)}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          disabled={!canCreate}
+          title={canCreate ? undefined : 'Сначала создайте организацию'}
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg enabled:hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           + Новый турнир
         </button>
