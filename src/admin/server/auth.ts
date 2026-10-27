@@ -28,7 +28,7 @@ import {
   hashCode,
   normalizeEmail,
 } from '../../app/server/authCrypto.js';
-import { emailCodeLimiter } from '../../app/server/routes/auth.js';
+import { emailCodeLimiter } from '@/services/emailLoginCodeService.js';
 import { validateJson } from '../../app/server/routes/_shared.js';
 
 // Secure-флаг ставим только в production: на http://localhost браузер иначе

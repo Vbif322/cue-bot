@@ -50,17 +50,18 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { db } from './db/db.js';
 import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
-import { sweepExpiredEmailLoginCodes } from './services/emailLoginCodeService.js';
+import {
+  emailCodeLimiter,
+  sweepExpiredEmailLoginCodes,
+} from './services/emailLoginCodeService.js';
+import { emailLinkUserLimiter } from './services/emailLinkService.js';
 import { processOverdueCalls } from './services/matchCallService.js';
 import { setAnnouncementRefresher } from './services/announcementRefresh.js';
 import { refreshRegistrationAnnouncement } from './services/groupBroadcastService.js';
 import { MATCH_CALL_SWEEP_INTERVAL_MS } from './services/matchCall.const.js';
 import { errorMessage } from './utils/errors.js';
 import { assertMailConfigured } from './services/mailService.js';
-import {
-  adminLinkLimiter,
-  emailCodeLimiter,
-} from './app/server/routes/auth.js';
+import { adminLinkLimiter } from './app/server/routes/auth.js';
 import { createLoginToken } from './services/userService.js';
 
 // Flood protection runs first so spam is dropped before authMiddleware's per-update
@@ -346,6 +347,7 @@ async function start() {
     botFloodLimiter.prune();
     dashboardLimiter.prune();
     emailCodeLimiter.prune();
+    emailLinkUserLimiter.prune();
     adminLinkLimiter.prune();
   }, RATE_LIMIT_SWEEP_INTERVAL_MS);
   rateLimitSweep.unref();

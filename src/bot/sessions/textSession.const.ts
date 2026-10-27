@@ -10,6 +10,8 @@ export const TEXT_SESSION_TTL_MS = {
   tournamentCreation: 24 * HOUR_MS,
   federationCreate: HOUR_MS,
   profileEdit: HOUR_MS,
+  // Код из письма живёт 10 минут; запас — на «запросить ещё раз».
+  emailLink: 30 * MINUTE_MS,
   invite: 30 * MINUTE_MS,
   matchSchedule: 30 * MINUTE_MS,
   matchFrames: 3 * HOUR_MS,
