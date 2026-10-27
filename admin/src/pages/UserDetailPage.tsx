@@ -235,6 +235,8 @@ export default function UserDetailPage() {
         <OrganizerGrantCard
           userId={user.id}
           organizerUntil={user.organizerUntil ?? null}
+          maxFederations={user.maxFederations ?? 1}
+          maxTournamentsPerMonth={user.maxTournamentsPerMonth ?? 5}
         />
       )}
 

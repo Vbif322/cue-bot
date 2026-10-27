@@ -46,6 +46,8 @@ export function toApiUser(u: DbUser): ApiUser {
     city: u.city,
     createdByFederationId: u.createdByFederationId,
     organizerUntil: u.organizerUntil,
+    maxFederations: u.maxFederations,
+    maxTournamentsPerMonth: u.maxTournamentsPerMonth,
     deletedAt: u.deletedAt,
   };
 }
@@ -702,7 +704,8 @@ export async function mergeAccountIntoTelegram(
       );
 
     // Проставляем email/роль на survivor: email — если пуст; роль — поднимаем до
-    // admin, чтобы слияние не разжаловало админа; право организатора — дольший срок.
+    // admin, чтобы слияние не разжаловало админа; право организатора — дольший
+    // срок, лимиты — больший.
     const survivorPatch: Partial<typeof users.$inferInsert> = {};
     if (survivor.email === null && losing.email !== null) {
       survivorPatch.email = losing.email;
@@ -717,6 +720,13 @@ export async function mergeAccountIntoTelegram(
         losing.organizerUntil > survivor.organizerUntil)
     ) {
       survivorPatch.organizerUntil = losing.organizerUntil;
+    }
+    // Лимиты тарифа организатора — больший из двух.
+    if (losing.maxFederations > survivor.maxFederations) {
+      survivorPatch.maxFederations = losing.maxFederations;
+    }
+    if (losing.maxTournamentsPerMonth > survivor.maxTournamentsPerMonth) {
+      survivorPatch.maxTournamentsPerMonth = losing.maxTournamentsPerMonth;
     }
     if (Object.keys(survivorPatch).length > 0) {
       await tx.update(users).set(survivorPatch).where(eq(users.id, survivorId));

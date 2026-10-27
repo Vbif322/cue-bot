@@ -20,15 +20,17 @@ import {
 import type { Api } from 'grammy';
 
 import {
+  getOrganizerUsage,
   isUserInFederationRoster,
   listFederationRoster,
+  setOrganizerLimits,
   setOrganizerUntil,
 } from '@/services/federationService.js';
 import { organizerCommands } from '@/bot/commands.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import { errorMessage } from '@/utils/errors.js';
 import { getUserRefereeTournaments } from '@/bot/permissions.js';
-import type { ApiUserStats } from '@/bot/@types/user.js';
+import type { ApiOrganizerUsage, ApiUserStats } from '@/bot/@types/user.js';
 import type { DbUser } from '@/bot/types.js';
 import { requireAdmin, requireStaff } from '../middleware.js';
 import type { AdminUser } from '../middleware.js';
@@ -295,6 +297,55 @@ export function createUsersRouter(botApi: Api) {
         }
       }
 
+      const updated = await db.query.users.findFirst({
+        where: eq(users.id, targetId),
+      });
+      if (!updated) return c.json({ error: 'Не найден' }, 404);
+      return c.json({ data: toApiUser(updated) });
+    },
+  );
+
+  // Тариф организатора: сколько организаций он заводит сам и сколько турниров
+  // в месяц суммарно создают его организации. Только платформенный админ.
+  router.get(
+    '/:id/organizer/usage',
+    requireAdmin,
+    validateParam(idParam),
+    async (c) => {
+      const usage = await getOrganizerUsage(c.req.valid('param').id);
+      if (!usage) return c.json({ error: 'Не найден' }, 404);
+      return c.json({ data: usage satisfies ApiOrganizerUsage });
+    },
+  );
+
+  router.patch(
+    '/:id/organizer/limits',
+    requireAdmin,
+    validateParam(idParam),
+    zValidator(
+      'json',
+      z
+        .object({
+          maxFederations: z.number().int().min(0).max(1000).optional(),
+          maxTournamentsPerMonth: z.number().int().min(0).max(10000).optional(),
+        })
+        .refine(
+          (b) =>
+            b.maxFederations !== undefined ||
+            b.maxTournamentsPerMonth !== undefined,
+          { message: 'Укажите хотя бы один лимит' },
+        ),
+    ),
+    async (c) => {
+      const { id: targetId } = c.req.valid('param');
+      const { maxFederations, maxTournamentsPerMonth } = c.req.valid('json');
+      const ok = await setOrganizerLimits(targetId, {
+        ...(maxFederations !== undefined ? { maxFederations } : {}),
+        ...(maxTournamentsPerMonth !== undefined
+          ? { maxTournamentsPerMonth }
+          : {}),
+      });
+      if (!ok) return c.json({ error: 'Не найден' }, 404);
       const updated = await db.query.users.findFirst({
         where: eq(users.id, targetId),
       });

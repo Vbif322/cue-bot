@@ -18,6 +18,7 @@ import {
 import { getVenue, getVenues } from '@/services/venueService.js';
 import {
   getMembership,
+  getTournamentQuotaError,
   getUserFederations,
 } from '@/services/federationService.js';
 import {
@@ -193,6 +194,12 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
     if (options.length === 1) {
       const only = options[0];
       if (!only) return;
+      const quotaError =
+        only.id === null ? null : await getTournamentQuotaError(only.id);
+      if (quotaError !== null) {
+        await ctx.reply(quotaError);
+        return;
+      }
       await this.stateStore.start(userId, ctx, {
         step: 'name',
         data: { federation: only },
@@ -272,6 +279,11 @@ export class TournamentCreationFlow implements ITournamentCreationFlow {
           text: 'Срок права организатора истёк — новые турниры недоступны',
           show_alert: true,
         });
+        return true;
+      }
+      const quotaError = await getTournamentQuotaError(row.id);
+      if (quotaError !== null) {
+        await ctx.answerCallbackQuery({ text: quotaError, show_alert: true });
         return true;
       }
       federation = { id: row.id, name: row.name };

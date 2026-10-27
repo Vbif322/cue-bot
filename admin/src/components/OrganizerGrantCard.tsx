@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { usersApi } from '../lib/api.ts';
 
@@ -19,14 +19,20 @@ function addMonths(from: Date, months: number): Date {
  * Платное право организатора (`users.organizerUntil`) — только для
  * платформенного админа. Пока срок не истёк, пользователь создаёт свои
  * организации, а организации, где он владелец, — новые турниры. По истечении
- * текущие турниры доигрываются, новые не создаются.
+ * текущие турниры доигрываются, новые не создаются. Лимиты тарифа — сколько
+ * организаций он заводит сам и сколько турниров в месяц суммарно создают
+ * организации, где он владелец.
  */
 export default function OrganizerGrantCard({
   userId,
   organizerUntil,
+  maxFederations,
+  maxTournamentsPerMonth,
 }: {
   userId: string;
   organizerUntil: string | null;
+  maxFederations: number;
+  maxTournamentsPerMonth: number;
 }) {
   const qc = useQueryClient();
   const current = organizerUntil ? new Date(organizerUntil) : null;
@@ -35,6 +41,40 @@ export default function OrganizerGrantCard({
   const base = active ? current : new Date();
   const [date, setDate] = useState(() => toDateInput(addMonths(base, 1)));
   const [error, setError] = useState<string | null>(null);
+  const [fedLimit, setFedLimit] = useState(String(maxFederations));
+  const [tourLimit, setTourLimit] = useState(String(maxTournamentsPerMonth));
+
+  const { data: usage } = useQuery({
+    queryKey: ['user-organizer-usage', userId],
+    queryFn: () => usersApi.organizerUsage(userId),
+  });
+
+  const limitsMutation = useMutation({
+    mutationFn: (limits: {
+      maxFederations: number;
+      maxTournamentsPerMonth: number;
+    }) => usersApi.setOrganizerLimits(userId, limits),
+    onSuccess: () => {
+      setError(null);
+      void qc.invalidateQueries({ queryKey: ['user', userId] });
+      void qc.invalidateQueries({
+        queryKey: ['user-organizer-usage', userId],
+      });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const parsedFed = Number(fedLimit);
+  const parsedTour = Number(tourLimit);
+  const limitsValid =
+    fedLimit !== '' &&
+    tourLimit !== '' &&
+    Number.isInteger(parsedFed) &&
+    Number.isInteger(parsedTour) &&
+    parsedFed >= 0 &&
+    parsedTour >= 0;
+  const limitsChanged =
+    parsedFed !== maxFederations || parsedTour !== maxTournamentsPerMonth;
 
   const mutation = useMutation({
     mutationFn: (until: string | null) =>
@@ -127,6 +167,64 @@ export default function OrganizerGrantCard({
             Снять
           </button>
         )}
+      </div>
+
+      <div className="mt-5 pt-4 border-t border-gray-100">
+        <h4 className="text-sm font-semibold text-gray-900 mb-1">
+          Лимиты тарифа
+        </h4>
+        <p className="text-xs text-gray-500 mb-3">
+          Турниры считаются за календарный месяц суммарно по всем организациям,
+          где пользователь владелец. Удалённые турниры место освобождают.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-xs text-gray-600">
+            Организаций
+            {usage && (
+              <span className="ml-1 text-gray-400">
+                (сейчас {usage.federations})
+              </span>
+            )}
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={fedLimit}
+              onChange={(e) => setFedLimit(e.target.value)}
+              className="mt-1 block w-28 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </label>
+          <label className="text-xs text-gray-600">
+            Турниров в месяц
+            {usage && (
+              <span className="ml-1 text-gray-400">
+                (в этом {usage.tournamentsThisMonth})
+              </span>
+            )}
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={tourLimit}
+              onChange={(e) => setTourLimit(e.target.value)}
+              className="mt-1 block w-28 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </label>
+          <button
+            onClick={() =>
+              limitsMutation.mutate({
+                maxFederations: parsedFed,
+                maxTournamentsPerMonth: parsedTour,
+              })
+            }
+            disabled={
+              limitsMutation.isPending || !limitsValid || !limitsChanged
+            }
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            Сохранить
+          </button>
+        </div>
       </div>
     </div>
   );

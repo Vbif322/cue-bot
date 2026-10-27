@@ -4,7 +4,9 @@ import type { UUID } from 'crypto';
 import {
   addMember,
   createFederation,
+  federationLimitMessage,
   getMembership,
+  getOrganizerUsage,
   getUserFederations,
   listMembers,
   removeMember,
@@ -61,6 +63,15 @@ federationCommands.command('new_federation', async (ctx) => {
   if (!canCreateFederationWith(ctx.dbUser)) {
     await ctx.reply(NO_GRANT_TEXT);
     return;
+  }
+  if (ctx.dbUser.role !== 'admin') {
+    const usage = await getOrganizerUsage(ctx.dbUser.id);
+    if (usage && usage.federations >= usage.maxFederations) {
+      await ctx.reply(
+        federationLimitMessage(usage.federations, usage.maxFederations),
+      );
+      return;
+    }
   }
   await federationCreateState.start(from.id, { step: 'name' }, ctx);
   await ctx.reply(
@@ -143,6 +154,16 @@ async function renderMyFederations(ctx: BotContext): Promise<void> {
         : '⚠️ срок истёк, новые турниры недоступны';
     text += `• *${escapeMarkdown(f.name)}* — ${escapeMarkdown(f.city)}, ${ROLE_LABELS[f.role]}; ${term}\n`;
     keyboard.text(`👥 ${f.name}`, `fed:members:${f.id}`).row();
+  }
+  if (mine.some((f) => f.role === 'owner')) {
+    const usage = await getOrganizerUsage(ctx.dbUser.id);
+    if (usage) {
+      text +=
+        `\n📊 Тариф: организаций ${String(usage.federations)} из ` +
+        `${String(usage.maxFederations)}, турниров в этом месяце ` +
+        `${String(usage.tournamentsThisMonth)} из ` +
+        `${String(usage.maxTournamentsPerMonth)}\n`;
+    }
   }
   await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
 }

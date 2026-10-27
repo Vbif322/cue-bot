@@ -1,4 +1,15 @@
-import { and, asc, count, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
@@ -14,6 +25,7 @@ import {
 import type { IFederation, IFederationRole, IUserRole } from '@/db/schema.js';
 import type { DbUser } from '@/bot/types.js';
 import { normalizeCity } from '@/shared/city.js';
+import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 
 /**
  * Федерации (организаторы) и их команды — ROADMAP M8. Импортирует только `db` и
@@ -26,11 +38,20 @@ import { normalizeCity } from '@/shared/city.js';
 
 export const MAX_NAME_LENGTH = 255;
 export const MAX_DESCRIPTION_LENGTH = 2000;
-/** Сколько федераций обладатель права может завести сам (защита от спама). */
-export const MAX_OWNED_FEDERATIONS_PER_USER = 3;
 
 export const FEDERATION_GRANT_REQUIRED_ERROR =
   'Создание организаций — платная опция. Обратитесь к администратору платформы.';
+
+export function federationLimitMessage(owned: number, max: number): string {
+  return (
+    `Лимит организаций исчерпан (${String(owned)} из ${String(max)}). ` +
+    'Расширить его может администратор платформы.'
+  );
+}
+
+const FEDERATION_INACTIVE_ERROR =
+  'Срок права организатора у владельцев этой организации истёк — новые ' +
+  'турниры недоступны. Обратитесь к администратору платформы.';
 
 /**
  * Срок, до которого в федерации открыты новые турниры: максимум
@@ -176,9 +197,9 @@ export interface CreateFederationInput {
   createdBy?: UUID;
   /**
    * Самообслуживание (владелец создаёт сам): у `ownerId` должно действовать
-   * право организатора, и число его федераций ограничено
-   * {@link MAX_OWNED_FEDERATIONS_PER_USER}. Платформенный админ, заводящий
-   * федерацию (себе или другому), передаёт false.
+   * право организатора, и число его федераций ограничено его
+   * `users.maxFederations`. Платформенный админ, заводящий федерацию (себе или
+   * другому), передаёт false.
    */
   selfService?: boolean;
 }
@@ -194,27 +215,24 @@ export async function createFederation(
 
   return db.transaction(async (tx) => {
     if (input.selfService) {
+      // Лок по владельцу: параллельные создания не обойдут лимит.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${`federation-quota:${input.ownerId}`}))`,
+      );
       const [owner] = await tx
-        .select({ organizerUntil: users.organizerUntil })
+        .select({
+          organizerUntil: users.organizerUntil,
+          maxFederations: users.maxFederations,
+        })
         .from(users)
         .where(eq(users.id, input.ownerId))
         .limit(1);
       if (!owner || !grantActive(owner.organizerUntil)) {
         throw new Error(FEDERATION_GRANT_REQUIRED_ERROR);
       }
-      const [owned] = await tx
-        .select({ count: count() })
-        .from(federationMembers)
-        .where(
-          and(
-            eq(federationMembers.userId, input.ownerId),
-            eq(federationMembers.role, 'owner'),
-          ),
-        );
-      if ((owned?.count ?? 0) >= MAX_OWNED_FEDERATIONS_PER_USER) {
-        throw new Error(
-          `Нельзя владеть более чем ${String(MAX_OWNED_FEDERATIONS_PER_USER)} организациями`,
-        );
+      const owned = await ownedFederationsCount(tx, input.ownerId);
+      if (owned >= owner.maxFederations) {
+        throw new Error(federationLimitMessage(owned, owner.maxFederations));
       }
     }
 
@@ -296,12 +314,159 @@ export async function assertFederationActive(
   federationId: UUID,
 ): Promise<void> {
   const activeUntil = await getFederationActiveUntil(federationId);
-  if (!grantActive(activeUntil)) {
-    throw new Error(
-      'Срок права организатора у владельцев этой организации истёк — новые ' +
-        'турниры недоступны. Обратитесь к администратору платформы.',
+  if (!grantActive(activeUntil)) throw new Error(FEDERATION_INACTIVE_ERROR);
+}
+
+/**
+ * Начало текущего календарного месяца (время сервера) — окно лимита
+ * `users.maxTournamentsPerMonth`.
+ */
+export function monthStart(now = new Date()): Date {
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+async function ownedFederationsCount(
+  executor: Executor,
+  userId: UUID,
+): Promise<number> {
+  const [row] = await executor
+    .select({ count: count() })
+    .from(federationMembers)
+    .where(
+      and(
+        eq(federationMembers.userId, userId),
+        eq(federationMembers.role, 'owner'),
+      ),
+    );
+  return row?.count ?? 0;
+}
+
+/** Турниры, созданные с `since` во всех организациях, где `ownerId` — владелец. */
+async function ownerTournamentsSince(
+  executor: Executor,
+  ownerId: UUID,
+  since: Date,
+): Promise<number> {
+  const [row] = await executor
+    .select({ count: count() })
+    .from(tournaments)
+    .innerJoin(
+      federationMembers,
+      and(
+        eq(federationMembers.federationId, tournaments.federationId),
+        eq(federationMembers.userId, ownerId),
+        eq(federationMembers.role, 'owner'),
+      ),
+    )
+    .where(gte(tournaments.createdAt, since));
+  return row?.count ?? 0;
+}
+
+/** Владельцы федерации с действующим правом и их месячные лимиты, по id. */
+async function activeOwnerLimits(
+  executor: Executor,
+  federationId: UUID,
+  now: Date,
+): Promise<{ id: UUID; limit: number }[]> {
+  return executor
+    .select({ id: users.id, limit: users.maxTournamentsPerMonth })
+    .from(federationMembers)
+    .innerJoin(users, eq(users.id, federationMembers.userId))
+    .where(
+      and(
+        eq(federationMembers.federationId, federationId),
+        eq(federationMembers.role, 'owner'),
+        gt(users.organizerUntil, now),
+      ),
+    )
+    .orderBy(asc(users.id));
+}
+
+async function quotaError(
+  executor: Executor,
+  owners: { id: UUID; limit: number }[],
+  now: Date,
+): Promise<string | null> {
+  if (owners.length === 0) return FEDERATION_INACTIVE_ERROR;
+  const since = monthStart(now);
+  let best: { used: number; limit: number } | null = null;
+  for (const owner of owners) {
+    const used = await ownerTournamentsSince(executor, owner.id, since);
+    if (used < owner.limit) return null;
+    if (best === null || owner.limit > best.limit) {
+      best = { used, limit: owner.limit };
+    }
+  }
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return (
+    `Лимит турниров на этот месяц исчерпан (${String(best?.used ?? 0)} из ` +
+    `${String(best?.limit ?? 0)}). Новые турниры можно будет создать с ` +
+    `${DateTimeHelperInstance.formatDate(nextMonth, 'DD.MM.YYYY')}; ` +
+    'расширить лимит может администратор платформы.'
+  );
+}
+
+/**
+ * Почему в федерации нельзя создать ещё один турнир (null — можно). Лимит —
+ * тариф владельца (`users.maxTournamentsPerMonth`), суммарно по всем его
+ * организациям за календарный месяц; турнир разрешён, если запас остался хотя
+ * бы у одного владельца с действующим правом. Удалённые турниры место
+ * освобождают. Без блокировок — для ранней проверки в UI; при создании —
+ * {@link assertTournamentQuota}.
+ */
+export async function getTournamentQuotaError(
+  federationId: UUID,
+  now = new Date(),
+): Promise<string | null> {
+  return quotaError(db, await activeOwnerLimits(db, federationId, now), now);
+}
+
+/**
+ * {@link getTournamentQuotaError}, бросающая ошибку. Вызывать в транзакции,
+ * которая вставляет турнир: advisory-lock по владельцам (в порядке id — без
+ * дедлоков) сериализует параллельные создания.
+ */
+export async function assertTournamentQuota(
+  tx: Executor,
+  federationId: UUID,
+  now = new Date(),
+): Promise<void> {
+  const owners = await activeOwnerLimits(tx, federationId, now);
+  for (const owner of owners) {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`tournament-quota:${owner.id}`}))`,
     );
   }
+  const error = await quotaError(tx, owners, now);
+  if (error !== null) throw new Error(error);
+}
+
+export interface OrganizerUsage {
+  federations: number;
+  maxFederations: number;
+  tournamentsThisMonth: number;
+  maxTournamentsPerMonth: number;
+}
+
+/** Использование тарифа организатора; null — пользователя нет. */
+export async function getOrganizerUsage(
+  userId: UUID,
+  now = new Date(),
+): Promise<OrganizerUsage | null> {
+  const [user] = await db
+    .select({
+      maxFederations: users.maxFederations,
+      maxTournamentsPerMonth: users.maxTournamentsPerMonth,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) return null;
+  const [federationsCount, tournamentsThisMonth] = await Promise.all([
+    ownedFederationsCount(db, userId),
+    ownerTournamentsSince(db, userId, monthStart(now)),
+  ]);
+  return { ...user, federations: federationsCount, tournamentsThisMonth };
 }
 
 /**
@@ -315,6 +480,22 @@ export async function setOrganizerUntil(
   const rows = await db
     .update(users)
     .set({ organizerUntil: until })
+    .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+    .returning({ id: users.id });
+  return rows.length > 0;
+}
+
+/**
+ * Задать лимиты тарифа организатора (хотя бы один). Возвращает false, если
+ * пользователя нет или он удалён.
+ */
+export async function setOrganizerLimits(
+  userId: UUID,
+  limits: { maxFederations?: number; maxTournamentsPerMonth?: number },
+): Promise<boolean> {
+  const rows = await db
+    .update(users)
+    .set(limits)
     .where(and(eq(users.id, userId), isNull(users.deletedAt)))
     .returning({ id: users.id });
   return rows.length > 0;

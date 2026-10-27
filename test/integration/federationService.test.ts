@@ -1,3 +1,4 @@
+import type { UUID } from 'crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { db } from '@/db/db.js';
@@ -15,8 +16,15 @@ import {
   removeMember,
   setMemberRole,
   setOrganizerUntil,
-  MAX_OWNED_FEDERATIONS_PER_USER,
+  getOrganizerUsage,
+  getTournamentQuotaError,
+  monthStart,
+  setOrganizerLimits,
 } from '@/services/federationService.js';
+import {
+  createTournamentDraft,
+  deleteTournament,
+} from '@/services/tournamentService.js';
 import {
   canAdministerTournamentAsUser,
   canManageTournamentAsUser,
@@ -30,6 +38,7 @@ import {
   createOrganizer,
   createTournament,
   createUser,
+  createVenue,
   grantUntil,
 } from '../helpers/factories.js';
 import { truncateAll } from '../helpers/truncate.js';
@@ -89,28 +98,27 @@ describe('federationService', () => {
     ).resolves.toBeDefined();
   });
 
-  it('self-service owner limit applies only when enforced', async () => {
+  it('self-service federation limit is users.maxFederations (default 1)', async () => {
     const owner = await createUser({ organizerUntil: grantUntil() });
-    for (let i = 0; i < MAX_OWNED_FEDERATIONS_PER_USER; i++) {
-      await createFederation({
-        name: `F${String(i)}`,
-        city: 'Москва',
-        ownerId: owner.id,
-        selfService: true,
-      });
-    }
-    await expect(
-      createFederation({
-        name: 'one more',
-        city: 'Москва',
-        ownerId: owner.id,
-        selfService: true,
-      }),
-    ).rejects.toThrow(/Нельзя владеть/);
+    expect(owner.maxFederations).toBe(1);
+    const input = { city: 'Москва', ownerId: owner.id, selfService: true };
+    await createFederation({ ...input, name: 'F1' });
+    await expect(createFederation({ ...input, name: 'F2' })).rejects.toThrow(
+      'Лимит организаций исчерпан (1 из 1)',
+    );
     // платформенный админ лимит не применяет
     await expect(
       createFederation({ name: 'by admin', city: 'Москва', ownerId: owner.id }),
     ).resolves.toBeDefined();
+
+    await setOrganizerLimits(owner.id, { maxFederations: 3 });
+    await expect(
+      createFederation({ ...input, name: 'F3' }),
+    ).resolves.toBeDefined();
+    expect(await getOrganizerUsage(owner.id)).toMatchObject({
+      federations: 3,
+      maxFederations: 3,
+    });
   });
 
   it('activeUntil is the latest owner grant; organizers do not count', async () => {
@@ -279,5 +287,113 @@ describe('federationService', () => {
     });
     const merged = await mergeAccountIntoTelegram(survivor.id, losing.id);
     expect(merged.organizerUntil).toEqual(longer);
+  });
+
+  it('merging accounts keeps the larger plan limits', async () => {
+    const survivor = await createUser({
+      telegram_id: '777003',
+      maxFederations: 3,
+    });
+    const losing = await createUser({
+      telegram_id: null,
+      email: 'm@example.com',
+      maxTournamentsPerMonth: 20,
+    });
+    const merged = await mergeAccountIntoTelegram(survivor.id, losing.id);
+    expect(merged.maxFederations).toBe(3);
+    expect(merged.maxTournamentsPerMonth).toBe(20);
+  });
+});
+
+describe('monthly tournament quota', () => {
+  beforeEach(async () => {
+    await truncateAll();
+  });
+
+  const draftInput = async (federationId: UUID, createdBy: UUID) => ({
+    venueId: (await createVenue({ federationId })).id,
+    federationId,
+    name: 'Кубок',
+    sport: 'snooker' as const,
+    discipline: 'snooker_15_red' as const,
+    format: 'single_elimination' as const,
+    maxParticipants: 16 as const,
+    winScore: 3 as const,
+    createdBy,
+  });
+
+  it('defaults to 5 per month, counted per owner across their federations', async () => {
+    const fedA = await seedFederation();
+    const fedB = await seedFederation({ ownerId: fedA.ownerId });
+    // прошлый месяц и платформенные турниры не считаются
+    await createTournament({
+      federationId: fedA.id,
+      createdAt: new Date(monthStart().getTime() - 1000),
+    });
+    await createTournament();
+    for (let i = 0; i < 4; i++) {
+      await createTournament({ federationId: i % 2 ? fedA.id : fedB.id });
+    }
+    expect(await getTournamentQuotaError(fedA.id)).toBeNull();
+    await createTournament({ federationId: fedB.id });
+
+    const error = await getTournamentQuotaError(fedA.id);
+    expect(error).toContain('Лимит турниров на этот месяц исчерпан (5 из 5)');
+    expect(await getTournamentQuotaError(fedB.id)).toBe(error);
+    expect(await getOrganizerUsage(fedA.ownerId)).toEqual({
+      federations: 2,
+      maxFederations: 1,
+      tournamentsThisMonth: 5,
+      maxTournamentsPerMonth: 5,
+    });
+
+    await expect(
+      createTournamentDraft(await draftInput(fedA.id, fedA.ownerId)),
+    ).rejects.toThrow('Лимит турниров');
+
+    await setOrganizerLimits(fedA.ownerId, { maxTournamentsPerMonth: 6 });
+    await expect(
+      createTournamentDraft(await draftInput(fedA.id, fedA.ownerId)),
+    ).resolves.toBeDefined();
+  });
+
+  it('a co-owner with an active grant and room unlocks the federation', async () => {
+    const fed = await seedFederation();
+    await setOrganizerLimits(fed.ownerId, { maxTournamentsPerMonth: 1 });
+    await createTournament({ federationId: fed.id });
+    expect(await getTournamentQuotaError(fed.id)).toContain('(1 из 1)');
+
+    // co-owner без действующего права не помогает
+    const lapsed = await createOrganizer(fed.id, 'owner', {
+      organizerUntil: new Date(Date.now() - 1000),
+    });
+    expect(await getTournamentQuotaError(fed.id)).not.toBeNull();
+
+    await setOrganizerUntil(lapsed.id, grantUntil());
+    expect(await getTournamentQuotaError(fed.id)).toBeNull();
+  });
+
+  it('deleting a tournament frees its slot', async () => {
+    const fed = await seedFederation();
+    await setOrganizerLimits(fed.ownerId, { maxTournamentsPerMonth: 1 });
+    const t = await createTournament({ federationId: fed.id });
+    expect(await getTournamentQuotaError(fed.id)).not.toBeNull();
+    await deleteTournament(t.id);
+    expect(await getTournamentQuotaError(fed.id)).toBeNull();
+  });
+
+  it('concurrent creations cannot overshoot the limit', async () => {
+    const fed = await seedFederation();
+    await setOrganizerLimits(fed.ownerId, { maxTournamentsPerMonth: 2 });
+    const inputs = await Promise.all(
+      Array.from({ length: 5 }, () => draftInput(fed.id, fed.ownerId)),
+    );
+    const results = await Promise.allSettled(
+      inputs.map((input) => createTournamentDraft(input)),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
+    expect(await getOrganizerUsage(fed.ownerId)).toMatchObject({
+      tournamentsThisMonth: 2,
+    });
   });
 });

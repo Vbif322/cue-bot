@@ -6,6 +6,7 @@ export type {
   ApiUser,
   ApiUserPublic,
   ApiUserStats,
+  ApiOrganizerUsage,
   ApiMaxBreakLeaderboardEntry,
 } from '../../bot/@types/user.js';
 export type {

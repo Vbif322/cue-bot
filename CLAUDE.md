@@ -92,7 +92,10 @@ organizer entity; players never join one. `users.role` stays `user` | `admin` wh
 is the platform super-admin. "Organizer" is derived (≥1 membership). Creating a federation
 is a **paid option**: it needs an active `users.organizerUntil` (granted by an admin via
 `PATCH /api/users/:id/organizer`), and a federation creates new tournaments only while one
-of its owners' grant is active (`assertFederationActive` in `createTournamentDraft`). `tournaments.federationId`
+of its owners' grant is active (`assertFederationActive` in `createTournamentDraft`). Plan limits
+per user: `users.maxFederations` (default 1, self-service only) and `users.maxTournamentsPerMonth`
+(default 5, summed across the owner's federations per calendar month; `assertTournamentQuota`
+runs inside the insert transaction under a per-owner advisory lock). `tournaments.federationId`
 / `venues.federationId` / `group_chats.federationId` are nullable: **NULL = platform resource,
 admins only** — organizer scopes use `inArray(federationId, ids)` and never match NULL.
 All permission logic lives in `src/services/authz.ts`: pure `*With` predicates (unit-tested)

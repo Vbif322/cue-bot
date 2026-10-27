@@ -173,6 +173,71 @@ describe('admin panel: federation scoping', () => {
       expect(cleared.body.data.organizerUntil).toBeNull();
     });
 
+    it('organizer plan limits: admin sets them and reads usage; hidden from organizers', async () => {
+      const path = `/api/users/${fedA.ownerId}/organizer`;
+      await createTournament({ federationId: fedA.id });
+
+      const usage = await apiRequest<{ data: Record<string, number> }>(
+        app,
+        'GET',
+        `${path}/usage`,
+        { user: admin },
+      );
+      expect(usage.status).toBe(200);
+      expect(usage.body.data).toEqual({
+        federations: 1,
+        maxFederations: 1,
+        tournamentsThisMonth: 1,
+        maxTournamentsPerMonth: 5,
+      });
+
+      for (const [method, suffix, body] of [
+        ['GET', '/usage', undefined],
+        ['PATCH', '/limits', { maxFederations: 9 }],
+      ] as const) {
+        const denied = await apiRequest(app, method, `${path}${suffix}`, {
+          user: organizerA,
+          ...(body ? { body } : {}),
+        });
+        expect(denied.status).toBe(403);
+      }
+
+      const empty = await apiRequest(app, 'PATCH', `${path}/limits`, {
+        user: admin,
+        body: {},
+      });
+      expect(empty.status).toBe(400);
+      const negative = await apiRequest(app, 'PATCH', `${path}/limits`, {
+        user: admin,
+        body: { maxTournamentsPerMonth: -1 },
+      });
+      expect(negative.status).toBe(400);
+
+      const updated = await apiRequest<{ data: Record<string, unknown> }>(
+        app,
+        'PATCH',
+        `${path}/limits`,
+        {
+          user: admin,
+          body: { maxFederations: 2, maxTournamentsPerMonth: 10 },
+        },
+      );
+      expect(updated.status).toBe(200);
+      expect(updated.body.data).toMatchObject({
+        maxFederations: 2,
+        maxTournamentsPerMonth: 10,
+      });
+
+      const seen = await apiRequest<{ data: Record<string, unknown> }>(
+        app,
+        'GET',
+        `/api/users/${fedA.ownerId}`,
+        { user: organizerA },
+      );
+      expect(seen.body.data).not.toHaveProperty('maxFederations');
+      expect(seen.body.data).not.toHaveProperty('maxTournamentsPerMonth');
+    });
+
     it('an expired federation cannot create tournaments, but keeps managing existing ones', async () => {
       await setOrganizerUntil(fedA.ownerId, new Date(Date.now() - 1000));
       const venue = await createVenue({

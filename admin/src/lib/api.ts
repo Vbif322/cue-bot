@@ -15,6 +15,7 @@ import type {
   ApiUser,
   ApiUserPublic,
   ApiUserStats,
+  ApiOrganizerUsage,
   ApiMaxBreakLeaderboardEntry,
   ApiTable,
   ApiVenue,
@@ -42,9 +43,23 @@ import type {
  */
 export type AdminUserView = Omit<
   ApiUser,
-  'email' | 'phone' | 'telegram_id' | 'organizerUntil'
+  | 'email'
+  | 'phone'
+  | 'telegram_id'
+  | 'organizerUntil'
+  | 'maxFederations'
+  | 'maxTournamentsPerMonth'
 > &
-  Partial<Pick<ApiUser, 'email' | 'phone' | 'telegram_id'>> & {
+  Partial<
+    Pick<
+      ApiUser,
+      | 'email'
+      | 'phone'
+      | 'telegram_id'
+      | 'maxFederations'
+      | 'maxTournamentsPerMonth'
+    >
+  > & {
     telegramLinked?: boolean;
     /** Срок права организатора (ISO); приходит только платформенному админу. */
     organizerUntil?: string | null;
@@ -73,6 +88,7 @@ export type {
   ApiBusyElsewhere,
   ApiUser,
   ApiUserStats,
+  ApiOrganizerUsage,
   ApiMaxBreakLeaderboardEntry,
   ApiTable,
   ApiVenue,
@@ -550,6 +566,20 @@ export const usersApi = {
     apiFetch<AdminUserView>(`/api/users/${id}/organizer`, {
       method: 'PATCH',
       body: JSON.stringify({ until }),
+    }),
+
+  /** Только админ: тариф организатора — сколько использовано из лимитов. */
+  organizerUsage: (id: string) =>
+    apiFetch<ApiOrganizerUsage>(`/api/users/${id}/organizer/usage`),
+
+  /** Только админ: лимиты тарифа организатора. */
+  setOrganizerLimits: (
+    id: string,
+    limits: { maxFederations?: number; maxTournamentsPerMonth?: number },
+  ) =>
+    apiFetch<AdminUserView>(`/api/users/${id}/organizer/limits`, {
+      method: 'PATCH',
+      body: JSON.stringify(limits),
     }),
 
   delete: (id: string) =>

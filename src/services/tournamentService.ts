@@ -47,7 +47,10 @@ import type {
   TournamentReadModel,
 } from '@/bot/@types/tournament.js';
 
-import { assertFederationActive } from './federationService.js';
+import {
+  assertFederationActive,
+  assertTournamentQuota,
+} from './federationService.js';
 import type { ActorScope } from './authz.js';
 import { shuffleArray } from './bracketGenerator.js';
 import { validateTableIdsForVenue } from './tableService.js';
@@ -429,9 +432,11 @@ export async function createTournamentDraft(
   input: CreateTournamentDraftInput,
 ): Promise<TournamentReadModel> {
   // Новые турниры федерации — только пока у её владельцев действует платное
-  // право организатора; текущие турниры доигрываются и после истечения.
-  if (input.federationId !== null) {
-    await assertFederationActive(input.federationId);
+  // право организатора (и в пределах их месячного лимита — проверяется в
+  // транзакции ниже); текущие турниры доигрываются и после истечения.
+  const federationId = input.federationId;
+  if (federationId !== null) {
+    await assertFederationActive(federationId);
   }
   await requireVenueFor(input.venueId, input.federationId);
 
@@ -443,6 +448,8 @@ export async function createTournamentDraft(
   await validateTableIdsForVenue(uniqueTableIds, input.venueId);
 
   const created = await db.transaction(async (tx) => {
+    if (federationId !== null) await assertTournamentQuota(tx, federationId);
+
     const [inserted] = await tx
       .insert(tournaments)
       .values({
