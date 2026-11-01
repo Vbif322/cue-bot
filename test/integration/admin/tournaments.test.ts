@@ -16,6 +16,7 @@ import { apiRequest } from '../../helpers/auth.js';
 import { must } from '../../helpers/must.js';
 import {
   createAdminUser,
+  createFederation,
   createMatchesForTournament,
   createTournament,
   createTournamentWithParticipants,
@@ -23,7 +24,10 @@ import {
   createVenue,
 } from '../../helpers/factories.js';
 import { truncateAll } from '../../helpers/truncate.js';
-import { registerGroupChat } from '@/services/groupChatService.js';
+import {
+  bindGroupChat,
+  registerGroupChat,
+} from '@/services/groupChatService.js';
 
 const app = createAdminServer();
 
@@ -253,15 +257,18 @@ describe('admin tournaments router', () => {
     const sendMessage = sendMessageSpy;
     sendMessage.mockClear();
 
+    const federation = await createFederation();
     await registerGroupChat({
       chatId: '-1001',
       type: 'supergroup',
       title: 'Клуб',
       addedBy: null,
     });
+    await bindGroupChat('-1001', federation.id);
     const t = await createTournament({
       status: 'draft',
       visibility: 'public',
+      federationId: federation.id,
     });
 
     const { status } = await apiRequest(

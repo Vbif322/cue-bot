@@ -343,9 +343,9 @@ export default function FederationDetailPage() {
           Чаты для анонсов
         </h3>
         <p className="text-xs text-gray-500 mb-3">
-          Привязанный чат получает анонсы только ваших турниров. Непривязанный
-          слышит все публичные турниры. Чтобы чат появился здесь, добавьте бота
-          в группу и выполните там /start_announcements.
+          Привязанный чат получает анонсы только ваших турниров. В непривязанный
+          чат бот ничего не пишет. Чтобы чат появился здесь, добавьте бота в
+          группу и выполните там /start_announcements.
         </p>
         {chats.length === 0 ? (
           <p className="text-sm text-gray-500">Подходящих чатов пока нет</p>
@@ -368,7 +368,7 @@ export default function FederationDetailPage() {
                   <p className="text-xs text-gray-500">
                     {ch.bound
                       ? 'привязан к организации'
-                      : 'не привязан — слышит всё'}
+                      : 'не привязан — анонсы не приходят'}
                   </p>
                 </div>
                 {canManage && (

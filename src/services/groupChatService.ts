@@ -91,10 +91,10 @@ export async function listActiveGroupChats(): Promise<IGroupChat[]> {
 /**
  * ШОВ МАРШРУТИЗАЦИИ: «какие чаты должны услышать про этот турнир».
  *
- * Чат без привязки (`federationId IS NULL`) слышит все публичные турниры — как
- * до M8, когда платформа была одной неявной федерацией. Чат, привязанный к
- * федерации, слышит только её турниры. Платформенный турнир (без федерации)
- * уходит только в непривязанные чаты.
+ * Анонс уходит только в чаты, привязанные к федерации турнира. Чат без
+ * привязки (`federationId IS NULL`) не слышит ничего — бот в нём молчит, пока
+ * чат не привяжут в панели. Платформенный турнир (без федерации) в группы не
+ * анонсируется вовсе.
  *
  * Фильтр по `visibility`/`status` живёт в `announceRegistrationOpen`, а не
  * здесь: это свойство турнира, а не маршрутизации.
@@ -102,15 +102,12 @@ export async function listActiveGroupChats(): Promise<IGroupChat[]> {
 export async function resolveAnnouncementTargets(
   tournament: TournamentReadModel,
 ): Promise<IGroupChat[]> {
+  if (tournament.federationId === null) return [];
+
   return db.query.groupChats.findMany({
     where: and(
       eq(groupChats.isActive, true),
-      tournament.federationId === null
-        ? isNull(groupChats.federationId)
-        : or(
-            isNull(groupChats.federationId),
-            eq(groupChats.federationId, tournament.federationId),
-          ),
+      eq(groupChats.federationId, tournament.federationId),
     ),
   });
 }
@@ -126,7 +123,7 @@ export async function bindGroupChat(
     .where(eq(groupChats.chatId, chatId));
 }
 
-/** Снять привязку: чат снова слышит все публичные турниры. */
+/** Снять привязку: чат перестаёт получать анонсы, бот в нём замолкает. */
 export async function unbindGroupChat(chatId: string): Promise<void> {
   await db
     .update(groupChats)

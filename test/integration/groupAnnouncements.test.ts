@@ -12,6 +12,7 @@ import {
   refreshRegistrationAnnouncement,
 } from '@/services/groupBroadcastService.js';
 import {
+  bindGroupChat,
   getGroupChat,
   registerGroupChat,
   deactivateGroupChat,
@@ -19,6 +20,7 @@ import {
 
 import {
   createConfirmedParticipant,
+  createFederation,
   createTournament,
   createVenue,
 } from '../helpers/factories.js';
@@ -40,23 +42,33 @@ function apiError(
   );
 }
 
+/** Турнир федерации с открытой регистрацией — платформенные не анонсируются. */
 async function openTournament(overrides = {}) {
   const venue = await createVenue();
+  const federation = await createFederation();
   return createTournament({
     venueId: venue.id,
+    federationId: federation.id,
     status: 'registration_open',
     visibility: 'public',
     ...overrides,
   });
 }
 
-async function addChat(chatId: string): Promise<void> {
+/** Чат, привязанный к федерации турнира: в непривязанный бот не пишет. */
+async function addChat(
+  chatId: string,
+  tournament: { federationId: UUID | null },
+): Promise<void> {
   await registerGroupChat({
     chatId,
     type: 'supergroup',
     title: `Чат ${chatId}`,
     addedBy: null,
   });
+  if (tournament.federationId !== null) {
+    await bindGroupChat(chatId, tournament.federationId);
+  }
 }
 
 async function logRows(tournamentId: UUID) {
@@ -68,9 +80,9 @@ async function logRows(tournamentId: UUID) {
 describe('announceRegistrationOpen', () => {
   it('шлёт во все активные чаты и пропускает погашенные', async () => {
     const tournament = await openTournament();
-    await addChat('-101');
-    await addChat('-102');
-    await addChat('-103');
+    await addChat('-101', tournament);
+    await addChat('-102', tournament);
+    await addChat('-103', tournament);
     await deactivateGroupChat('-102', 'command:stop_announcements');
 
     const api = createMockBotApi();
@@ -89,7 +101,7 @@ describe('announceRegistrationOpen', () => {
 
   it('в сообщении есть название и URL-кнопка с deep-link', async () => {
     const tournament = await openTournament({ name: 'Осенний кубок' });
-    await addChat('-101');
+    await addChat('-101', tournament);
 
     const api = createMockBotApi();
     await announceRegistrationOpen(api as unknown as Api, tournament.id);
@@ -108,7 +120,7 @@ describe('announceRegistrationOpen', () => {
 
   it('идемпотентность: второй вызов ничего не шлёт', async () => {
     const tournament = await openTournament();
-    await addChat('-101');
+    await addChat('-101', tournament);
 
     const api = createMockBotApi();
     const first = await announceRegistrationOpen(
@@ -128,7 +140,7 @@ describe('announceRegistrationOpen', () => {
 
   it('записывает message_id в лог', async () => {
     const tournament = await openTournament();
-    await addChat('-101');
+    await addChat('-101', tournament);
 
     const api = createMockBotApi();
     api.sendMessage.mockResolvedValue({ message_id: 555 });
@@ -143,7 +155,7 @@ describe('announceRegistrationOpen', () => {
 
   it('приватный турнир не анонсируется', async () => {
     const tournament = await openTournament({ visibility: 'private' });
-    await addChat('-101');
+    await addChat('-101', tournament);
 
     const api = createMockBotApi();
     const result = await announceRegistrationOpen(
@@ -159,7 +171,7 @@ describe('announceRegistrationOpen', () => {
     'турнир в статусе %s не анонсируется',
     async (status) => {
       const tournament = await openTournament({ status });
-      await addChat('-101');
+      await addChat('-101', tournament);
 
       const api = createMockBotApi();
       await announceRegistrationOpen(api as unknown as Api, tournament.id);
@@ -170,8 +182,8 @@ describe('announceRegistrationOpen', () => {
 
   it('403 гасит ТОЛЬКО проблемный чат, остальные получают анонс', async () => {
     const tournament = await openTournament();
-    await addChat('-101');
-    await addChat('-102');
+    await addChat('-101', tournament);
+    await addChat('-102', tournament);
 
     const api = createMockBotApi();
     api.sendMessage.mockImplementation((chatId: unknown) => {
@@ -196,7 +208,7 @@ describe('announceRegistrationOpen', () => {
 
   it('миграция в супергруппу: регистрирует новый id и досылает', async () => {
     const tournament = await openTournament();
-    await addChat('-500');
+    await addChat('-500', tournament);
 
     const api = createMockBotApi();
     api.sendMessage.mockImplementation((chatId: unknown) => {
@@ -220,13 +232,14 @@ describe('announceRegistrationOpen', () => {
     expect(await getGroupChat('-1001234567890')).toMatchObject({
       isActive: true,
       type: 'supergroup',
+      federationId: tournament.federationId,
     });
     expect((await logRows(tournament.id))[0]?.chatId).toBe('-1001234567890');
   });
 
   it('транзиентный сбой не гасит чат и не пишет лог', async () => {
     const tournament = await openTournament();
-    await addChat('-101');
+    await addChat('-101', tournament);
 
     const api = createMockBotApi();
     api.sendMessage.mockRejectedValue(new Error('socket hang up'));
@@ -239,6 +252,45 @@ describe('announceRegistrationOpen', () => {
     expect(result).toEqual({ sent: 0, failed: 1, skipped: 0 });
     expect((await getGroupChat('-101'))?.isActive).toBe(true);
     expect(await logRows(tournament.id)).toHaveLength(0);
+  });
+
+  it('непривязанный и чужой чат анонс не получают', async () => {
+    const tournament = await openTournament();
+    const other = await openTournament();
+    await addChat('-101', tournament);
+    await addChat('-102', other);
+    await registerGroupChat({
+      chatId: '-103',
+      type: 'group',
+      title: null,
+      addedBy: null,
+    });
+
+    const api = createMockBotApi();
+    const result = await announceRegistrationOpen(
+      api as unknown as Api,
+      tournament.id,
+    );
+
+    expect(result).toEqual({ sent: 1, failed: 0, skipped: 0 });
+    expect(api.sendMessage.mock.calls.map((call) => call[0] as string)).toEqual(
+      ['-101'],
+    );
+  });
+
+  it('платформенный турнир в группы не анонсируется', async () => {
+    const tournament = await openTournament({ federationId: null });
+    await addChat('-101', tournament);
+
+    const api = createMockBotApi();
+    const result = await announceRegistrationOpen(
+      api as unknown as Api,
+      tournament.id,
+    );
+
+    expect(result).toEqual({ sent: 0, failed: 0, skipped: 0 });
+    expect(api.sendMessage).not.toHaveBeenCalled();
+    expect(api.getMe).not.toHaveBeenCalled();
   });
 
   it('нет подписанных чатов — тихо и без обращений к Telegram', async () => {
@@ -260,7 +312,7 @@ describe('refreshRegistrationAnnouncement', () => {
   async function announced(messages: Record<string, number | null>) {
     const tournament = await openTournament({ maxParticipants: 16 });
     for (const [chatId, messageId] of Object.entries(messages)) {
-      await addChat(chatId);
+      await addChat(chatId, tournament);
       await db.insert(groupAnnouncements).values({
         chatId,
         tournamentId: tournament.id,

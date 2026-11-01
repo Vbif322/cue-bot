@@ -146,33 +146,7 @@ describe('listActiveGroupChats', () => {
 });
 
 describe('resolveAnnouncementTargets', () => {
-  it('сегодня — все активные чаты (одна неявная федерация)', async () => {
-    const tournament = await createTournament({ status: 'registration_open' });
-
-    await registerGroupChat({
-      chatId: '-1',
-      type: 'group',
-      title: null,
-      addedBy: null,
-    });
-    await registerGroupChat({
-      chatId: '-2',
-      type: 'group',
-      title: null,
-      addedBy: null,
-    });
-    await deactivateGroupChat('-2', 'command:stop_announcements');
-
-    const targets = await resolveAnnouncementTargets(
-      tournament as unknown as TournamentReadModel,
-    );
-
-    expect(targets.map((c) => c.chatId)).toEqual(['-1']);
-  });
-});
-
-describe('resolveAnnouncementTargets — привязка к федерации (M8)', () => {
-  it('привязанный чат слышит только свою федерацию; непривязанный — всё публичное', async () => {
+  it('только активные чаты, привязанные к федерации турнира', async () => {
     const fedA = await createFederation();
     const fedB = await createFederation();
     const tA = await createTournament({
@@ -185,38 +159,32 @@ describe('resolveAnnouncementTargets — привязка к федерации 
     });
     const platform = await createTournament({ status: 'registration_open' });
 
-    await registerGroupChat({
-      chatId: '-10',
-      type: 'group',
-      title: null,
-      addedBy: null,
-    });
-    await registerGroupChat({
-      chatId: '-11',
-      type: 'group',
-      title: null,
-      addedBy: null,
-    });
-    await registerGroupChat({
-      chatId: '-12',
-      type: 'group',
-      title: null,
-      addedBy: null,
-    });
+    for (const chatId of ['-10', '-11', '-12', '-13']) {
+      await registerGroupChat({
+        chatId,
+        type: 'group',
+        title: null,
+        addedBy: null,
+      });
+    }
     await bindGroupChat('-11', fedA.id);
     await bindGroupChat('-12', fedB.id);
+    await bindGroupChat('-13', fedA.id);
+    await deactivateGroupChat('-13', 'command:stop_announcements');
 
     const ids = async (t: typeof tA) =>
       (await resolveAnnouncementTargets(t as unknown as TournamentReadModel))
         .map((c) => c.chatId)
         .sort();
 
-    expect(await ids(tA)).toEqual(['-10', '-11']);
-    expect(await ids(tB)).toEqual(['-10', '-12']);
-    expect(await ids(platform)).toEqual(['-10']);
+    // Непривязанный '-10' не слышит ничего, погашенный '-13' — тоже.
+    expect(await ids(tA)).toEqual(['-11']);
+    expect(await ids(tB)).toEqual(['-12']);
+    // Платформенный турнир в группы не уходит вовсе.
+    expect(await ids(platform)).toEqual([]);
 
     await unbindGroupChat('-11');
-    expect(await ids(tB)).toEqual(['-10', '-11', '-12']);
+    expect(await ids(tA)).toEqual([]);
   });
 
   it('повторная регистрация чата не сбрасывает привязку', async () => {

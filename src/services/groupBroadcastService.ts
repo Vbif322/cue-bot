@@ -19,6 +19,7 @@ import type {
 import { markAnnouncementStale } from '@/services/announcementRefresh.js';
 import type { RefreshOutcome } from '@/services/announcementRefresh.js';
 import {
+  bindGroupChat,
   deactivateGroupChat,
   registerGroupChat,
   resolveAnnouncementTargets,
@@ -399,6 +400,11 @@ export async function announceRegistrationOpen(
           title: chat.title,
           addedBy: chat.addedBy,
         });
+        // Новая строка регистрируется непривязанной — переносим привязку, иначе
+        // супергруппа замолчит после первого же анонса.
+        if (chat.federationId !== null) {
+          await bindGroupChat(outcome.newChatId, chat.federationId);
+        }
         await deactivateGroupChat(chat.chatId, 'migrated');
 
         const retry = await postToGroupChat(
