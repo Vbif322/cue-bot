@@ -4,6 +4,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usersApi, tournamentsApi } from '../lib/api.ts';
 import { useMe } from '../lib/useAuth.ts';
+import { useFederation } from '../lib/federation.tsx';
+import OrganizerGrantCard from '../components/OrganizerGrantCard.tsx';
 
 function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -37,6 +39,7 @@ export default function UserDetailPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: me } = useMe();
+  const { isPlatformAdmin, param, federations } = useFederation();
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['user', id],
@@ -51,8 +54,8 @@ export default function UserDetailPage() {
   });
 
   const { data: tournaments } = useQuery({
-    queryKey: ['tournaments'],
-    queryFn: tournamentsApi.list,
+    queryKey: ['tournaments', param ?? 'all'],
+    queryFn: () => tournamentsApi.list(param),
   });
 
   const [name, setName] = useState('');
@@ -124,6 +127,12 @@ export default function UserDetailPage() {
   }
 
   const isMe = user.id === me?.user?.id;
+  // Организатор правит только гостей своих организаций (без Telegram).
+  const canEditProfile =
+    isPlatformAdmin ||
+    (user.telegramLinked === false &&
+      user.createdByFederationId !== null &&
+      federations.some((f) => f.id === user.createdByFederationId));
   const fullName =
     [user.name, user.surname].filter(Boolean).join(' ') || user.username;
   const winRate =
@@ -170,12 +179,22 @@ export default function UserDetailPage() {
 
         <div className="space-y-2">
           <InfoRow label="Username" value={`@${user.username}`} />
-          <InfoRow label="Telegram ID" value={user.telegram_id ?? '—'} />
-          <InfoRow label="Email" value={user.email ?? '—'} />
-          <InfoRow label="Телефон" value={user.phone ?? '—'} />
+          {isPlatformAdmin ? (
+            <>
+              <InfoRow label="Telegram ID" value={user.telegram_id ?? '—'} />
+              <InfoRow label="Email" value={user.email ?? '—'} />
+              <InfoRow label="Телефон" value={user.phone ?? '—'} />
+            </>
+          ) : (
+            <InfoRow
+              label="Telegram"
+              value={user.telegramLinked ? 'привязан' : 'гость без Telegram'}
+            />
+          )}
+          <InfoRow label="Город" value={user.city ?? '—'} />
         </div>
 
-        {!isMe && (
+        {!isMe && isPlatformAdmin && (
           <button
             onClick={() => {
               const newRole = user.role === 'admin' ? 'user' : 'admin';
@@ -199,7 +218,7 @@ export default function UserDetailPage() {
           </button>
         )}
 
-        {!isMe && (
+        {!isMe && isPlatformAdmin && (
           <div className="mt-4 pt-4 border-t border-gray-100">
             <button
               onClick={() => setShowDeleteModal(true)}
@@ -212,13 +231,22 @@ export default function UserDetailPage() {
         )}
       </div>
 
+      {isPlatformAdmin && user.deletedAt === null && (
+        <OrganizerGrantCard
+          userId={user.id}
+          organizerUntil={user.organizerUntil ?? null}
+          maxFederations={user.maxFederations ?? 1}
+          maxTournamentsPerMonth={user.maxTournamentsPerMonth ?? 5}
+        />
+      )}
+
       {/* Edit name / surname — view mode with pencil, edit mode with inputs */}
       <div className={`${card} relative`}>
         <h3 className="text-sm font-semibold text-gray-900 mb-3">
           Имя и фамилия
         </h3>
 
-        {!isEditing && (
+        {!isEditing && canEditProfile && (
           <button
             onClick={() => {
               setFormError(null);

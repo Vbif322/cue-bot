@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useThemeSync } from './lib/theme.ts';
 import Layout from './components/Layout.tsx';
@@ -12,6 +13,10 @@ import ProfilePage from './pages/ProfilePage.tsx';
 import NotificationsPage from './pages/NotificationsPage.tsx';
 import InvitePage from './pages/InvitePage.tsx';
 import LeaderboardPage from './pages/LeaderboardPage.tsx';
+import { Loader } from './components/ui.tsx';
+
+// Пульт судьи — отдельный чанк: игрокам он не нужен.
+const RefereeSection = lazy(() => import('./pages/referee/RefereeSection.tsx'));
 
 export default function App() {
   useThemeSync();
@@ -59,6 +64,17 @@ export default function App() {
           element={
             <RequireAuth>
               <ProfilePage />
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/referee/*"
+          element={
+            <RequireAuth>
+              <Suspense fallback={<Loader />}>
+                <RefereeSection />
+              </Suspense>
             </RequireAuth>
           }
         />

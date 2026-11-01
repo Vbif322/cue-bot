@@ -3,12 +3,7 @@ import type { Api } from 'grammy';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import {
-  matches,
-  tournamentParticipants,
-  tournamentReferees,
-  tournaments,
-} from '@/db/schema.js';
+import { matches, tournamentParticipants, tournaments } from '@/db/schema.js';
 import type { MatchWithPlayers } from '@/bot/@types/match.js';
 import { errorMessage } from '@/utils/errors.js';
 
@@ -20,6 +15,7 @@ import {
   setTechnicalResult,
 } from './matchService.js';
 import { getTournament } from './tournamentService.js';
+import { getMatchDecisionRecipients } from './refereeService.js';
 import {
   notifyCallReminder,
   notifyMarkedAbsent,
@@ -148,24 +144,6 @@ export async function markPlayerReady(
 }
 
 /**
- * Who decides a no-show: the tournament's referees, or its creator when no
- * referee is assigned.
- */
-export async function getNoShowRecipients(tournamentId: UUID): Promise<UUID[]> {
-  const referees = await db
-    .select({ userId: tournamentReferees.userId })
-    .from(tournamentReferees)
-    .where(eq(tournamentReferees.tournamentId, tournamentId));
-  if (referees.length > 0) return referees.map((r) => r.userId);
-
-  const [tournament] = await db
-    .select({ createdBy: tournaments.createdBy })
-    .from(tournaments)
-    .where(eq(tournaments.id, tournamentId));
-  return tournament ? [tournament.createdBy] : [];
-}
-
-/**
  * Sweep: alert the referee about every called match of a running tournament
  * whose presence deadline has passed, and re-ping the players who haven't
  * confirmed. State lives in the DB (`noShowAlertedAt`, claimed by a
@@ -205,7 +183,7 @@ export async function processOverdueCalls(
       const match = await getMatch(id);
       if (!match) continue;
       const tournament = await getTournament(match.tournamentId);
-      const recipients = await getNoShowRecipients(match.tournamentId);
+      const recipients = await getMatchDecisionRecipients(match.tournamentId);
       await notifyNoShowAlert(
         botApi,
         match,

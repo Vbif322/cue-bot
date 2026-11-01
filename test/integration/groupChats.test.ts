@@ -2,15 +2,23 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   activateGroupChat,
+  bindGroupChat,
   deactivateGroupChat,
   getGroupChat,
   listActiveGroupChats,
+  listGroupChatsForFederation,
   registerGroupChat,
   resolveAnnouncementTargets,
+  unbindGroupChat,
 } from '@/services/groupChatService.js';
 import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 
-import { createTournament, createUser } from '../helpers/factories.js';
+import {
+  createFederation,
+  createOrganizer,
+  createTournament,
+  createUser,
+} from '../helpers/factories.js';
 import { truncateAll } from '../helpers/truncate.js';
 
 beforeEach(truncateAll);
@@ -138,27 +146,98 @@ describe('listActiveGroupChats', () => {
 });
 
 describe('resolveAnnouncementTargets', () => {
-  it('сегодня — все активные чаты (одна неявная федерация)', async () => {
-    const tournament = await createTournament({ status: 'registration_open' });
+  it('только активные чаты, привязанные к федерации турнира', async () => {
+    const fedA = await createFederation();
+    const fedB = await createFederation();
+    const tA = await createTournament({
+      status: 'registration_open',
+      federationId: fedA.id,
+    });
+    const tB = await createTournament({
+      status: 'registration_open',
+      federationId: fedB.id,
+    });
+    const platform = await createTournament({ status: 'registration_open' });
 
+    for (const chatId of ['-10', '-11', '-12', '-13']) {
+      await registerGroupChat({
+        chatId,
+        type: 'group',
+        title: null,
+        addedBy: null,
+      });
+    }
+    await bindGroupChat('-11', fedA.id);
+    await bindGroupChat('-12', fedB.id);
+    await bindGroupChat('-13', fedA.id);
+    await deactivateGroupChat('-13', 'command:stop_announcements');
+
+    const ids = async (t: typeof tA) =>
+      (await resolveAnnouncementTargets(t as unknown as TournamentReadModel))
+        .map((c) => c.chatId)
+        .sort();
+
+    // Непривязанный '-10' не слышит ничего, погашенный '-13' — тоже.
+    expect(await ids(tA)).toEqual(['-11']);
+    expect(await ids(tB)).toEqual(['-12']);
+    // Платформенный турнир в группы не уходит вовсе.
+    expect(await ids(platform)).toEqual([]);
+
+    await unbindGroupChat('-11');
+    expect(await ids(tA)).toEqual([]);
+  });
+
+  it('повторная регистрация чата не сбрасывает привязку', async () => {
+    const fed = await createFederation();
     await registerGroupChat({
-      chatId: '-1',
+      chatId: '-20',
+      type: 'group',
+      title: 'a',
+      addedBy: null,
+    });
+    await bindGroupChat('-20', fed.id);
+    await registerGroupChat({
+      chatId: '-20',
+      type: 'supergroup',
+      title: 'b',
+      addedBy: null,
+    });
+    expect((await getGroupChat('-20'))?.federationId).toBe(fed.id);
+  });
+
+  it('listGroupChatsForFederation: свои привязанные + непривязанные, добавленные командой', async () => {
+    const fed = await createFederation();
+    const other = await createFederation();
+    const organizer = await createOrganizer(fed.id);
+    const stranger = await createUser();
+    await registerGroupChat({
+      chatId: '-30',
+      type: 'group',
+      title: null,
+      addedBy: organizer.id,
+    });
+    await registerGroupChat({
+      chatId: '-31',
+      type: 'group',
+      title: null,
+      addedBy: stranger.id,
+    });
+    await registerGroupChat({
+      chatId: '-32',
       type: 'group',
       title: null,
       addedBy: null,
     });
     await registerGroupChat({
-      chatId: '-2',
+      chatId: '-33',
       type: 'group',
       title: null,
-      addedBy: null,
+      addedBy: organizer.id,
     });
-    await deactivateGroupChat('-2', 'command:stop_announcements');
+    await bindGroupChat('-32', fed.id);
+    await bindGroupChat('-33', other.id); // добавил наш, но уже привязан к другой
 
-    const targets = await resolveAnnouncementTargets(
-      tournament as unknown as TournamentReadModel,
-    );
-
-    expect(targets.map((c) => c.chatId)).toEqual(['-1']);
+    const list = await listGroupChatsForFederation(fed.id);
+    expect(list.map((c) => c.chatId).sort()).toEqual(['-30', '-32']);
   });
 });

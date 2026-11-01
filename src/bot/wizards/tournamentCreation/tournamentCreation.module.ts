@@ -4,7 +4,7 @@ import { TournamentCreationStateStore } from './tournamentCreation.stateStore.js
 import { TournamentCreationRenderer } from './tournamentCreation.renderer.js';
 import { TournamentCreationFlow } from './tournamentCreation.flow.js';
 import { TournamentCreationKeyboards } from './tournamentCreation.keyboards.js';
-import { registerWizard } from '../wizardRegistry.js';
+import { registerTextSession } from '../../sessions/textSessionRegistry.js';
 
 const tournamentCreationStateStore = new TournamentCreationStateStore();
 
@@ -21,10 +21,14 @@ const tournamentCreationFlow = new TournamentCreationFlow(
   DateTimeHelperInstance,
 );
 
-registerWizard({
+registerTextSession({
+  store: tournamentCreationStateStore.session,
   name: 'создание турнира',
-  namespace: 'tc',
+  blocking: true,
   callbackPrefix: 'tc:',
+  cancelReply: 'Создание турнира отменено.',
+  onText: (ctx, state) =>
+    tournamentCreationFlow.handleTextInput(ctx, state, ctx.message.text),
 });
 
 export {

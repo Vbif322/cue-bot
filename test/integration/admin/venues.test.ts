@@ -34,7 +34,10 @@ describe('admin venues router', () => {
       app,
       'POST',
       '/api/venues',
-      { user: admin, body: { name: 'Клуб', address: 'ул. Пушкина 1' } },
+      {
+        user: admin,
+        body: { name: 'Клуб', address: 'ул. Пушкина 1', city: 'Москва' },
+      },
     );
     expect(created.status).toBe(201);
     expect(created.body.data.name).toBe('Клуб');

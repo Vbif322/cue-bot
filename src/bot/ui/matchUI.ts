@@ -9,6 +9,7 @@ import { escapeMarkdown, formatFullName } from '../../utils/messageHelpers.js';
 import { DateTimeHelperInstance } from '../../utils/dateTimeHelper.js';
 import type { Tournament } from '../@types/tournament.js';
 import type { MatchWithPlayers } from '../@types/match.js';
+import { addRefereeWebAppButton, refereeMatchPath } from './refereeUI.js';
 
 /** A persisted per-frame row (snooker). */
 type MatchFrame = typeof matchFrames.$inferSelect;
@@ -360,7 +361,7 @@ export function getNoShowAlertKeyboard(
     .text('▶️ Начать матч', `match:start:${match.id}`)
     .text('📋 Открыть матч', `match:view:${match.id}`)
     .row();
-  return keyboard;
+  return addRefereeWebAppButton(keyboard, refereeMatchPath(match.id));
 }
 
 /** «Я на месте» for a player marked absent in a tournament. */

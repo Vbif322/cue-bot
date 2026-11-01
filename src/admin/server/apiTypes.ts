@@ -4,9 +4,23 @@
 export type {
   UserRole,
   ApiUser,
+  ApiUserPublic,
   ApiUserStats,
+  ApiOrganizerUsage,
   ApiMaxBreakLeaderboardEntry,
 } from '../../bot/@types/user.js';
+export type {
+  FederationRole,
+  ApiFederation,
+  ApiFederationSummary,
+  ApiFederationDetail,
+  ApiFederationMember,
+  ApiFederationChat,
+  ApiUserFederation,
+  ApiPublicFederation,
+} from '../../bot/@types/federation.js';
+export { federationRoles } from '../../db/schema/federationMembers.js';
+export { visibilities } from '../../db/schema/tournaments.js';
 export type {
   TournamentStatus,
   TournamentFormat,
@@ -16,6 +30,8 @@ export type {
   ApiTournamentParticipant,
   ApiPlayerStanding,
   ApiGroupStanding,
+  ApiPrizeRow,
+  ApiPrizeReport,
 } from '../../bot/@types/tournament.js';
 export {
   formats,
@@ -53,6 +69,26 @@ export {
   type ITournamentMergeRound,
   type IGroupDraw,
 } from '../../shared/tournament/tournamentOptions.js';
+export {
+  prizeModes,
+  PRIZE_MODE_LABELS,
+  MAX_PRIZE_PLACES,
+  PRIZE_PRESETS,
+  expectedParticipants,
+  prizeFundFor,
+  organizerShareFor,
+  validatePrizeDistribution,
+  validateFinanceSettings,
+  computePrizeDistribution,
+  formatPlaceRange,
+  formatRubles,
+  type IPrizeMode,
+  type IPrizePlace,
+  type IPrizeDistribution,
+  type IFinanceSettings,
+  type IFundSettings,
+  type IPrizeSummary,
+} from '../../shared/tournament/prizes.js';
 export type {
   MatchStatus,
   BracketType,

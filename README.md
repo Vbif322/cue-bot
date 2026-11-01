@@ -65,7 +65,7 @@ cd admin && npm install && cd ..
 
 ```env
 BOT_TOKEN=your_telegram_bot_token_here
-DATABASE_URL=postgresql://user:password@localhost:5432/cuebot
+DATABASE_URL=postgresql://user:password@localhost:55432/cuebot
 JWT_SECRET=your_jwt_secret_here
 ADMIN_PORT=3000
 NODE_ENV=development
@@ -127,7 +127,12 @@ npm run dev:login -- 123456789    # конкретный админ по telegra
 
 > Если в БД ещё нет администратора, назначьте себя: напишите боту `/start`, узнайте свой
 > `telegram_id`, затем `UPDATE prod.users SET role='admin' WHERE telegram_id='<ваш_id>';`
-> (или `/set_admin <telegram_id>` с другого админского аккаунта).
+> (или `/set_admin <telegram_id>` с другого админского аккаунта). Это платформенный
+> супер-админ. Право организатора — платная опция: админ выдаёт его на срок в панели
+> (Пользователи → пользователь → «Право организатора»), там же — лимиты тарифа (по умолчанию
+> 1 организация и 5 турниров в месяц). После этого пользователь создаёт свою
+> организацию (`/new_federation` в боте или «Организации» в панели), и ему открыта панель
+> со своими турнирами, площадками и участниками.
 
 **Предпосылки для `dev:all`:**
 
@@ -135,6 +140,9 @@ npm run dev:login -- 123456789    # конкретный админ по telegra
   создаётся автоматически из [`docker-compose.yml`](docker-compose.yml) — вручную ничего
   создавать не нужно. Креды берутся из `POSTGRES_*` в `.env` (по умолчанию `user`/`password`/
   `cuebot`) и должны совпадать с `DATABASE_URL`.
+- Postgres слушает на хосте `127.0.0.1:55432` (`POSTGRES_PORT`), а не на стандартном 5432, —
+  чтобы не конфликтовать с базами других проектов. Если и этот порт занят, поменяйте
+  `POSTGRES_PORT` и порт в `DATABASE_URL` (оба значения должны совпадать).
 - На Windows + WSL2 (Ubuntu) с Docker внутри WSL используйте `*:wsl`-варианты команд
   (`db:up:wsl`/`db:down:wsl`), а WSL-пользователя добавьте в группу `docker`
   (`sudo usermod -aG docker $USER` + перелогин), иначе команда упадёт на правах сокета.
@@ -145,9 +153,9 @@ npm run dev:login -- 123456789    # конкретный админ по telegra
 > ([`docker/initdb/01-create-schema.sql`](docker/initdb/01-create-schema.sql)) — миграции
 > сами её не создают. Затем примените схему: `npm run db:migrate`.
 >
-> Если раньше вы держали контейнер `drizzle-postgres` на порту 5432, сначала остановите его
-> (`docker stop drizzle-postgres`), иначе будет конфликт по порту. Старые данные в новый
-> volume не переносятся — dev-БД восстанавливается миграциями.
+> Старые данные из `drizzle-postgres` в новый volume не переносятся — dev-БД
+> восстанавливается миграциями. Если ваш `.env` создан до перехода на порт 55432, обновите в нём
+> `POSTGRES_PORT` и порт в `DATABASE_URL`.
 
 **Отдельные команды (если нужно запустить что-то одно):**
 
@@ -163,6 +171,24 @@ npm run dev:login    # ссылка для входа в админку (см. �
 Integration-тесты (`npm run test:integration`, часть `npm test`) поднимают свой Postgres
 через testcontainers и **требуют Docker**. Без Docker пройдут только unit-тесты
 (`npm run test:unit`).
+
+E2E-тесты (Playwright, `e2e/`) проводят турнир целиком через браузер: админ работает в
+админке, каждый игрок — в своей отдельной браузерной сессии на сайте игрока (регистрация,
+«Я у стола», ввод счёта, подтверждение соперником). Играются только матчи, уже вызванные
+к столу, — так проверяется и очередь столов. Сценарии: олимпийка, круговая,
+double elimination со случайными парами (16 игроков, снукер с вводом по фреймам, 4 стола),
+вход по коду из письма. Стек (Postgres в testcontainers, API на :3100,
+админка на :5183, сайт игрока на :5184) поднимается сам и не мешает запущенному `dev:all`.
+Нужен Docker; перед первым запуском — `npx playwright install chromium`.
+
+```bash
+npm run test:e2e                                   # все сценарии, headless
+npm run test:e2e:headed -- singleElimination       # смотреть окна игроков
+npm run test:e2e:ui                                # интерактивный режим Playwright
+```
+
+При падении: отчёт в `playwright-report/` (trace, видео, скриншоты), лог API —
+`e2e/.artifacts/server.log`.
 
 ### Туннель для Telegram Web App
 

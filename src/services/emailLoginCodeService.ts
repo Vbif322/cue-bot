@@ -2,11 +2,23 @@ import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 
 import { db } from '@/db/db.js';
 import { emailLoginCodes } from '@/db/schema.js';
+import { RateLimiter } from '@/lib/rateLimiter.js';
 
 /** TTL кода входа. */
 export const LOGIN_CODE_TTL_MS = 10 * 60 * 1000;
 /** Максимум попыток ввода на один код (включительно). */
 export const MAX_CODE_ATTEMPTS = 5;
+
+/**
+ * Пер-email лимит запросов кода (~3 / 15 мин), общий для входа (сайт, админка) и
+ * привязки почты (сайт, бот). Поверх пер-IP / пер-юзер анти-флуда. При превышении
+ * вызывающие молча не шлют письмо — чтобы не выдавать, что на адрес недавно слали
+ * код. Очищается периодически в index.ts.
+ */
+export const emailCodeLimiter = new RateLimiter({
+  capacity: 3,
+  refillPerSec: 3 / (15 * 60),
+});
 
 /**
  * Гасит все живые коды адреса и сохраняет новый (одна транзакция, чтобы в любой

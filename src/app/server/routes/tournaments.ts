@@ -18,42 +18,72 @@ import {
 import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 import { getBracketReadModel } from '@/services/bracketReadService.js';
 import { getStandings } from '@/services/groupPhaseService.js';
+import { isTournamentRefereeUser } from '@/services/refereeService.js';
+import { getMembership } from '@/services/federationService.js';
 import {
   APP_SESSION,
   requireUser,
   resolveUserFromCookie,
 } from '@/admin/server/middleware.js';
 
-import { validateParam, outcomeError } from './_shared.js';
+import { validateParam, validateQuery, outcomeError } from './_shared.js';
 
 const paramId = z.object({ id: z.uuid() });
 const paramCode = z.object({ code: z.string().min(1).max(64) });
+/** Фильтры ленты: город площадки и организатор. Дефолт по городу ставит фронт. */
+const feedQuery = z.object({
+  city: z.string().trim().min(1).max(100).optional(),
+  federationId: z.uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+
+interface AppViewer {
+  isParticipant: boolean;
+  isCreator: boolean;
+  isReferee: boolean;
+  isOrganizer: boolean;
+}
 
 /**
- * Флаги видимости турнира для игрока. Для app-API `isAdmin`/`isReferee` ВСЕГДА
- * `false` — админ/судейские возможности живут в `/api/*`, даже если у
- * пользователя `role='admin'`.
+ * Флаги видимости турнира для игрока. `isAdmin` в app-API ВСЕГДА `false` —
+ * админ здесь выступает как игрок. Судья турнира и организатор (член федерации
+ * турнира) видят его приватную сетку: судейский пульт живёт на этом же сайте
+ * (`/referee`).
  */
 async function computeViewer(
   tournament: TournamentReadModel,
   userId: UUID | null,
-): Promise<{ isParticipant: boolean; isCreator: boolean }> {
-  if (!userId) return { isParticipant: false, isCreator: false };
-  const participation = await getUserParticipation(tournament.id, userId);
+): Promise<AppViewer> {
+  if (!userId) {
+    return {
+      isParticipant: false,
+      isCreator: false,
+      isReferee: false,
+      isOrganizer: false,
+    };
+  }
+  const [participation, isReferee, membership] = await Promise.all([
+    getUserParticipation(tournament.id, userId),
+    isTournamentRefereeUser(userId, tournament.id),
+    tournament.federationId === null
+      ? Promise.resolve(null)
+      : getMembership(userId, tournament.federationId),
+  ]);
   const isParticipant =
     participation != null && participation.status !== 'cancelled';
-  return { isParticipant, isCreator: tournament.createdBy === userId };
+  return {
+    isParticipant,
+    isCreator: tournament.createdBy === userId,
+    isReferee,
+    isOrganizer: membership !== null,
+  };
 }
 
 function visibleTo(
   tournament: TournamentReadModel,
-  viewer: { isParticipant: boolean; isCreator: boolean },
+  viewer: AppViewer,
 ): boolean {
-  return isTournamentVisibleTo(tournament, {
-    isAdmin: false,
-    isReferee: false,
-    ...viewer,
-  });
+  return isTournamentVisibleTo(tournament, { isAdmin: false, ...viewer });
 }
 
 /**
@@ -93,11 +123,18 @@ async function loadVisible(
 export function createAppTournamentsRouter() {
   const router = new Hono();
 
-  // Публичная лента: только публичные, без черновиков.
-  router.get('/', async (c) => {
+  // Публичная лента: только публичные, без черновиков. `?city=` — по городу
+  // площадки (без учёта регистра), `?federationId=` — турниры одного
+  // организатора. Unlisted/private сюда не попадают никогда.
+  router.get('/', validateQuery(feedQuery), async (c) => {
+    const { city, federationId, limit } = c.req.valid('query');
     const list = await getTournaments({
       includesDrafts: false,
-      includePrivate: false,
+      limit: limit ?? 30,
+      ...(city !== undefined ? { city } : {}),
+      ...(federationId !== undefined
+        ? { federationId: federationId as UUID }
+        : {}),
     });
     return c.json({ data: list });
   });
@@ -121,10 +158,14 @@ export function createAppTournamentsRouter() {
       const tournament = await getTournamentByInviteCode(code);
       if (!tournament) return c.json({ error: 'Турнир не найден' }, 404);
 
-      const outcome = await registerParticipant(tournament.id, c.get('appUser').id, {
-        desiredStatus: 'pending',
-        requireOpen: true,
-      });
+      const outcome = await registerParticipant(
+        tournament.id,
+        c.get('appUser').id,
+        {
+          desiredStatus: 'pending',
+          requireOpen: true,
+        },
+      );
       if (!outcome.ok) return outcomeError(c, outcome.reason);
       return c.json({ data: { status: outcome.status } });
     },
@@ -169,7 +210,9 @@ export function createAppTournamentsRouter() {
 
     // playerMap — это Map, не сериализуется в JSON; отдаём как объект.
     const { playerMap, ...rest } = bracket;
-    return c.json({ data: { ...rest, players: Object.fromEntries(playerMap) } });
+    return c.json({
+      data: { ...rest, players: Object.fromEntries(playerMap) },
+    });
   });
 
   router.get('/:id/standings', validateParam(paramId), async (c) => {
@@ -180,18 +223,23 @@ export function createAppTournamentsRouter() {
     return c.json({ data: await getStandings(id, loaded.tournament.format) });
   });
 
-  router.post('/:id/register', requireUser, validateParam(paramId), async (c) => {
-    const { id } = c.req.valid('param') as { id: UUID };
-    const loaded = await loadVisible(c, id);
-    if (loaded.error) return loaded.error;
+  router.post(
+    '/:id/register',
+    requireUser,
+    validateParam(paramId),
+    async (c) => {
+      const { id } = c.req.valid('param') as { id: UUID };
+      const loaded = await loadVisible(c, id);
+      if (loaded.error) return loaded.error;
 
-    const outcome = await registerParticipant(id, c.get('appUser').id, {
-      desiredStatus: 'pending',
-      requireOpen: true,
-    });
-    if (!outcome.ok) return outcomeError(c, outcome.reason);
-    return c.json({ data: { status: outcome.status } });
-  });
+      const outcome = await registerParticipant(id, c.get('appUser').id, {
+        desiredStatus: 'pending',
+        requireOpen: true,
+      });
+      if (!outcome.ok) return outcomeError(c, outcome.reason);
+      return c.json({ data: { status: outcome.status } });
+    },
+  );
 
   router.post('/:id/cancel', requireUser, validateParam(paramId), async (c) => {
     const { id } = c.req.valid('param') as { id: UUID };

@@ -129,6 +129,8 @@ export default function MatchDetailPage() {
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['match', id] });
+    // Correction, dispute and technical results drop the frame breakdown.
+    qc.invalidateQueries({ queryKey: ['match-frames', id] });
     if (match?.tournamentId) {
       qc.invalidateQueries({
         queryKey: ['tournament-matches', match.tournamentId],
@@ -161,7 +163,7 @@ export default function MatchDetailPage() {
   });
 
   const disputeMutation = useMutation({
-    mutationFn: () => matchesApi.dispute(id!, match!.player2Id!),
+    mutationFn: () => matchesApi.dispute(id!),
     onSuccess: invalidate,
     onError: (e: Error) => setError(e.message),
   });

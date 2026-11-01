@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@server': path.resolve(__dirname, '../src/app/server'),
+      '@server': path.resolve(import.meta.dirname, '../src/app/server'),
     },
   },
   server: {
@@ -17,7 +17,8 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        // E2E-тесты поднимают API на отдельном порту (см. e2e/setup).
+        target: process.env.VITE_API_PROXY ?? 'http://localhost:3000',
         changeOrigin: true,
       },
     },

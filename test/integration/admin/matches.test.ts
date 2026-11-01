@@ -1,10 +1,12 @@
+import type { UUID } from 'crypto';
+
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createAdminServer } from '@/admin/server/index.js';
 import { db } from '@/db/db.js';
-import { matches, tables } from '@/db/schema.js';
-import { getMatch } from '@/services/matchService.js';
+import { matches, notifications, tables } from '@/db/schema.js';
+import { getMatch, reportResult } from '@/services/matchService.js';
 
 import { apiRequest } from '../../helpers/auth.js';
 import {
@@ -134,7 +136,7 @@ describe('admin matches router (HTTP layer)', () => {
         app,
         'PUT',
         `/api/matches/tournament/${t.id}/queue`,
-        { user: admin, body: { matchIds } },
+        { user: admin, body: { matchIds, expectedMatchIds: matchIds } },
       );
       expect(status).toBe(400);
     }
@@ -146,7 +148,10 @@ describe('admin matches router (HTTP layer)', () => {
       app,
       'PUT',
       `/api/matches/tournament/${t.id}/queue`,
-      { user: admin, body: { matchIds: [validId] } },
+      {
+        user: admin,
+        body: { matchIds: [validId], expectedMatchIds: [validId] },
+      },
     );
     expect(status).toBe(400);
     expect(body.error).toBe('Очередь можно менять только в идущем турнире');
@@ -212,5 +217,66 @@ describe('admin matches router (HTTP layer)', () => {
       { user: admin, body: {} },
     );
     expect(status).toBe(400);
+  });
+  describe('result notifications', () => {
+    /** A 2-player match with p1's 3:0 report pending. */
+    async function pendingMatch() {
+      const { tournament } = await createTournamentWithParticipants(
+        2,
+        'single_elimination',
+        { winScore: 3 },
+      );
+      const [match] = await createMatchesForTournament(
+        tournament.id,
+        'single_elimination',
+      );
+      const m = must(match, 'match');
+      const p1 = must(m.player1Id, 'p1');
+      const p2 = must(m.player2Id, 'p2');
+      expect((await reportResult(m.id, p1, 3, 0)).success).toBe(true);
+      return { matchId: m.id, p1, p2, createdBy: tournament.createdBy };
+    }
+
+    async function titles(userId: UUID) {
+      const rows = await db.query.notifications.findMany({
+        where: eq(notifications.userId, userId),
+      });
+      return rows.map((n) => n.title);
+    }
+
+    it('confirm notifies both players', async () => {
+      const { matchId, p1, p2 } = await pendingMatch();
+      const { status } = await apiRequest(
+        app,
+        'POST',
+        `/api/matches/${matchId}/confirm`,
+        { user: admin, body: { confirmerId: p2 } },
+      );
+      expect(status).toBe(200);
+      for (const player of [p1, p2]) {
+        expect(await titles(player)).toContain('Результат подтверждён');
+      }
+    });
+
+    it('dispute notifies the players and the decision maker', async () => {
+      const { matchId, p1, p2, createdBy } = await pendingMatch();
+      const { status } = await apiRequest(
+        app,
+        'POST',
+        `/api/matches/${matchId}/dispute`,
+        { user: admin },
+      );
+      expect(status).toBe(200);
+      for (const player of [p1, p2]) {
+        expect(await titles(player)).toContain('Результат оспорен');
+      }
+      const after = must(
+        await db.query.matches.findFirst({ where: eq(matches.id, matchId) }),
+        'match',
+      );
+      expect(after.disputedBy).toBe(admin.id);
+      // No referee assigned → the creator decides.
+      expect(await titles(createdBy)).toEqual(['Спор по результату']);
+    });
   });
 });

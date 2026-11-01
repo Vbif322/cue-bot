@@ -3,8 +3,8 @@ import { tournamentsApi } from '../lib/api.ts';
 
 export default function DashboardPage() {
   const { data: tournaments } = useQuery({
-    queryKey: ['tournaments'],
-    queryFn: tournamentsApi.list,
+    queryKey: ['tournaments', 'all'],
+    queryFn: () => tournamentsApi.list(),
   });
 
   const active = tournaments?.filter((t) => t.status === 'in_progress') ?? [];

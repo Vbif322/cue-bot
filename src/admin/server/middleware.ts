@@ -7,18 +7,41 @@ import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
 import { users } from '@/db/schema.js';
+import type { IFederationRole, IUserRole } from '@/db/schema.js';
 import type { DbUser } from '@/bot/types.js';
+import type { TournamentReadModel } from '@/bot/@types/tournament.js';
+import { getUserFederations } from '@/services/federationService.js';
+import { canCreateFederationWith, isStaff } from '@/services/authz.js';
 
-export interface AdminUser {
+/** Что лежит в admin-JWT (обратная совместимость кук). */
+export interface AdminTokenClaims {
   id: UUID;
   username: string;
   role: string;
+}
+
+/**
+ * Актор панели управления после `requireStaff`: платформенный админ видит всё,
+ * организатор — только федерации из `federationIds`. Роли нужны роутам
+ * федераций (owner vs organizer).
+ */
+export interface AdminUser extends Omit<AdminTokenClaims, 'role'> {
+  role: IUserRole;
+  isPlatformAdmin: boolean;
+  federationIds: UUID[];
+  federationRoles: Record<UUID, IFederationRole>;
+  /** Может создать свою организацию: админ или действующее право организатора. */
+  canCreateFederations: boolean;
+  /** `users.organizerUntil` — срок платного права организатора. */
+  organizerUntil: Date | null;
 }
 
 declare module 'hono' {
   interface ContextVariableMap {
     adminUser: AdminUser;
     appUser: DbUser;
+    /** Турнир, уже проверенный на доступ актора (см. `tournamentGuard`); не задан вне /:id. */
+    tournament: TournamentReadModel | undefined;
   }
 }
 
@@ -37,7 +60,7 @@ export const JWT_SECRET = rawJwtSecret;
 export type TokenTyp = 'admin' | 'app';
 
 /** Admin JWT — payload с ролью (для обратной совместимости кук) + typ. */
-export function signToken(payload: AdminUser): string {
+export function signToken(payload: AdminTokenClaims): string {
   return jwt.sign({ ...payload, typ: 'admin' satisfies TokenTyp }, JWT_SECRET, {
     expiresIn: '24h',
   });
@@ -110,20 +133,69 @@ export const APP_SESSION: ResolveUserOptions = {
   allowBearer: true,
 };
 
+/**
+ * Собирает актора панели: платформенный админ, член ≥1 федерации или обладатель
+ * действующего права организатора. `null`, если пользователь не staff.
+ */
+export async function buildAdminUser(user: DbUser): Promise<AdminUser | null> {
+  const federations = await getUserFederations(user.id);
+  const isPlatformAdmin = user.role === 'admin';
+  if (!isStaff(user, federations.length)) return null;
+  const federationRoles: Record<UUID, IFederationRole> = {};
+  for (const f of federations) federationRoles[f.id] = f.role;
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    isPlatformAdmin,
+    federationIds: federations.map((f) => f.id),
+    federationRoles,
+    canCreateFederations: canCreateFederationWith(user),
+    organizerUntil: user.organizerUntil,
+  };
+}
+
+/**
+ * Вход в панель управления: платформенный админ ИЛИ организатор (член хотя бы
+ * одной федерации). Роль и членства перечитываются из БД на каждом запросе.
+ * Скоуп по федерациям применяют сами роуты (`adminUser.federationIds`).
+ */
+export const requireStaff = createMiddleware(async (c, next) => {
+  const user = await resolveUserFromCookie(c, {
+    cookie: 'admin_token',
+    typ: 'admin',
+  });
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  const adminUser = await buildAdminUser(user);
+  if (!adminUser) {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  c.set('adminUser', adminUser);
+
+  await next();
+});
+
+/** Только платформенный админ (роли, удаление пользователей, общие площадки). */
 export const requireAdmin = createMiddleware(async (c, next) => {
-  const user = await resolveUserFromCookie(c, { cookie: 'admin_token', typ: 'admin' });
+  const user = await resolveUserFromCookie(c, {
+    cookie: 'admin_token',
+    typ: 'admin',
+  });
   if (!user) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
   if (user.role !== 'admin') {
     return c.json({ error: 'Forbidden' }, 403);
   }
+  const adminUser = await buildAdminUser(user);
+  if (!adminUser) {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
 
-  c.set('adminUser', {
-    id: user.id,
-    username: user.username,
-    role: user.role,
-  });
+  c.set('adminUser', adminUser);
 
   await next();
 });

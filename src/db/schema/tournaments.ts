@@ -1,5 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
+  index,
   integer,
   jsonb,
   text,
@@ -16,6 +19,7 @@ import {
   prodSchema,
   updatedAt,
 } from '../schemaHelpers.js';
+import { federations } from './federations.js';
 import { users } from './users.js';
 import { venues } from './venues.js';
 
@@ -65,6 +69,11 @@ export {
   type IStageWinScores,
 } from '../../shared/tournament/tournamentOptions.js';
 import { groupDraws } from '../../shared/tournament/tournamentOptions.js';
+import { prizeModes } from '../../shared/tournament/prizes.js';
+import type {
+  IPrizeDistribution,
+  IPrizeMode,
+} from '../../shared/tournament/prizes.js';
 import type {
   IGroupDraw,
   ITournamentWinScore,
@@ -82,7 +91,10 @@ export const statuses = [
 
 export type ITournamentStatus = (typeof statuses)[number];
 
-export const visibilities = ['public', 'private'] as const;
+// public — в общих лентах и анонсах; unlisted — только по прямой ссылке
+// (`t_<id>`, `/tournaments/:id`, инвайт-код), регистрация без приглашения;
+// private — только по приглашению, виден участникам/судьям/организаторам.
+export const visibilities = ['public', 'unlisted', 'private'] as const;
 
 export type ITournamentVisibility = (typeof visibilities)[number];
 
@@ -98,6 +110,12 @@ export const tournaments = prodSchema.table(
       .$type<UUID>()
       .notNull()
       .references(() => venues.id),
+    // Организатор турнира (ROADMAP M8). NULL = платформенный турнир: виден в
+    // управлении только глобальным админам. Скоуп организатора строится как
+    // inArray(federationId, ids) и NULL не захватывает — см. authz.getActorScope.
+    federationId: uuid('federation_id')
+      .$type<UUID>()
+      .references(() => federations.id),
 
     name: varchar({ length: 255 }).notNull(),
     description: text(),
@@ -159,6 +177,23 @@ export const tournaments = prodSchema.table(
     qualifiersPerGroup: integer('qualifiers_per_group'),
     groupDraw: varchar('group_draw', { enum: groupDraws }).$type<IGroupDraw>(),
     rules: text(),
+    // Entry fee + prize split (M3 stage 1). Calculation only — the bot never
+    // handles money. Whole rubles; null = free tournament. `prizeMode` sets the
+    // unit of both the organizer's cut and the prizes: in `percent` mode the
+    // organizer takes `organizerFeePercent` of everything collected and
+    // `prizeDistribution` splits the rest in percents; in `fixed` mode the cut
+    // is `organizerFeeAmount` rubles and the prizes are rubles per place. Each
+    // mode keeps its own organizer value, so switching loses nothing.
+    // Validated by validateFinanceSettings; editable in any status via
+    // updateTournamentFinance, not tied to canEditTournament.
+    entryFee: integer('entry_fee'),
+    organizerFeePercent: integer('organizer_fee_percent').notNull().default(0),
+    organizerFeeAmount: integer('organizer_fee_amount').notNull().default(0),
+    prizeMode: varchar('prize_mode', { enum: prizeModes })
+      .$type<IPrizeMode>()
+      .notNull()
+      .default('percent'),
+    prizeDistribution: jsonb('prize_distribution').$type<IPrizeDistribution>(),
     inviteCode: varchar('invite_code', { length: 16 }).unique(),
     createdBy: uuid('created_by')
       .$type<UUID>()
@@ -168,6 +203,7 @@ export const tournaments = prodSchema.table(
     updatedAt,
   },
   (t) => [
+    index('tournaments_federation_idx').on(t.federationId),
     enumCheck('tournaments_sport_check', t.sport, sports),
     enumCheck('tournaments_discipline_check', t.discipline, disciplines),
     enumCheck('tournaments_format_check', t.format, formats),
@@ -190,6 +226,16 @@ export const tournaments = prodSchema.table(
     nonNegativeCheck(
       'tournaments_qualifiers_per_group_nonneg',
       t.qualifiersPerGroup,
+    ),
+    nonNegativeCheck('tournaments_entry_fee_nonneg', t.entryFee),
+    enumCheck('tournaments_prize_mode_check', t.prizeMode, prizeModes),
+    nonNegativeCheck(
+      'tournaments_organizer_fee_amount_nonneg',
+      t.organizerFeeAmount,
+    ),
+    check(
+      'tournaments_organizer_fee_percent_range',
+      sql`${t.organizerFeePercent} BETWEEN 0 AND 100`,
     ),
   ],
 );

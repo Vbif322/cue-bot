@@ -3,11 +3,19 @@ import type { Context } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { setCookie, deleteCookie } from 'hono/cookie';
 import { and, eq, gt } from 'drizzle-orm';
-import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { db } from '../../db/db.js';
 import { users, loginTokens } from '../../db/schema.js';
-import { signToken, JWT_SECRET, type AdminUser } from './middleware.js';
+import {
+  signToken,
+  resolveUserFromCookie,
+  buildAdminUser,
+  type AdminTokenClaims,
+} from './middleware.js';
+import {
+  getUserFederations,
+  isStaffUser,
+} from '../../services/federationService.js';
 import { createIpRateLimit, resolveClientIp } from './middleware/rateLimit.js';
 import { findActiveEmailUser } from '../../services/userService.js';
 import {
@@ -20,7 +28,7 @@ import {
   hashCode,
   normalizeEmail,
 } from '../../app/server/authCrypto.js';
-import { emailCodeLimiter } from '../../app/server/routes/auth.js';
+import { emailCodeLimiter } from '@/services/emailLoginCodeService.js';
 import { validateJson } from '../../app/server/routes/_shared.js';
 
 // Secure-флаг ставим только в production: на http://localhost браузер иначе
@@ -54,7 +62,7 @@ const ADMIN_SESSION_MAX_AGE = 24 * 60 * 60; // совпадает с expiresIn �
 /** Выдаёт админскую сессию: JWT `typ:'admin'` в HttpOnly-куке `admin_token`. */
 function setAdminSession(
   c: Context,
-  user: { id: AdminUser['id']; username: string; role: string },
+  user: { id: AdminTokenClaims['id']; username: string; role: string },
 ): void {
   const token = signToken({
     id: user.id,
@@ -125,7 +133,9 @@ export function createAuthRouter() {
       where: eq(users.id, record.userId),
     });
 
-    if (user?.role !== 'admin') return c.redirect('/login?error=forbidden');
+    if (user?.deletedAt !== null || !(await isStaffUser(user))) {
+      return c.redirect('/login?error=forbidden');
+    }
 
     setAdminSession(c, user);
     return c.redirect('/');
@@ -202,9 +212,11 @@ export function createAuthRouter() {
       if (!user) return c.json({ error: INVALID_CODE }, 400);
 
       // Владение адресом уже доказано кодом — отсутствие прав можно назвать прямо.
-      if (user.role !== 'admin') {
+      if (!(await isStaffUser(user))) {
         return c.json(
-          { error: 'У этого аккаунта нет прав администратора' },
+          {
+            error: 'У этого аккаунта нет прав организатора или администратора',
+          },
           403,
         );
       }
@@ -226,32 +238,49 @@ export function createAuthRouter() {
     return c.json({ ok: true });
   });
 
+  /**
+   * Сессия панели: кто вошёл, платформенный ли это админ и в каких федерациях
+   * он состоит (с ролью) — SPA строит по этому переключатель федераций.
+   * `user: null` — не вошёл или не staff.
+   */
   auth.get('/me', async (c) => {
-    const cookie = c.req.header('Cookie') ?? '';
-    const tokenMatch = /admin_token=([^;]+)/.exec(cookie);
-    const token = tokenMatch?.[1];
-
-    if (!token) {
-      return c.json({ user: null, playerUrl });
-    }
-    try {
-      const payload = jwt.verify(token, JWT_SECRET) as AdminUser;
-
-      const user = await db.query.users.findFirst({
-        where: eq(users.id, payload.id),
-      });
-
-      if (user?.role !== 'admin') {
-        return c.json({ user: null, playerUrl });
-      }
-
+    const user = await resolveUserFromCookie(c, {
+      cookie: 'admin_token',
+      typ: 'admin',
+    });
+    if (!user) {
       return c.json({
-        user: { id: user.id, username: user.username, role: user.role },
+        user: null,
+        isPlatformAdmin: false,
+        canCreateFederations: false,
+        organizerUntil: null,
+        federations: [],
         playerUrl,
       });
-    } catch {
-      return c.json({ user: null, playerUrl });
     }
+    const [adminUser, federations] = await Promise.all([
+      buildAdminUser(user),
+      getUserFederations(user.id),
+    ]);
+    if (!adminUser) {
+      return c.json({
+        user: null,
+        isPlatformAdmin: false,
+        canCreateFederations: false,
+        organizerUntil: null,
+        federations: [],
+        playerUrl,
+      });
+    }
+
+    return c.json({
+      user: { id: user.id, username: user.username, role: user.role },
+      isPlatformAdmin: adminUser.isPlatformAdmin,
+      canCreateFederations: adminUser.canCreateFederations,
+      organizerUntil: adminUser.organizerUntil,
+      federations,
+      playerUrl,
+    });
   });
 
   return auth;

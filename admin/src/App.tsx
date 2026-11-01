@@ -9,6 +9,9 @@ import UsersPage from './pages/UsersPage.tsx';
 import UserDetailPage from './pages/UserDetailPage.tsx';
 import VenuesPage from './pages/VenuesPage.tsx';
 import LeaderboardPage from './pages/LeaderboardPage.tsx';
+import FederationsPage from './pages/FederationsPage.tsx';
+import FederationDetailPage from './pages/FederationDetailPage.tsx';
+import { FederationProvider } from './lib/federation.tsx';
 
 export default function App() {
   const { data, isLoading } = useMe();
@@ -31,18 +34,22 @@ export default function App() {
   }
 
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<Navigate to="/tournaments" replace />} />
-        <Route path="/tournaments" element={<TournamentsPage />} />
-        <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
-        <Route path="/matches/:id" element={<MatchDetailPage />} />
-        <Route path="/venues" element={<VenuesPage />} />
-        <Route path="/users" element={<UsersPage />} />
-        <Route path="/users/:id" element={<UserDetailPage />} />
-        <Route path="/leaderboard" element={<LeaderboardPage />} />
-        <Route path="*" element={<Navigate to="/tournaments" replace />} />
-      </Routes>
-    </Layout>
+    <FederationProvider>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Navigate to="/tournaments" replace />} />
+          <Route path="/tournaments" element={<TournamentsPage />} />
+          <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
+          <Route path="/matches/:id" element={<MatchDetailPage />} />
+          <Route path="/venues" element={<VenuesPage />} />
+          <Route path="/users" element={<UsersPage />} />
+          <Route path="/users/:id" element={<UserDetailPage />} />
+          <Route path="/leaderboard" element={<LeaderboardPage />} />
+          <Route path="/federations" element={<FederationsPage />} />
+          <Route path="/federations/:id" element={<FederationDetailPage />} />
+          <Route path="*" element={<Navigate to="/tournaments" replace />} />
+        </Routes>
+      </Layout>
+    </FederationProvider>
   );
 }

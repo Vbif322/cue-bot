@@ -6,7 +6,7 @@ import {
   JWT_SECRET,
   signAppToken,
   signToken,
-  type AdminUser,
+  type AdminTokenClaims,
 } from '@/admin/server/middleware.js';
 
 /** Minimal shape needed to mint an admin JWT (a `createUser` row satisfies it). */
@@ -16,7 +16,7 @@ export interface TokenUser {
   role: string;
 }
 
-function tokenPayload(user: TokenUser): AdminUser {
+function tokenPayload(user: TokenUser): AdminTokenClaims {
   return { id: user.id, username: user.username, role: user.role };
 }
 
@@ -66,7 +66,8 @@ export async function apiRequest<T = unknown>(
 ): Promise<ApiResponse<T>> {
   const headers: Record<string, string> = { ...opts.headers };
 
-  const cookie = opts.cookie ?? (opts.user ? adminCookie(opts.user) : undefined);
+  const cookie =
+    opts.cookie ?? (opts.user ? adminCookie(opts.user) : undefined);
   if (cookie !== undefined) headers.Cookie = cookie;
 
   const init: RequestInit = { method, headers };

@@ -16,6 +16,7 @@ import {
   getTournamentInfo,
 } from '../ui/tournamentUI.js';
 import type { BotContext } from '../types.js';
+import { canAdministerTournament } from '../permissions.js';
 
 export const registrationCommands = new Composer<BotContext>();
 
@@ -48,7 +49,7 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
 
   // 3-5. Атомарная регистрация: проверка дубля, лимита и вставка под
   // advisory-блокировкой турнира (исключает гонку лимита участников).
-  const isAdmin = ctx.dbUser.role === "admin";
+  const isAdmin = await canAdministerTournament(ctx, tournamentId);
 
   const outcome = await registerParticipant(tournamentId, userId, {
     desiredStatus: isAdmin ? 'confirmed' : 'pending',
@@ -71,7 +72,9 @@ registrationCommands.callbackQuery(/^reg:join:(.+)$/, async (ctx) => {
 
   // 6. Обновить сообщение
   await ctx.answerCallbackQuery({
-    text: isAdmin ? 'Вы зарегистрированы!' : 'Заявка отправлена! Ожидайте подтверждения.',
+    text: isAdmin
+      ? 'Вы зарегистрированы!'
+      : 'Заявка отправлена! Ожидайте подтверждения.',
   });
 
   const updatedInfo = await getTournamentInfo(tournament, userId);
@@ -120,7 +123,7 @@ registrationCommands.callbackQuery(/^reg:cancel:(.+)$/, async (ctx) => {
 
   // Обновить сообщение
   const updatedInfo = await getTournamentInfo(tournament, userId);
-  const isAdmin = ctx.dbUser.role === 'admin';
+  const isAdmin = await canAdministerTournament(ctx, tournamentId);
   const updatedText = buildTournamentMessage(updatedInfo, isAdmin);
   const newKeyboard = buildTournamentKeyboard(updatedInfo, isAdmin);
 

@@ -4,12 +4,18 @@ import type {
   ApiTournamentParticipant,
   ApiGroupStanding,
   ApiPlayerStanding,
+  ApiPrizeReport,
+  ApiPrizeRow,
+  IFinanceSettings,
+  IPrizeMode,
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
   ApiBusyElsewhere,
   ApiUser,
+  ApiUserPublic,
   ApiUserStats,
+  ApiOrganizerUsage,
   ApiMaxBreakLeaderboardEntry,
   ApiTable,
   ApiVenue,
@@ -22,19 +28,67 @@ import type {
   ITournamentDiscipline,
   IGroupDraw,
   IStageWinScores,
+  FederationRole,
+  ApiFederation,
+  ApiFederationSummary,
+  ApiFederationDetail,
+  ApiFederationMember,
+  ApiFederationChat,
+  ApiUserFederation,
 } from '@server/apiTypes';
 
+/**
+ * Пользователь в панели. Платформенный админ получает полную строку (`ApiUser`),
+ * организатор — без контактов (`ApiUserPublic`); UI читает контакты как опциональные.
+ */
+export type AdminUserView = Omit<
+  ApiUser,
+  | 'email'
+  | 'phone'
+  | 'telegram_id'
+  | 'organizerUntil'
+  | 'maxFederations'
+  | 'maxTournamentsPerMonth'
+> &
+  Partial<
+    Pick<
+      ApiUser,
+      | 'email'
+      | 'phone'
+      | 'telegram_id'
+      | 'maxFederations'
+      | 'maxTournamentsPerMonth'
+    >
+  > & {
+    telegramLinked?: boolean;
+    /** Срок права организатора (ISO); приходит только платформенному админу. */
+    organizerUntil?: string | null;
+  };
+
 export type {
+  ApiUserPublic,
+  FederationRole,
+  ApiFederation,
+  ApiFederationSummary,
+  ApiFederationDetail,
+  ApiFederationMember,
+  ApiFederationChat,
+  ApiUserFederation,
   ApiTournament,
   ApiTournamentParticipant,
   ApiGroupStanding,
   ApiPlayerStanding,
+  ApiPrizeReport,
+  ApiPrizeRow,
+  IFinanceSettings,
+  IPrizeMode,
   ApiMatch,
   ApiMatchFrame,
   ApiMatchStats,
   ApiBusyElsewhere,
   ApiUser,
   ApiUserStats,
+  ApiOrganizerUsage,
   ApiMaxBreakLeaderboardEntry,
   ApiTable,
   ApiVenue,
@@ -107,8 +161,25 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
 export interface MeResponse {
   user: { id: string; username: string; role: string } | null;
+  /** Глобальный `role='admin'`: видит все федерации и платформенные ресурсы. */
+  isPlatformAdmin: boolean;
+  /** Может создать свою организацию: админ или действующее право организатора. */
+  canCreateFederations: boolean;
+  /** Срок платного права организатора (ISO) или null. */
+  organizerUntil: string | null;
+  /** Федерации, в которых состоит вошедший (с ролью) — основа переключателя. */
+  federations: ApiUserFederation[];
   /** Адрес сайта игрока — для ссылки «Сайт игрока». */
   playerUrl: string;
+}
+
+/** Параметр `?federationId=` для скоупленных списков; `'platform'` — только для админа. */
+export type FederationParam = string | 'platform' | undefined;
+
+function withFederation(path: string, federationId: FederationParam): string {
+  return federationId
+    ? `${path}?federationId=${encodeURIComponent(federationId)}`
+    : path;
 }
 
 export const auth = {
@@ -133,7 +204,8 @@ export const auth = {
 // ── Tournaments ──────────────────────────────────────────────────────────────
 
 export const tournamentsApi = {
-  list: () => apiFetch<ApiTournament[]>('/api/tournaments'),
+  list: (federationId?: FederationParam) =>
+    apiFetch<ApiTournament[]>(withFederation('/api/tournaments', federationId)),
 
   get: (id: string) => apiFetch<ApiTournament>(`/api/tournaments/${id}`),
 
@@ -141,6 +213,16 @@ export const tournamentsApi = {
 
   standings: (id: string) =>
     apiFetch<ApiGroupStanding[]>(`/api/tournaments/${id}/standings`),
+
+  /** Null for a free tournament (no entry fee). */
+  prizes: (id: string) =>
+    apiFetch<ApiPrizeReport | null>(`/api/tournaments/${id}/prizes`),
+
+  setFinance: (id: string, data: IFinanceSettings) =>
+    apiFetch<ApiTournament>(`/api/tournaments/${id}/finance`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
 
   create: (
     data: {
@@ -160,6 +242,8 @@ export const tournamentsApi = {
       startDate?: string;
       venueId: string;
       tableIds?: string[];
+      /** Организатор; null = платформенный турнир (только админ). */
+      federationId: string | null;
     } & GroupConfigFields,
   ) =>
     apiFetch<ApiTournament>('/api/tournaments', {
@@ -358,10 +442,9 @@ export const matchesApi = {
       body: JSON.stringify({ confirmerId }),
     }),
 
-  dispute: (id: string, userId: string) =>
+  dispute: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/matches/${id}/dispute`, {
       method: 'POST',
-      body: JSON.stringify({ userId }),
     }),
 
   setTechnical: (id: string, winnerId: string, reason: string) =>
@@ -381,10 +464,15 @@ export const matchesApi = {
       `/api/matches/tournament/${tournamentId}/busy-elsewhere`,
     ),
 
-  setQueue: (tournamentId: string, matchIds: string[]) =>
+  /** `expectedMatchIds` is the order the admin saw; a stale one is rejected. */
+  setQueue: (
+    tournamentId: string,
+    matchIds: string[],
+    expectedMatchIds: string[],
+  ) =>
     apiFetch<{ ok: boolean }>(`/api/matches/tournament/${tournamentId}/queue`, {
       method: 'PUT',
-      body: JSON.stringify({ matchIds }),
+      body: JSON.stringify({ matchIds, expectedMatchIds }),
     }),
 
   setSchedule: (id: string, scheduledAt: string | null) =>
@@ -430,9 +518,16 @@ export const matchesApi = {
 // ── Users ────────────────────────────────────────────────────────────────────
 
 export const usersApi = {
-  list: () => apiFetch<ApiUser[]>('/api/users'),
+  /** Админ — все (или ростер федерации); организатор — ростер своих федераций. `q=@username` — точный поиск. */
+  list: (params?: { federationId?: FederationParam; q?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.federationId) qs.set('federationId', params.federationId);
+    if (params?.q) qs.set('q', params.q);
+    const suffix = qs.size > 0 ? `?${qs.toString()}` : '';
+    return apiFetch<AdminUserView[]>(`/api/users${suffix}`);
+  },
 
-  get: (id: string) => apiFetch<ApiUser>(`/api/users/${id}`),
+  get: (id: string) => apiFetch<AdminUserView>(`/api/users/${id}`),
 
   stats: (id: string) => apiFetch<ApiUserStats>(`/api/users/${id}/stats`),
 
@@ -444,9 +539,13 @@ export const usersApi = {
 
   update: (
     id: string,
-    fields: { name?: string | null; surname?: string | null },
+    fields: {
+      name?: string | null;
+      surname?: string | null;
+      city?: string | null;
+    },
   ) =>
-    apiFetch<ApiUser>(`/api/users/${id}`, {
+    apiFetch<AdminUserView>(`/api/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(fields),
     }),
@@ -462,6 +561,27 @@ export const usersApi = {
       method: 'DELETE',
     }),
 
+  /** Только админ: выдать/продлить право организатора до даты (ISO) или снять (null). */
+  setOrganizerUntil: (id: string, until: string | null) =>
+    apiFetch<AdminUserView>(`/api/users/${id}/organizer`, {
+      method: 'PATCH',
+      body: JSON.stringify({ until }),
+    }),
+
+  /** Только админ: тариф организатора — сколько использовано из лимитов. */
+  organizerUsage: (id: string) =>
+    apiFetch<ApiOrganizerUsage>(`/api/users/${id}/organizer/usage`),
+
+  /** Только админ: лимиты тарифа организатора. */
+  setOrganizerLimits: (
+    id: string,
+    limits: { maxFederations?: number; maxTournamentsPerMonth?: number },
+  ) =>
+    apiFetch<AdminUserView>(`/api/users/${id}/organizer/limits`, {
+      method: 'PATCH',
+      body: JSON.stringify(limits),
+    }),
+
   delete: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
 };
@@ -469,8 +589,82 @@ export const usersApi = {
 // ── Leaderboard ──────────────────────────────────────────────────────────────
 
 export const leaderboardApi = {
-  breaks: () =>
-    apiFetch<ApiMaxBreakLeaderboardEntry[]>('/api/leaderboard/breaks'),
+  breaks: (federationId?: FederationParam) =>
+    apiFetch<ApiMaxBreakLeaderboardEntry[]>(
+      withFederation('/api/leaderboard/breaks', federationId),
+    ),
+};
+
+// ── Federations ──────────────────────────────────────────────────────────────
+
+export const federationsApi = {
+  /** Админ — все со счётчиками; организатор — свои с ролью. */
+  list: () =>
+    apiFetch<(ApiFederationSummary | ApiUserFederation)[]>('/api/federations'),
+
+  get: (id: string) => apiFetch<ApiFederationDetail>(`/api/federations/${id}`),
+
+  create: (data: {
+    name: string;
+    city: string;
+    description?: string | null;
+    /** Только админ: назначить владельцем другого пользователя. */
+    ownerUsername?: string;
+  }) =>
+    apiFetch<ApiFederation>('/api/federations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (
+    id: string,
+    data: { name?: string; city?: string; description?: string | null },
+  ) =>
+    apiFetch<ApiFederation>(`/api/federations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/federations/${id}`, { method: 'DELETE' }),
+
+  members: (id: string) =>
+    apiFetch<ApiFederationMember[]>(`/api/federations/${id}/members`),
+
+  addMember: (id: string, data: { username: string; role: FederationRole }) =>
+    apiFetch<ApiFederationMember[]>(`/api/federations/${id}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  setMemberRole: (id: string, userId: string, role: FederationRole) =>
+    apiFetch<ApiFederationMember[]>(
+      `/api/federations/${id}/members/${userId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      },
+    ),
+
+  removeMember: (id: string, userId: string) =>
+    apiFetch<{ ok: boolean }>(`/api/federations/${id}/members/${userId}`, {
+      method: 'DELETE',
+    }),
+
+  chats: (id: string) =>
+    apiFetch<ApiFederationChat[]>(`/api/federations/${id}/chats`),
+
+  bindChat: (id: string, chatId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/federations/${id}/chats/${encodeURIComponent(chatId)}/bind`,
+      { method: 'POST' },
+    ),
+
+  unbindChat: (id: string, chatId: string) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/federations/${id}/chats/${encodeURIComponent(chatId)}/bind`,
+      { method: 'DELETE' },
+    ),
 };
 
 // ── Tables ────────────────────────────────────────────────────────────────────
@@ -493,7 +687,14 @@ export const tablesApi = {
 export const venuesApi = {
   list: () => apiFetch<ApiVenue[]>('/api/venues'),
 
-  create: (data: { name: string; address: string; image?: string }) =>
+  create: (data: {
+    name: string;
+    address: string;
+    city: string;
+    image?: string;
+    /** null = общая площадка (только админ); организатор указывает свою. */
+    federationId: string | null;
+  }) =>
     apiFetch<ApiVenue>('/api/venues', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -501,7 +702,12 @@ export const venuesApi = {
 
   update: (
     id: string,
-    data: { name?: string; address?: string; image?: string | null },
+    data: {
+      name?: string;
+      address?: string;
+      city?: string;
+      image?: string | null;
+    },
   ) =>
     apiFetch<ApiVenue>(`/api/venues/${id}`, {
       method: 'PATCH',

@@ -194,8 +194,8 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
   });
 
   const reorder = useMutation({
-    mutationFn: (matchIds: string[]) =>
-      matchesApi.setQueue(tournamentId, matchIds),
+    mutationFn: ({ ids, expected }: { ids: string[]; expected: string[] }) =>
+      matchesApi.setQueue(tournamentId, ids, expected),
     onSuccess: () => {
       setError('');
       return invalidate();
@@ -207,11 +207,12 @@ export default function QueueTab({ tournamentId }: { tournamentId: string }) {
   });
 
   const move = (from: number, to: number): void => {
-    const ids = queue.map((m) => m.id);
+    const expected = queue.map((m) => m.id);
+    const ids = [...expected];
     const [id] = ids.splice(from, 1);
     if (id === undefined) return;
     ids.splice(to, 0, id);
-    reorder.mutate(ids);
+    reorder.mutate({ ids, expected });
   };
 
   if (isLoading) {

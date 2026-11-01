@@ -1,4 +1,6 @@
 export * from './schema/users.js';
+export * from './schema/federations.js';
+export * from './schema/federationMembers.js';
 export * from './schema/tournaments.js';
 export * from './schema/tournamentParticipants.js';
 export * from './schema/tournamentReferees.js';

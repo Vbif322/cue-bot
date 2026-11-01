@@ -20,19 +20,24 @@ import {
   resolveUserFromCookie,
   JWT_SECRET,
 } from '@/admin/server/middleware.js';
+import { isStaffUser } from '@/services/federationService.js';
 import {
   findOrCreateEmailUser,
   getOrCreateTelegramUser,
-  toAppUser,
+  buildAppUser,
   mergeAccountIntoTelegram,
   MergeError,
-  linkEmailToUser,
   createLoginToken,
 } from '@/services/userService.js';
 import {
+  emailCodeLimiter,
   issueLoginCode,
   verifyLoginCode,
 } from '@/services/emailLoginCodeService.js';
+import {
+  confirmEmailLink,
+  requestEmailLinkCode,
+} from '@/services/emailLinkService.js';
 import { sendLoginCodeEmail } from '@/services/mailService.js';
 import {
   createPkce,
@@ -46,11 +51,7 @@ import {
 import { verifyMiniAppInitData } from '../telegramMiniApp.js';
 import type { TelegramClaims } from '../telegramClaims.js';
 import type { DbUser } from '@/bot/types.js';
-import {
-  generateLoginCode,
-  hashCode,
-  normalizeEmail,
-} from '../authCrypto.js';
+import { generateLoginCode, hashCode, normalizeEmail } from '../authCrypto.js';
 import { validateJson } from './_shared.js';
 
 const APP_COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 дней
@@ -97,16 +98,6 @@ export async function readMergeIntent(c: Context): Promise<MergeIntent | null> {
     return null;
   }
 }
-
-/**
- * Пер-email лимит запросов кода (~3 / 15 мин), поверх пер-IP анти-флуда. При
- * превышении отвечаем обычным 200 без отправки — чтобы не выдавать, что на этот
- * адрес недавно слали код. Экспортируется для периодической очистки в index.ts.
- */
-export const emailCodeLimiter = new RateLimiter({
-  capacity: 3,
-  refillPerSec: 3 / (15 * 60),
-});
 
 /**
  * Лимит выпуска ссылок «Админка» (мост в админку через `loginTokens`) — по userId,
@@ -190,7 +181,9 @@ async function linkTelegram(
  * Mini App): identity ('telegram', id) есть → её юзер; нет → getOrCreateTelegramUser.
  * Возвращает `null`, если identity ведёт на soft-deleted аккаунт (паритет с email-входом).
  */
-async function loginTelegramUser(claims: TelegramClaims): Promise<DbUser | null> {
+async function loginTelegramUser(
+  claims: TelegramClaims,
+): Promise<DbUser | null> {
   const identity = await db.query.userIdentities.findFirst({
     where: and(
       eq(userIdentities.provider, 'telegram'),
@@ -219,8 +212,14 @@ export function createAppAuthRouter() {
   const auth = new Hono();
 
   // Пер-IP анти-флуд (это не enumeration — штатный 429 при превышении).
-  const requestIpLimit = createIpRateLimit({ capacity: 10, refillPerSec: 10 / 900 });
-  const verifyIpLimit = createIpRateLimit({ capacity: 20, refillPerSec: 20 / 900 });
+  const requestIpLimit = createIpRateLimit({
+    capacity: 10,
+    refillPerSec: 10 / 900,
+  });
+  const verifyIpLimit = createIpRateLimit({
+    capacity: 20,
+    refillPerSec: 20 / 900,
+  });
 
   auth.post(
     '/request-code',
@@ -277,7 +276,7 @@ export function createAppAuthRouter() {
         maxAge: APP_COOKIE_MAX_AGE,
       });
 
-      return c.json({ data: { user: toAppUser(user) } });
+      return c.json({ data: { user: await buildAppUser(user) } });
     },
   );
 
@@ -292,53 +291,16 @@ export function createAppAuthRouter() {
     validateJson(z.object({ email: z.email() }), AUTH_FIELD_MESSAGES),
     async (c) => {
       const user = c.get('appUser');
-      const email = normalizeEmail(c.req.valid('json').email);
-
-      // Пользователь аутентифицирован — enumeration не проблема, поэтому даём
-      // ранние понятные ошибки вместо «молчаливого 200» логина.
-      const own = await db.query.userIdentities.findFirst({
-        where: and(
-          eq(userIdentities.userId, user.id),
-          eq(userIdentities.provider, 'email'),
-        ),
-      });
-      if (own) {
+      const result = await requestEmailLinkCode(
+        user.id,
+        c.req.valid('json').email,
+      );
+      if (!result.success) {
         return c.json(
-          {
-            error:
-              own.providerId === email
-                ? 'Эта почта уже привязана.'
-                : 'К аккаунту уже привязана другая почта.',
-          },
-          400,
+          { error: result.error },
+          result.reason === 'rate_limited' ? 429 : 400,
         );
       }
-      const taken = await db.query.userIdentities.findFirst({
-        where: and(
-          eq(userIdentities.provider, 'email'),
-          eq(userIdentities.providerId, email),
-        ),
-      });
-      if (taken) {
-        return c.json(
-          { error: 'Эта почта уже используется другим аккаунтом.' },
-          400,
-        );
-      }
-
-      // Пер-email лимит (общий бакет с логином): молча пропускаем без отправки.
-      if (emailCodeLimiter.hit(email).allowed) {
-        try {
-          const code = generateLoginCode();
-          await issueLoginCode(email, hashCode(code));
-          void sendLoginCodeEmail(email, code).catch((err: unknown) => {
-            console.error('Ошибка отправки кода привязки email:', err);
-          });
-        } catch (err) {
-          console.error('Ошибка выпуска кода привязки email:', err);
-        }
-      }
-
       return c.json({ data: { ok: true } });
     },
   );
@@ -353,40 +315,18 @@ export function createAppAuthRouter() {
     ),
     async (c) => {
       const user = c.get('appUser');
-      const { email: rawEmail, code } = c.req.valid('json');
-      const email = normalizeEmail(rawEmail);
+      const { email, code } = c.req.valid('json');
 
-      const ok = await verifyLoginCode(email, hashCode(code));
-      if (!ok) {
-        return c.json({ error: 'Неверный или просроченный код' }, 400);
-      }
+      const result = await confirmEmailLink(user.id, email, code);
+      if (!result.success) return c.json({ error: result.error }, 400);
 
-      try {
-        const result = await linkEmailToUser(user.id, email);
-        if (result === 'has_other') {
-          return c.json({ error: 'К аккаунту уже привязана другая почта.' }, 400);
-        }
-        if (result === 'exists') {
-          return c.json(
-            { error: 'Эта почта уже используется другим аккаунтом.' },
-            400,
-          );
-        }
-        const updated = await db.query.users.findFirst({
-          where: eq(users.id, user.id),
-        });
-        if (!updated) {
-          return c.json({ error: 'Аккаунт недоступен.' }, 400);
-        }
-        return c.json({ data: { user: toAppUser(updated) } });
-      } catch (err) {
-        // Редкая гонка на UNIQUE — код уже погашен, просим повторить.
-        console.error('Ошибка привязки email:', err);
-        return c.json(
-          { error: 'Не удалось привязать почту. Попробуйте ещё раз.' },
-          400,
-        );
+      const updated = await db.query.users.findFirst({
+        where: eq(users.id, user.id),
+      });
+      if (!updated) {
+        return c.json({ error: 'Аккаунт недоступен.' }, 400);
       }
+      return c.json({ data: { user: await buildAppUser(updated) } });
     },
   );
 
@@ -421,7 +361,10 @@ export function createAppAuthRouter() {
     let userId: string | null = null;
     if (link) {
       // Cookie-only (без Bearer): это браузерный редирект-флоу, заголовков тут нет.
-      const user = await resolveUserFromCookie(c, { cookie: 'app_token', typ: 'app' });
+      const user = await resolveUserFromCookie(c, {
+        cookie: 'app_token',
+        typ: 'app',
+      });
       if (!user) return c.redirect('/login?telegram=auth_required');
       userId = user.id;
     }
@@ -432,7 +375,12 @@ export function createAppAuthRouter() {
     await setSignedCookie(
       c,
       OAUTH_COOKIE,
-      JSON.stringify({ state, codeVerifier, intent: link ? 'link' : 'login', userId }),
+      JSON.stringify({
+        state,
+        codeVerifier,
+        intent: link ? 'link' : 'login',
+        userId,
+      }),
       JWT_SECRET,
       { ...OAUTH_COOKIE_OPTS, maxAge: OAUTH_COOKIE_MAX_AGE },
     );
@@ -442,7 +390,9 @@ export function createAppAuthRouter() {
       url = buildAuthUrl({ state, codeChallenge, redirectUri: redirectUri() });
     } catch (err) {
       console.error('Telegram OIDC start failed:', err);
-      return c.redirect(link ? '/profile?telegram=error' : '/login?telegram=error');
+      return c.redirect(
+        link ? '/profile?telegram=error' : '/login?telegram=error',
+      );
     }
     return c.redirect(url);
   });
@@ -548,10 +498,9 @@ export function createAppAuthRouter() {
   auth.post(
     '/telegram/miniapp',
     miniAppIpLimit,
-    validateJson(
-      z.object({ initData: z.string().min(1) }),
-      { initData: 'Некорректные данные Telegram' },
-    ),
+    validateJson(z.object({ initData: z.string().min(1) }), {
+      initData: 'Некорректные данные Telegram',
+    }),
     async (c) => {
       const { initData } = c.req.valid('json');
 
@@ -563,7 +512,8 @@ export function createAppAuthRouter() {
       }
 
       const user = await loginTelegramUser(verified.data);
-      if (!user) return c.json({ error: 'Не удалось войти через Telegram' }, 401);
+      if (!user)
+        return c.json({ error: 'Не удалось войти через Telegram' }, 401);
 
       // Куку ставим (для браузера), НО в WebView Telegram куки ненадёжны — поэтому
       // дополнительно отдаём токен в теле. Фронт хранит его и шлёт в заголовке
@@ -575,7 +525,7 @@ export function createAppAuthRouter() {
         maxAge: APP_COOKIE_MAX_AGE,
       });
       const token = signAppToken(user.id, '24h');
-      return c.json({ data: { user: toAppUser(user), token } });
+      return c.json({ data: { user: await buildAppUser(user), token } });
     },
   );
 
@@ -617,7 +567,7 @@ export function createAppAuthRouter() {
         ...APP_COOKIE_OPTS,
         maxAge: APP_COOKIE_MAX_AGE,
       });
-      return c.json({ data: { user: toAppUser(survivor) } });
+      return c.json({ data: { user: await buildAppUser(survivor) } });
     } catch (e) {
       if (e instanceof MergeError) return c.json({ error: e.message }, 400);
       throw e;
@@ -629,8 +579,8 @@ export function createAppAuthRouter() {
     return c.json({ data: { ok: true } });
   });
 
-  auth.get('/me', requireUser, (c) =>
-    c.json({ data: { user: toAppUser(c.get('appUser')) } }),
+  auth.get('/me', requireUser, async (c) =>
+    c.json({ data: { user: await buildAppUser(c.get('appUser')) } }),
   );
 
   // Переход «сайт игрока → админка». Сессии раздельные (admin_token живёт только на
@@ -640,7 +590,7 @@ export function createAppAuthRouter() {
   // выпустить токен чужой страницей нельзя. Роль перепроверяет и сам редим.
   auth.post('/admin-link', requireUser, async (c) => {
     const user = c.get('appUser');
-    if (user.role !== 'admin') {
+    if (!(await isStaffUser(user))) {
       return c.json({ error: 'Недостаточно прав' }, 403);
     }
     if (!adminLinkLimiter.hit(user.id).allowed) {

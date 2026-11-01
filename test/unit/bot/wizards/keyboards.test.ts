@@ -50,7 +50,11 @@ describe('TournamentCreationKeyboards', () => {
     expect(btns.map((b) => b.data)).toEqual(
       visibilities.map((v) => `tc:visibility:${v}`),
     );
-    expect(btns.map((b) => b.text)).toEqual(['Открытый', 'Закрытый']);
+    expect(btns.map((b) => b.text)).toEqual([
+      'Открытый',
+      'По ссылке',
+      'Закрытый',
+    ]);
   });
 
   it('buildScheduleModeKeyboard: one button per mode with tc:schedule:<m>', () => {
@@ -197,5 +201,23 @@ describe('TournamentCreationKeyboards', () => {
     expect(btns).toEqual([
       { text: 'Открыть регистрацию', data: 'tournament_open_reg:abc' },
     ]);
+  });
+});
+
+describe('buildFederationsKeyboard', () => {
+  it('one button per option; platform (id null) maps to tc:fed:platform', () => {
+    const kb = new TournamentCreationKeyboards().buildFederationsKeyboard([
+      { id: '00000000-0000-0000-0000-00000000000f', name: 'Лига' },
+      { id: null, name: 'Платформа' },
+    ]);
+    const btns = kb.inline_keyboard.flat() as {
+      text: string;
+      callback_data: string;
+    }[];
+    expect(btns.map((b) => b.callback_data)).toEqual([
+      'tc:fed:00000000-0000-0000-0000-00000000000f',
+      'tc:fed:platform',
+    ]);
+    expect(btns.map((b) => b.text)).toEqual(['Лига', 'Платформа']);
   });
 });

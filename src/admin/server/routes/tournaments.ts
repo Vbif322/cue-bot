@@ -23,7 +23,6 @@ import {
   validateGroupConfig,
   validateSportDiscipline,
   type ITournamentWinScore,
-  type IStageWinScores,
 } from '@/db/schema.js';
 import {
   createTournamentDraft,
@@ -46,6 +45,11 @@ import {
   registerParticipant,
 } from '@/services/tournamentService.js';
 import {
+  getPrizeReport,
+  updateTournamentFinance,
+} from '@/services/prizeService.js';
+import { MAX_PRIZE_PLACES, prizeModes } from '@/shared/tournament/prizes.js';
+import {
   notifyRegistrationConfirmed,
   notifyRegistrationRejected,
   notifyTournamentCancelled,
@@ -61,8 +65,34 @@ import {
 } from '@/services/groupPhaseService.js';
 import { clinchedUserIds } from '@/services/standingsService.js';
 import { getTournamentTables } from '@/services/tableService.js';
-import { requireAdmin } from '../middleware.js';
+import { requireStaff } from '../middleware.js';
+import {
+  scopeOf,
+  tournamentGuard,
+  federationFilterFromQuery,
+  resolveFederationForWrite,
+} from './_shared.js';
 import { validateParam, idParam, idUserIdParam } from './_shared.js';
+
+// Entry fee + prize split. Shape only — the semantic checks (contiguous places,
+// shares summing to 100, fixed prizes + cut fitting the fees) need the turnout, so
+// they run in updateTournamentFinance via validateFinanceSettings, which the
+// SPA shares.
+const financeSchema = z.object({
+  entryFee: z.number().int().positive().max(10_000_000).nullable(),
+  organizerFeePercent: z.number().int().min(0).max(100),
+  organizerFeeAmount: z.number().int().min(0).max(1_000_000_000),
+  prizeMode: z.enum(prizeModes),
+  prizeDistribution: z
+    .array(
+      z.object({
+        place: z.number().int().min(1),
+        value: z.number().int(),
+      }),
+    )
+    .max(MAX_PRIZE_PLACES)
+    .nullable(),
+});
 
 // Shared create/update body schema. For groups_playoff the four group fields are
 // required and validated together; for the other formats maxParticipants must be
@@ -107,6 +137,9 @@ const tournamentBodySchema = z
     startDate: z.string().optional(),
     venueId: z.uuid(),
     tableIds: z.array(z.uuid()).optional(),
+    // Организатор. Для платформенного админа null = платформенный турнир; для
+    // организатора обязателен и должен быть одной из его федераций (403 иначе).
+    federationId: z.uuid().nullable().default(null),
   })
   .superRefine((data, ctx) => {
     const sportError = validateSportDiscipline(data.sport, data.discipline);
@@ -158,13 +191,22 @@ function resolveMaxParticipants(
 export function createTournamentsRouter(botApi: Api) {
   const router = new Hono();
 
-  router.use('/*', requireAdmin);
+  router.use('/*', requireStaff);
+  // Всё под /:id — только турниры в скоупе актора (GET → manage, иначе administer).
+  router.use('/:id', tournamentGuard());
+  router.use('/:id/*', tournamentGuard());
 
   router.get('/', async (c) => {
+    const filter = federationFilterFromQuery(c);
+    if (filter.error) return filter.error;
     const list = await getTournaments({
       limit: 100,
       includesDrafts: true,
-      includePrivate: true,
+      visibilityIn: visibilities,
+      scope: scopeOf(c),
+      ...(filter.federationId !== undefined
+        ? { federationId: filter.federationId }
+        : {}),
     });
     return c.json({ data: list });
   });
@@ -235,12 +277,54 @@ export function createTournamentsRouter(botApi: Api) {
     return c.json({ data });
   });
 
+  // Prize table: final split for a completed tournament, forecast by place
+  // before that; null data for a free tournament.
+  router.get('/:id/prizes', validateParam(idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    const tournament = await getTournament(id);
+    if (!tournament) return c.json({ error: 'Не найден' }, 404);
+
+    try {
+      return c.json({ data: await getPrizeReport(tournament) });
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
+  // Entry fee + prize split, editable in any status but cancelled (see
+  // updateTournamentFinance) — unlike PATCH /:id, which stops at the start.
+  router.patch(
+    '/:id/finance',
+    validateParam(idParam),
+    zValidator('json', financeSchema),
+    async (c) => {
+      const { id } = c.req.valid('param');
+      const body = c.req.valid('json');
+
+      try {
+        const tournament = await updateTournamentFinance(id, body);
+        return c.json({ data: tournament });
+      } catch (error) {
+        return c.json({ error: errorMessage(error) }, 400);
+      }
+    },
+  );
+
   router.post('/', zValidator('json', tournamentBodySchema), async (c) => {
     const body = c.req.valid('json');
     const admin = c.get('adminUser');
 
+    const federationId = resolveFederationForWrite(
+      admin,
+      body.federationId as UUID | null,
+    );
+    if (federationId === undefined) {
+      return c.json({ error: 'Укажите свою организацию' }, 403);
+    }
+
     try {
       const tournament = await createTournamentDraft({
+        federationId,
         name: body.name,
         description: body.description ?? null,
         rules: body.rules ?? null,
@@ -252,7 +336,7 @@ export function createTournamentsRouter(botApi: Api) {
         scheduleMode: body.scheduleMode,
         maxParticipants: resolveMaxParticipants(body),
         winScore: body.winScore as ITournamentWinScore,
-        stageWinScores: (body.stageWinScores ?? null) as IStageWinScores | null,
+        stageWinScores: body.stageWinScores ?? null,
         mergeRound: body.mergeRound,
         groupsCount: body.groupsCount ?? null,
         participantsPerGroup: body.participantsPerGroup ?? null,
@@ -305,8 +389,7 @@ export function createTournamentsRouter(botApi: Api) {
           scheduleMode: body.scheduleMode,
           maxParticipants: resolveMaxParticipants(body),
           winScore: body.winScore as ITournamentWinScore,
-          stageWinScores: (body.stageWinScores ??
-            null) as IStageWinScores | null,
+          stageWinScores: body.stageWinScores ?? null,
           mergeRound: body.mergeRound,
           groupsCount: body.groupsCount ?? null,
           participantsPerGroup: body.participantsPerGroup ?? null,
@@ -467,11 +550,14 @@ export function createTournamentsRouter(botApi: Api) {
       let userId: UUID;
 
       if (body.type === 'external') {
+        // Гость принадлежит федерации турнира: попадает в её ростер и
+        // редактируется её организаторами (см. users.ts).
         const [newUser] = await db
           .insert(users)
           .values({
             username: body.username ?? body.name.slice(0, 255),
             name: body.name,
+            createdByFederationId: c.get('tournament')?.federationId ?? null,
           })
           .returning({ id: users.id });
 

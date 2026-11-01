@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { ChatMemberUpdated } from 'grammy/types';
 import type { UUID } from 'crypto';
 
 import { db } from '@/db/db.js';
-import { groupChats } from '@/db/schema.js';
+import { federationMembers, groupChats } from '@/db/schema.js';
 import type { IGroupChat, IGroupChatType } from '@/db/schema.js';
 import type { TournamentReadModel } from '@/bot/@types/tournament.js';
 
@@ -91,10 +91,10 @@ export async function listActiveGroupChats(): Promise<IGroupChat[]> {
 /**
  * ШОВ МАРШРУТИЗАЦИИ: «какие чаты должны услышать про этот турнир».
  *
- * Сегодня — все активные чаты: платформа это одна неявная федерация, поэтому
- * подписка чата означает «все публичные турниры». Когда появится привязка чата
- * к конкретному турниру или федерации (M7/M8), меняется ТОЛЬКО тело этой
- * функции — вызывающий код и таблица `group_chats` остаются как есть.
+ * Анонс уходит только в чаты, привязанные к федерации турнира. Чат без
+ * привязки (`federationId IS NULL`) не слышит ничего — бот в нём молчит, пока
+ * чат не привяжут в панели. Платформенный турнир (без федерации) в группы не
+ * анонсируется вовсе.
  *
  * Фильтр по `visibility`/`status` живёт в `announceRegistrationOpen`, а не
  * здесь: это свойство турнира, а не маршрутизации.
@@ -102,10 +102,58 @@ export async function listActiveGroupChats(): Promise<IGroupChat[]> {
 export async function resolveAnnouncementTargets(
   tournament: TournamentReadModel,
 ): Promise<IGroupChat[]> {
-  // Турнир сегодня на выбор не влияет — он в сигнатуре именно потому, что
-  // повлияет: это и есть точка, куда придёт фильтр по привязке/федерации.
-  void tournament;
-  return listActiveGroupChats();
+  if (tournament.federationId === null) return [];
+
+  return db.query.groupChats.findMany({
+    where: and(
+      eq(groupChats.isActive, true),
+      eq(groupChats.federationId, tournament.federationId),
+    ),
+  });
+}
+
+/** Привязать чат к федерации: с этого момента он слышит только её турниры. */
+export async function bindGroupChat(
+  chatId: string,
+  federationId: UUID,
+): Promise<void> {
+  await db
+    .update(groupChats)
+    .set({ federationId, updatedAt: new Date() })
+    .where(eq(groupChats.chatId, chatId));
+}
+
+/** Снять привязку: чат перестаёт получать анонсы, бот в нём замолкает. */
+export async function unbindGroupChat(chatId: string): Promise<void> {
+  await db
+    .update(groupChats)
+    .set({ federationId: null, updatedAt: new Date() })
+    .where(eq(groupChats.chatId, chatId));
+}
+
+/**
+ * Чаты, которыми может распорядиться федерация: уже привязанные к ней, плюс
+ * непривязанные, которые добавил кто-то из её команды (кандидаты на привязку).
+ */
+export async function listGroupChatsForFederation(
+  federationId: UUID,
+): Promise<IGroupChat[]> {
+  const members = await db
+    .select({ userId: federationMembers.userId })
+    .from(federationMembers)
+    .where(eq(federationMembers.federationId, federationId));
+  const memberIds = members.map((m) => m.userId);
+  return db.query.groupChats.findMany({
+    where: or(
+      eq(groupChats.federationId, federationId),
+      memberIds.length > 0
+        ? and(
+            isNull(groupChats.federationId),
+            inArray(groupChats.addedBy, memberIds),
+          )
+        : undefined,
+    ),
+  });
 }
 
 export type MyChatMemberAction =

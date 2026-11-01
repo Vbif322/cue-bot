@@ -109,6 +109,15 @@ export const matches = prodSchema.table(
     player1ReadyAt: timestamp('player1_ready_at'),
     player2ReadyAt: timestamp('player2_ready_at'),
     noShowAlertedAt: timestamp('no_show_alerted_at'),
+    // Dispute marker for the referee. Set by disputeResult, kept while the
+    // players re-report, cleared on every transition to `completed` or a
+    // downstream reset (CLEARED_DISPUTE). `disputedScore` is a display
+    // snapshot of the disputed report, which the dispute itself wipes.
+    disputedAt: timestamp('disputed_at'),
+    disputedBy: uuid('disputed_by')
+      .$type<UUID>()
+      .references(() => users.id),
+    disputedScore: varchar('disputed_score', { length: 255 }),
     createdAt,
     updatedAt,
   },

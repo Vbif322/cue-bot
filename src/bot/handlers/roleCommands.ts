@@ -6,9 +6,12 @@ import { db } from '@/db/db.js';
 import { users, tournaments, tournamentReferees } from '@/db/schema.js';
 import { findUserByHandle } from '@/services/userService.js';
 
-import { adminOnly } from '../guards.js';
+import { adminOnly, organizerOnly } from '../guards.js';
 import { adminCommands, refereeCommands, userCommands } from '../commands.js';
-import { getUserRefereeTournaments } from '../permissions.js';
+import {
+  canAdministerTournament,
+  getUserRefereeTournaments,
+} from '../permissions.js';
 import type { BotContext } from '../types.js';
 
 export const roleCommands = new Composer<BotContext>();
@@ -104,7 +107,7 @@ roleCommands.command('remove_admin', adminOnly(), async (ctx) => {
 });
 
 // /assign_referee <tournament_id> <telegram_id/@username>
-roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
+roleCommands.command('assign_referee', organizerOnly(), async (ctx) => {
   const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
   if (args.length < 2) {
@@ -123,6 +126,11 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
 
   if (!tournament) {
     await ctx.reply('Турнир не найден.');
+    return;
+  }
+
+  if (!(await canAdministerTournament(ctx, tournament.id))) {
+    await ctx.reply('Вы не управляете этим турниром.');
     return;
   }
 
@@ -171,7 +179,7 @@ roleCommands.command('assign_referee', adminOnly(), async (ctx) => {
 });
 
 // /remove_referee <tournament_id> <telegram_id/@username>
-roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
+roleCommands.command('remove_referee', organizerOnly(), async (ctx) => {
   const args = ctx.message?.text.split(' ').slice(1) ?? [];
 
   if (args.length < 2) {
@@ -190,6 +198,11 @@ roleCommands.command('remove_referee', adminOnly(), async (ctx) => {
 
   if (!tournament) {
     await ctx.reply('Турнир не найден.');
+    return;
+  }
+
+  if (!(await canAdministerTournament(ctx, tournament.id))) {
+    await ctx.reply('Вы не управляете этим турниром.');
     return;
   }
 

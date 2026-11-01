@@ -24,7 +24,7 @@ npm run db:migrate     # apply migrations
 npm run db:studio      # Drizzle Studio
 
 # Quality
-npm run lint           # eslint (lint:fix to autofix); npm run format = prettier --write .
+npm run lint           # oxlint, type-aware (lint:fix to autofix); npm run format = prettier --write .
 
 # Tests (Vitest)
 npm test               # unit + integration
@@ -32,7 +32,22 @@ npm run test:unit
 npm run test:integration               # spins up a throwaway Postgres via testcontainers (needs docker)
 npm run test:unit -- test/unit/services/foo.test.ts   # single file
 npm run test:coverage
+npm run test:e2e                       # Playwright browser e2e (needs docker; `npx playwright install chromium` once)
+npm run test:e2e -- singleElimination  # single spec; test:e2e:headed / test:e2e:ui to watch
 ```
+
+**E2E** (`e2e/`, Playwright, not Vitest): `setup/globalSetup.ts` boots its own stack — a
+testcontainers Postgres, the API (`NODE_ENV=test`, `BOT_DISABLED=1`, no SMTP so login codes land
+in `e2e/.artifacts/server.log`) on :3100, admin/app Vite on :5183/:5184 (`VITE_API_PROXY`). Each
+user is its own `BrowserContext` with a signed `admin_token`/`app_token` cookie (`e2e/fixtures.ts`;
+only `auth.spec.ts` uses the real email-code login — the API rate-limits code requests per IP).
+Tests act **only through the UI**; the DB is read as an oracle (`e2e/helpers/tournamentFlow.ts`).
+`playOutTournament` plays only matches already called to a table (tables are handed out _after_
+the status / result commits, so helpers poll for the call rather than trusting a snapshot), and
+page objects wait for the post-success UI state, not for a button to vanish (buttons are
+relabelled «Обработка...»/«Отправка…» while a request runs). Selectors are Russian text/roles;
+the player's match rows carry `data-match-id`. Double elimination needs ≥8 players; the DE spec
+runs 16 snooker players (frame-by-frame reporting) on 4 tables with random pairing.
 
 Build / run:
 
@@ -58,7 +73,8 @@ Request flow (bot): `bot/middleware` → handler `Composer`s → `services/*` �
 
 - **bot/middleware** (`src/bot/middleware/`): `authMiddleware` looks up/creates the user by
   Telegram id and sets `ctx.dbUser` (relied on everywhere; see custom `BotContext` in
-  `src/bot/types.ts`). `wizardGuardMiddleware` blocks unrelated commands while a wizard is active.
+  `src/bot/types.ts`). `sessionGuardMiddleware` (`src/bot/sessions/`) blocks unrelated actions while
+  a wizard is active (see *Text sessions* below).
 - **handlers** (`src/bot/handlers/*.ts`): each file exports a grammY `Composer<BotContext>`; all are
   registered in order via `bot.use(...)` in `src/index.ts`. Callback queries are matched by regex.
   Keep handlers thin — delegate to services.
@@ -70,12 +86,45 @@ Request flow (bot): `bot/middleware` → handler `Composer`s → `services/*` �
   for `double_elimination_random`).
 - **ui** (`src/bot/ui/*.ts`): pure functions building message text + grammY keyboards from data.
 
-### Wizards
+### Federations and authorization (M8)
+A federation (`federations` + `federation_members`, roles `owner` | `organizer`) is an
+organizer entity; players never join one. `users.role` stays `user` | `admin` where `admin`
+is the platform super-admin. "Organizer" is derived (≥1 membership). Creating a federation
+is a **paid option**: it needs an active `users.organizerUntil` (granted by an admin via
+`PATCH /api/users/:id/organizer`), and a federation creates new tournaments only while one
+of its owners' grant is active (`assertFederationActive` in `createTournamentDraft`). Plan limits
+per user: `users.maxFederations` (default 1, self-service only) and `users.maxTournamentsPerMonth`
+(default 5, summed across the owner's federations per calendar month; `assertTournamentQuota`
+runs inside the insert transaction under a per-owner advisory lock). `tournaments.federationId`
+/ `venues.federationId` / `group_chats.federationId` are nullable: **NULL = platform resource,
+admins only** — organizer scopes use `inArray(federationId, ids)` and never match NULL.
+All permission logic lives in `src/services/authz.ts`: pure `*With` predicates (unit-tested)
+and `*AsUser` loaders. Two levels: **administer** (admin ∨ federation member: lifecycle,
+participants, delete) and **manage** (administer ∨ tournament referee: matches, invites).
+Bot gates go through `src/bot/permissions.ts` (`canAdministerTournament`, `canManageTournament`,
+`canOrganize`) and `guards.ts` (`adminOnly`, `organizerOnly`) — never inline `role === 'admin'`.
+Admin API routers use `requireStaff` (admin or any member) and scope per request via
+`routes/_shared.ts` (`tournamentGuard`, `loadManagedTournament`, `scopeOf`, `canEditVenue`);
+`requireAdmin` only on global roles, user deletion, federation deletion. Tournament
+`visibility` is `public | unlisted | private` (`unlisted` = reachable by link, excluded from
+feeds via `getTournaments({ visibilityIn })`).
+
+### Wizards and text sessions
 Multi-step bot flows live in `src/bot/wizards/`. The tournament-creation wizard is the template:
-`tournamentCreation/` splits into `.module` (bootstrap + `registerWizard`), `.stateStore`
-(in-memory `Map<userId, state>` — **sessions are lost on restart**), `.flow` (step state machine),
-`.renderer`, `.keyboards`, `.const`, `.d.ts`. All wizard callbacks use a prefix (`tc:`) so
-`wizardGuard` recognizes them; wizards register in `src/bot/wizards/wizardRegistry.ts`.
+`tournamentCreation/` splits into `.module` (bootstrap + session registration), `.stateStore`,
+`.flow` (step state machine), `.renderer`, `.keyboards`, `.const`, `.d.ts`.
+
+Every flow that waits for free text (tournament creation, invite, profile edit, match time,
+snooker frame entry) is a **text session** (`src/bot/sessions/`): state in `dialog_sessions` via
+`TextSessionStore` (survives restarts, per-flow TTL), registered with `registerTextSession`
+(`onText`, optional `onEnd`, `cancelReply`). Invariants: **at most one active text session per
+user** — `start` atomically ends the others (their `onEnd(…, 'superseded')`), and `update` never
+re-inserts a session that was ended; **one `/cancel`** (registered before all handlers) and **one
+`message:text` dispatcher** (registered last). Handlers must not add their own `/cancel` or
+`on('message:text')`. `blocking: true` sessions (wizards) get `sessionGuardMiddleware`: foreign
+callbacks, commands and menu buttons are blocked; their callbacks use a prefix (`tc:`) that the
+guard lets through. Soft sessions (`blocking: false`) block nothing and end on any command or menu
+button.
 
 ### Admin web API + auth bridge
 `src/admin/server/` is the Hono app (`index.ts` = `createAdminServer()`), routes under
@@ -105,8 +154,14 @@ Change schema → `npm run db:generate` → `npm run db:migrate`.
   tests). NodeNext imports use `.js` specifiers pointing at `.ts` sources.
 - Two tsconfigs: `tsconfig.json` is editor/typecheck only (`noEmit`, includes `test/`);
   `tsconfig.build.json` is the emitting build (`rootDir: src`).
-- Strict TS incl. `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. ESLint uses
-  `eslint-config-love`.
+- TypeScript 7 (native `tsc`; there is **no JS compiler API** in the `typescript` package, so
+  tools that `require('typescript')` won't work). Strict TS incl. `noUncheckedIndexedAccess` and
+  `exactOptionalPropertyTypes`; TS 7 defaults `types` to `[]`, so each tsconfig lists its ambient
+  types explicitly (`node`, `vite/client`, …).
+- Linting is **oxlint** (`.oxlintrc.json`, migrated from typescript-eslint `strictTypeChecked` +
+  `stylisticTypeChecked`). Type-aware rules run via `oxlint-tsgolint` (`options.typeAware`);
+  `eslint-disable` comments are honoured. Same ignore set as before (`admin/`, `app/`, `packages/`,
+  `scripts/`, … are not linted).
 - **Error conventions** (intentionally split, not unified): services with user-facing outcomes
   (`matchService`) return `{ success, error }` result objects; `canStartTournament` returns
   `{ canStart, error }`; `tournamentService` throws `Error` for invalid states. Callers (bot

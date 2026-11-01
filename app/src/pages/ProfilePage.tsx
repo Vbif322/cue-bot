@@ -7,7 +7,12 @@ import { Badge, type BadgeTone } from '@cue-bot/ui';
 import { meApi, appAuth } from '../lib/api.ts';
 import { getTelegramInitData } from '../lib/telegram.ts';
 import { useMe, useLogout } from '../lib/useAuth.ts';
-import { displayName, initials, gradientFor, formatDate } from '../lib/format.ts';
+import {
+  displayName,
+  initials,
+  gradientFor,
+  formatDate,
+} from '../lib/format.ts';
 import { Btn, Field, Labeled } from '../components/controls.tsx';
 import { ErrorBox, Loader, StatTile } from '../components/ui.tsx';
 import {
@@ -46,23 +51,33 @@ export default function ProfilePage() {
     queryKey: ['me', 'profile'],
     queryFn: () => meApi.get(),
   });
-  const { data: stats } = useQuery({ queryKey: ['me', 'stats'], queryFn: () => meApi.stats() });
+  const { data: stats } = useQuery({
+    queryKey: ['me', 'stats'],
+    queryFn: () => meApi.stats(),
+  });
 
   const [name, setName] = useState('');
   const [surname, setSurname] = useState('');
+  const [city, setCity] = useState('');
   useEffect(() => {
     if (profile) {
       setName(profile.name ?? '');
       setSurname(profile.surname ?? '');
+      setCity(profile.city ?? '');
     }
-  }, [profile?.name, profile?.surname]);
+  }, [profile?.name, profile?.surname, profile?.city]);
 
   const updateMut = useMutation({
     mutationFn: () =>
-      meApi.update({ name: name.trim() || null, surname: surname.trim() || null }),
+      meApi.update({
+        name: name.trim() || null,
+        surname: surname.trim() || null,
+        city: city.trim() || null,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['me', 'profile'] });
       qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+      qc.invalidateQueries({ queryKey: ['tournaments'] });
     },
   });
 
@@ -89,7 +104,8 @@ export default function ProfilePage() {
     onSuccess: () => setEmailCodeSent(true),
   });
   const verifyEmailMut = useMutation({
-    mutationFn: () => appAuth.confirmEmailLink(linkEmail.trim(), linkCode.trim()),
+    mutationFn: () =>
+      appAuth.confirmEmailLink(linkEmail.trim(), linkCode.trim()),
     onSuccess: () => {
       setEmailCodeSent(false);
       setLinkCode('');
@@ -148,8 +164,17 @@ export default function ProfilePage() {
         >
           {initials(profile)}
         </span>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{displayName(profile)}</div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 5,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ fontSize: 24, fontWeight: 700 }}>
+            {displayName(profile)}
+          </div>
           <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>
             {profile.email ?? 'Игрок'}
           </div>
@@ -192,10 +217,24 @@ export default function ProfilePage() {
 
       {tab === 'overview' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 12,
+            }}
+          >
             <StatTile value={played} label="Сыграно" />
-            <StatTile value={wins} label="Победы" color="var(--color-tone-success-fg)" />
-            <StatTile value={losses} label="Поражения" color="var(--color-tone-danger-fg)" />
+            <StatTile
+              value={wins}
+              label="Победы"
+              color="var(--color-tone-success-fg)"
+            />
+            <StatTile
+              value={losses}
+              label="Поражения"
+              color="var(--color-tone-danger-fg)"
+            />
           </div>
 
           <div
@@ -210,18 +249,47 @@ export default function ProfilePage() {
               padding: '16px 18px',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Процент побед</span>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                Процент побед
+              </span>
               <span style={{ fontSize: 15, fontWeight: 700 }}>{winrate}%</span>
             </div>
-            <div style={{ display: 'flex', height: 8, borderRadius: 999, overflow: 'hidden', background: 'var(--border-default)' }}>
-              <div style={{ width: `${winrate}%`, background: 'linear-gradient(90deg,#10b981,#34d399)' }} />
-              <div style={{ flex: 1, background: 'var(--color-tone-danger-bg)' }} />
+            <div
+              style={{
+                display: 'flex',
+                height: 8,
+                borderRadius: 999,
+                overflow: 'hidden',
+                background: 'var(--border-default)',
+              }}
+            >
+              <div
+                style={{
+                  width: `${winrate}%`,
+                  background: 'linear-gradient(90deg,#10b981,#34d399)',
+                }}
+              />
+              <div
+                style={{ flex: 1, background: 'var(--color-tone-danger-bg)' }}
+              />
             </div>
           </div>
 
           {(hasFrames || points || maxBreak != null) && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: 12,
+              }}
+            >
               {hasFrames && (
                 <StatTile
                   value={`${framesWon}–${framesLost}`}
@@ -234,7 +302,9 @@ export default function ProfilePage() {
                   label={`Очки · ${signedDiff(points.won - points.lost)}`}
                 />
               )}
-              {maxBreak != null && <StatTile value={maxBreak} label="Макс. брейк" />}
+              {maxBreak != null && (
+                <StatTile value={maxBreak} label="Макс. брейк" />
+              )}
             </div>
           )}
 
@@ -251,7 +321,9 @@ export default function ProfilePage() {
               История турниров
             </div>
             {(stats?.tournamentHistory.length ?? 0) === 0 ? (
-              <div style={{ fontSize: 14, color: 'var(--text-faint)' }}>Завершённых турниров пока нет.</div>
+              <div style={{ fontSize: 14, color: 'var(--text-faint)' }}>
+                Завершённых турниров пока нет.
+              </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {stats!.tournamentHistory.map((h) => (
@@ -268,13 +340,35 @@ export default function ProfilePage() {
                       padding: '13px 15px',
                     }}
                   >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2,
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
                         {h.name}
                       </span>
-                      <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{formatDate(h.completedAt)}</span>
+                      <span
+                        style={{ fontSize: 12, color: 'var(--text-faint)' }}
+                      >
+                        {formatDate(h.completedAt)}
+                      </span>
                     </div>
-                    <Badge tone={(h.isWinner ? 'warning' : 'neutral') as BadgeTone}>
+                    <Badge
+                      tone={(h.isWinner ? 'warning' : 'neutral') as BadgeTone}
+                    >
                       {h.isWinner ? '1 место' : 'Участник'}
                     </Badge>
                   </div>
@@ -299,7 +393,9 @@ export default function ProfilePage() {
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <span style={{ fontSize: 15, fontWeight: 700 }}>Электронная почта</span>
+              <span style={{ fontSize: 15, fontWeight: 700 }}>
+                Электронная почта
+              </span>
               <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
                 {profile.emailVerified
                   ? 'Используется для входа. Подтверждена.'
@@ -308,10 +404,17 @@ export default function ProfilePage() {
             </div>
             {profile.emailVerified ? (
               <Labeled label="Email">
-                <Field type="email" value={profile.email ?? ''} disabled readOnly />
+                <Field
+                  type="email"
+                  value={profile.email ?? ''}
+                  disabled
+                  readOnly
+                />
               </Labeled>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div
+                style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+              >
                 <Labeled label="Email">
                   <Field
                     type="email"
@@ -328,7 +431,9 @@ export default function ProfilePage() {
                       maxLength={6}
                       value={linkCode}
                       placeholder="000000"
-                      onChange={(e) => setLinkCode(e.target.value.replace(/\D/g, ''))}
+                      onChange={(e) =>
+                        setLinkCode(e.target.value.replace(/\D/g, ''))
+                      }
                     />
                   </Labeled>
                 )}
@@ -343,7 +448,9 @@ export default function ProfilePage() {
                     <>
                       <Btn
                         size="sm"
-                        disabled={verifyEmailMut.isPending || linkCode.length !== 6}
+                        disabled={
+                          verifyEmailMut.isPending || linkCode.length !== 6
+                        }
                         onClick={() => verifyEmailMut.mutate()}
                       >
                         {verifyEmailMut.isPending ? 'Привязка…' : 'Подтвердить'}
@@ -364,11 +471,14 @@ export default function ProfilePage() {
                     <Btn
                       size="sm"
                       disabled={
-                        requestEmailMut.isPending || linkEmail.trim().length === 0
+                        requestEmailMut.isPending ||
+                        linkEmail.trim().length === 0
                       }
                       onClick={() => requestEmailMut.mutate()}
                     >
-                      {requestEmailMut.isPending ? 'Отправка…' : 'Отправить код'}
+                      {requestEmailMut.isPending
+                        ? 'Отправка…'
+                        : 'Отправить код'}
                     </Btn>
                   )}
                 </div>
@@ -393,18 +503,42 @@ export default function ProfilePage() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
               <div style={{ flex: '1 1 200px' }}>
                 <Labeled label="Имя">
-                  <Field value={name} maxLength={50} onChange={(e) => setName(e.target.value)} placeholder="Имя" />
+                  <Field
+                    value={name}
+                    maxLength={50}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Имя"
+                  />
                 </Labeled>
               </div>
               <div style={{ flex: '1 1 200px' }}>
                 <Labeled label="Фамилия">
-                  <Field value={surname} maxLength={100} onChange={(e) => setSurname(e.target.value)} placeholder="Фамилия" />
+                  <Field
+                    value={surname}
+                    maxLength={100}
+                    onChange={(e) => setSurname(e.target.value)}
+                    placeholder="Фамилия"
+                  />
+                </Labeled>
+              </div>
+              <div style={{ flex: '1 1 200px' }}>
+                <Labeled label="Город">
+                  <Field
+                    value={city}
+                    maxLength={100}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="Город — лента покажет турниры рядом"
+                  />
                 </Labeled>
               </div>
             </div>
             {updateMut.error && <ErrorBox message={updateMut.error.message} />}
             {updateMut.isSuccess && !updateMut.isPending && (
-              <div style={{ fontSize: 13, color: 'var(--color-tone-success-fg)' }}>Сохранено.</div>
+              <div
+                style={{ fontSize: 13, color: 'var(--color-tone-success-fg)' }}
+              >
+                Сохранено.
+              </div>
             )}
             <Btn
               size="sm"
@@ -434,22 +568,34 @@ export default function ProfilePage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <span style={{ fontSize: 15, fontWeight: 700 }}>Telegram</span>
                 <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-                  Привяжите Telegram, чтобы входить через него и получать уведомления в боте.
+                  Привяжите Telegram, чтобы входить через него и получать
+                  уведомления в боте.
                 </span>
               </div>
               {profile.telegramLinked ? (
-                <div style={{ fontSize: 14, color: 'var(--color-tone-success-fg)' }}>Привязан.</div>
+                <div
+                  style={{
+                    fontSize: 14,
+                    color: 'var(--color-tone-success-fg)',
+                  }}
+                >
+                  Привязан.
+                </div>
               ) : profile.pendingMerge && !mergeDismissed ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                >
                   <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>
                     Этот Telegram уже связан с другим аккаунтом
                     {' ('}
                     {profile.pendingMerge.survivorTournaments} турниров,{' '}
-                    {profile.pendingMerge.survivorMatches} матчей). Объединить ваш
-                    текущий аккаунт с ним? Вы продолжите как тот аккаунт, а история
-                    сохранится. Действие необратимо.
+                    {profile.pendingMerge.survivorMatches} матчей). Объединить
+                    ваш текущий аккаунт с ним? Вы продолжите как тот аккаунт, а
+                    история сохранится. Действие необратимо.
                   </div>
-                  {mergeMut.error && <ErrorBox message={mergeMut.error.message} />}
+                  {mergeMut.error && (
+                    <ErrorBox message={mergeMut.error.message} />
+                  )}
                   <div style={{ display: 'flex', gap: 10 }}>
                     <Btn
                       size="sm"
@@ -471,7 +617,9 @@ export default function ProfilePage() {
               ) : (
                 <>
                   <TelegramLoginButton link size="medium" />
-                  {telegramLinkError && <ErrorBox message={telegramLinkError} />}
+                  {telegramLinkError && (
+                    <ErrorBox message={telegramLinkError} />
+                  )}
                 </>
               )}
             </div>

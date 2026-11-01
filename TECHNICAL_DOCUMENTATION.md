@@ -28,7 +28,7 @@
 - **Admin SPA**: React + Vite + TanStack Query
 - **Аутентификация админки**: JWT в HttpOnly-cookie + одноразовые URL-токены входа
 - **Работа с датой и временем**: Luxon
-- **Dev tooling**: Nodemon, TSX, Prettier, ESLint 9 (`eslint-config-love`), Vitest
+- **Dev tooling**: TypeScript 7, Nodemon, TSX, Prettier, oxlint (type-aware, `oxlint-tsgolint`), Vitest
 
 ### Основные возможности
 
@@ -81,12 +81,12 @@ cue-bot/
 │   ├── bot/
 │   │   ├── @types/                      # типы read-моделей для bot/UI/API
 │   │   ├── handlers/                    # команды и callback-обработчики grammY (+ helpers/)
-│   │   ├── middleware/                  # auth, wizardGuard, rateLimit middleware бота
+│   │   ├── middleware/                  # auth, chatScope, rateLimit middleware бота
 │   │   ├── ui/                          # форматирование сообщений и клавиатуры
+│   │   ├── sessions/                    # текстовые сессии: реестр, TextSessionStore, guard, единый /cancel и текстовый диспетчер
 │   │   ├── wizards/
 │   │   │   ├── tournamentCreation/      # wizard создания турнира (flow/renderer/keyboards/stateStore/module/const/d.ts)
-│   │   │   ├── profileEdit/             # wizard редактирования профиля
-│   │   │   └── wizardRegistry.ts        # реестр wizard-ов и определение активного по dialog_sessions
+│   │   │   └── profileEdit/             # wizard редактирования профиля
 │   │   ├── commands.ts                  # наборы команд бота для разных ролей
 │   │   ├── guards.ts                    # adminOnly / privateOnly guard-обёртки
 │   │   ├── instance.ts                  # создание экземпляра бота
@@ -119,7 +119,7 @@ cue-bot/
 ├── CHANGELOG.md
 ├── README.md
 ├── drizzle.config.ts
-├── eslint.config.js
+├── .oxlintrc.json
 ├── nodemon.json
 ├── package.json
 └── tsconfig.json
@@ -134,7 +134,7 @@ cue-bot/
    Входящие Telegram-сообщения и callback query обрабатываются в `src/bot/handlers/*`. HTTP-запросы админки обслуживаются через Hono-маршруты в `src/admin/server/routes/*`.
 
 3. **Middleware / Guards**
-   - Бот: `rateLimitMiddleware` (флуд-защита, выполняется **первым**, до upsert пользователя) → `authMiddleware` (загружает/создаёт `ctx.dbUser`) → `wizardGuardMiddleware` (блокирует посторонние команды при активном wizard). Guard-обёртки `adminOnly` / `privateOnly` (`src/bot/guards.ts`) и проверки ролей/судейства в `permissions.ts`.
+   - Бот: `rateLimitMiddleware` (флуд-защита, выполняется **первым**, до upsert пользователя) → `authMiddleware` (загружает/создаёт `ctx.dbUser`) → `sessionGuardMiddleware` (блокирует посторонние действия во время wizard'а, завершает мягкую текстовую сессию при уходе в команду/меню) → единый `/cancel` → хендлеры → единый текстовый диспетчер (последним). Guard-обёртки `adminOnly` / `privateOnly` (`src/bot/guards.ts`) и проверки ролей/судейства в `permissions.ts`.
    - Admin API: `secureHeaders()` на всех ответах, CORS для Vite dev-сервера (только в dev), `requireAdmin` на защищённых роутерах (валидирует JWT-cookie и **перепроверяет роль в БД на каждом запросе**), IP-rate-limit на минтинге токена входа.
 
 4. **Service Layer**
@@ -165,7 +165,7 @@ cue-bot/
 | `npm run db:generate`       | генерация миграции из изменений схемы                     |
 | `npm run db:migrate`        | применение миграций                                       |
 | `npm run db:studio`         | запуск Drizzle Studio                                     |
-| `npm run lint` / `lint:fix` | ESLint (+ автопочинка)                                    |
+| `npm run lint` / `lint:fix` | oxlint с type-aware правилами (+ автопочинка)             |
 | `npm run format`            | форматирование через Prettier                             |
 | `npm test`                  | unit + integration (Vitest)                               |
 | `npm run test:unit`         | только unit-тесты (без БД)                                |
@@ -185,6 +185,7 @@ cue-bot/
 
 - Два tsconfig: `tsconfig.json` — только для редактора/typecheck (`noEmit`, включает `test/`); `tsconfig.build.json` — эмитящая сборка (`rootDir: src`).
 - Alias `@/* -> src/*` (резолвится `tsc-alias` при сборке и `vitest.config.ts` в тестах). NodeNext-импорты указывают `.js`-спецификаторы на `.ts`-исходники.
+- TypeScript 7 (нативный `tsc`). В TS 7 `types` по умолчанию `[]`, поэтому ambient-типы (`node`, `vite/client`) перечислены в каждом tsconfig явно.
 - Строгий TS, включая `noUncheckedIndexedAccess` и `exactOptionalPropertyTypes`.
 - Admin SPA собирается отдельно и использует собственный `admin/tsconfig.json`; API read-model типы шарятся через alias `@server/*`.
 - Схемы Drizzle экспортируют не только таблицы, но и прикладные типы (`ITournamentFormat`, `ITournamentWinScore`, `NotificationType` и т.д.).
@@ -204,6 +205,12 @@ erDiagram
     users ||--o{ notifications : receives
     users ||--o{ matchCorrections : corrects
     users ||--o{ loginTokens : authenticates
+    users ||--o{ federationMembers : organizes
+
+    federations ||--o{ federationMembers : has
+    federations ||--o{ tournaments : organizes
+    federations ||--o{ venues : owns
+    federations ||--o{ groupChats : bound
 
     venues ||--o{ tables : contains
     venues ||--o{ tournaments : hosts
@@ -235,9 +242,33 @@ erDiagram
 - `telegram_id`: Telegram ID (`unique`, nullable — у гостевых записей `null`)
 - `username`: отображаемый идентификатор (`not null`)
 - `phone`, `email`, `name`, `surname`: опциональные поля профиля
-- `role`: `user` | `admin`
+- `role`: `user` | `admin` — глобальная роль; `admin` = супер-админ платформы. Роли «организатор» в этой колонке нет: она производная (членство в `federation_members`)
+- `city`: город игрока — дефолт фильтра ленты турниров (нормализуется `normalizeCity`)
+- `createdByFederationId`: для гостевых записей, созданных организатором из панели — какая федерация их завела (гость попадает в её ростер)
+- `organizerUntil`: срок платного права организатора (выдаёт платформенный админ). Пока он в будущем, пользователь может создавать свои организации, а организации, где он `owner`, — новые турниры. `null` — права нет. При слиянии аккаунтов берётся больший срок, при удалении обнуляется
+- `maxFederations` (по умолчанию 1), `maxTournamentsPerMonth` (по умолчанию 5): лимиты тарифа организатора — сколько организаций он заводит сам и сколько турниров в календарный месяц суммарно создают организации, где он `owner`. Задаёт платформенный админ; при слиянии аккаунтов берётся больший
 - `deletedAt`: маркер мягкого удаления; `null` = активен. При установке строка превращается в tombstone — персональные данные затираются, `telegram_id` обнуляется, запись скрыта из списка админки, но FK-ссылки и история сохраняются (отображается как «Удалённый аккаунт»)
 - частичный `unique`-индекс на `username` действует только для записей с непустым `telegram_id` (гостевые записи от него освобождены)
+
+#### federations
+
+Федерация = организатор (ROADMAP M8): любая организация, проводящая турниры — федерация, клуб,
+частный организатор. Игроки в федерации **не вступают**: они находят турниры через ленту с
+фильтрами по городу и организатору. Турниры/площадки/чаты с `federationId IS NULL` —
+«платформенные»: ими распоряжаются только глобальные админы.
+
+- `id`: UUID primary key
+- `name`, `city` (`not null`), `description`
+- `createdBy`: кто создал запись (`users.id`)
+
+#### federation_members
+
+Команда федерации; «организатор» в системе = пользователь хотя бы с одной строкой здесь.
+
+- PK (`federationId`, `userId`), обе FK с каскадом
+- `role`: `owner` (настройки и состав) | `organizer` (турниры). Инвариант «≥1 owner» держит
+  `federationService` (`removeMember` / `setMemberRole`)
+- судья — не роль федерации, а строка `tournament_referees` на конкретном турнире
 
 #### venues
 
@@ -246,6 +277,8 @@ erDiagram
 - `id`: UUID primary key
 - `name`: отображаемое название площадки
 - `address`: адрес площадки
+- `city`: город площадки — единственный источник «города турнира» (`null` только у площадок до M8)
+- `federationId`: владелец; `null` = общая (платформенная) площадка — видна всем организаторам, редактируется только админом
 - `image`: опциональная ссылка на изображение
 - `tablesCount`: вычисляемое поле read-модели API, не хранится в таблице напрямую
 
@@ -263,13 +296,14 @@ erDiagram
 Турниры.
 
 - `id`: UUID primary key
-- `venueId`: обязательная ссылка на площадку проведения
+- `venueId`: обязательная ссылка на площадку проведения (площадка должна быть общей или принадлежать федерации турнира)
+- `federationId`: организатор; `null` = платформенный турнир (только глобальные админы). Скоуп организатора — `inArray(federationId, ids)`, `NULL` в него не попадает
 - `name`: название турнира (`not null`); `description`, `rules`: опциональные тексты
 - `discipline`: сейчас поддерживается `snooker`
 - `format`: `single_elimination` | `double_elimination` | `round_robin` | `groups_playoff`
 - `randomAdvancement`: режим случайных пар (boolean, default `false`)
 - `status`: `draft` → `registration_open` → `registration_closed` → `in_progress` → `completed` / `cancelled`
-- `visibility`: `public` | `private` (default `public`)
+- `visibility`: `public` (в лентах и анонсах) | `unlisted` (только по прямой ссылке / инвайт-коду, регистрация без приглашения) | `private` (только по приглашению; видят участники, судьи, создатель и организаторы федерации). Default `public`
 - `scheduleMode`: `single_day` | `per_match` (default `single_day`)
 - `startDate`: опциональная дата старта
 - `confirmedParticipants`: число подтверждённых участников, фиксируется при закрытии регистрации
@@ -374,7 +408,8 @@ erDiagram
 Персистентное диалоговое / wizard-состояние бота (заменяет module-level in-memory `Map`'ы — состояние переживает рестарт процесса).
 
 - составной ключ: `namespace + key`
-- `namespace`: разделяет независимые хранилища (`tc` | `profile-edit` | `invite` | `match-schedule`)
+- `namespace`: разделяет независимые хранилища (`tc` | `profile-edit` | `invite` | `match-schedule` | `match-report-frames`); источник истины — регистрации `registerTextSession` (`src/bot/sessions/`)
+- у пользователя не больше одной текстовой сессии: старт новой атомарно удаляет остальные
 - `key`: как правило, Telegram userId строкой
 - `data`: jsonb-полезная нагрузка
 - `expiresAt`: TTL, обновляется при каждой записи; чтения фильтруют просроченное, периодический sweep удаляет его из таблицы
@@ -424,11 +459,12 @@ erDiagram
 
 Особенности:
 
-- состояние wizard хранится в таблице `dialog_sessions` через `PgSessionStore` (namespace `tc`) — переживает рестарт процесса; TTL обновляется при каждой записи
+- состояние wizard хранится в таблице `dialog_sessions` через `TextSessionStore` (namespace `tc`) — переживает рестарт процесса; TTL обновляется при каждой записи
 - выбор площадки обязателен
 - если у площадки нет столов, шаг выбора столов завершается через `tc:tables_skip`
 - создание завершается вызовом `createTournamentDraft()` и сохранением турнира в статусе `draft`
-- `/cancel` очищает активную сессию создания
+- `/cancel` (единый для всех текстовых сессий) очищает активную сессию создания
+- текст на шагах с кнопками получает подсказку выбрать вариант кнопкой
 
 ### 3. Создание турнира в admin SPA
 
@@ -556,9 +592,43 @@ deep-link `/start join_<code>` (см. путь 1).
 
 ### 9. Управление ролями
 
-- `/set_admin @username` — назначить администратора
-- `/remove_admin @username` — снять роль администратора
-- `/assign_referee {tournament_id} @username` — назначить судью турнира
+Модель прав — `src/services/authz.ts` (чистые предикаты + `*AsUser` с загрузкой фактов):
+
+- **платформенный админ** (`users.role = 'admin'`) — видит и правит всё, включая платформенные
+  ресурсы (`federationId IS NULL`), глобальные роли и удаление пользователей;
+- **владелец / организатор** федерации (`federation_members.role`) — **administer** на турниры
+  своей федерации (жизненный цикл, участники, удаление, судьи) и на её площадки; владелец
+  дополнительно управляет настройками и составом;
+- **судья** (`tournament_referees`) — только **manage** (матчи, инвайты, пульт), без
+  administer: судья по-прежнему не открывает регистрацию и не стартует турнир.
+
+**Право организатора — платная опция.** Самостоятельно стать организатором нельзя: платформенный
+админ выдаёт пользователю срок (`users.organizerUntil`, панель → пользователь → «Право
+организатора»). Пока срок действует, пользователь создаёт свои организации (`/new_federation`,
+`POST /api/federations`; не больше `users.maxFederations`, по умолчанию одну). Организация «активна», пока хотя бы у одного её
+владельца срок не истёк (`activeUntil` = максимум `organizerUntil` владельцев): только в активной
+можно создать новый турнир (`createTournamentDraft` → `assertFederationActive`). По истечении
+текущие турниры доигрываются, команда сохраняет доступ к панели. Владелец по-прежнему бесплатно
+добавляет в свою организацию организаторов; права платформенного админа от срока не зависят.
+
+**Лимит турниров в месяц.** `users.maxTournamentsPerMonth` (по умолчанию 5) — тариф владельца,
+считается суммарно по всем его организациям за календарный месяц (время сервера) по
+`tournaments.createdAt`; удалённые турниры место освобождают, платформенные турниры не
+считаются. Турнир в организации разрешён, если запас остался хотя бы у одного владельца с
+действующим правом. Проверка — `assertTournamentQuota` внутри транзакции `createTournamentDraft`
+под advisory-lock по владельцам (параллельные создания лимит не превышают); мастер в боте
+проверяет заранее (`getTournamentQuotaError`) при выборе организатора. Лимиты и текущее
+использование видны админу в карточке «Право организатора», владельцу — в `/my_federations`.
+
+Вход в панель управления (`requireStaff`) открыт админам, членам хотя бы одной федерации и
+обладателям действующего права организатора; `requireAdmin` остаётся на ролях, праве
+организатора, удалении пользователей и удалении федераций.
+
+- `/new_federation` — создать свою организацию (нужно действующее право организатора; владелец = автор)
+- `/my_federations` — состав, добавление организатора по `@username`
+- `/set_admin @username` — назначить администратора (только админ)
+- `/remove_admin @username` — снять роль администратора (только админ)
+- `/assign_referee {tournament_id} @username` — назначить судью турнира (админ или организатор его федерации)
 - `/remove_referee {tournament_id} @username` — снять судью турнира
 
 ---
@@ -585,18 +655,29 @@ deep-link `/start join_<code>` (см. путь 1).
 
 > Управление участниками (подтверждение / отклонение заявок) доступно админам не отдельной командой, а инлайн-кнопкой из карточки турнира (`adm:pending_list`).
 
-### Команды для администраторов
+### Команды для организаторов
+
+Доступны членам хотя бы одной федерации (`organizerCommands`); первый шаг мастера
+создания — выбор организации (пропускается, если она одна).
 
 | Команда                   | Назначение                                       |
 | ------------------------- | ------------------------------------------------ |
 | `/create_tournament`      | запуск мастера создания турнира                  |
-| `/delete_tournament [id]` | удаление турнира в статусе `draft` / `cancelled` |
-| `/set_admin`              | выдать роль администратора                       |
-| `/remove_admin`           | снять роль администратора                        |
-| `/assign_referee`         | назначить судью турнира                          |
-| `/remove_referee`         | снять судью турнира                              |
-| `/dashboard`              | получить одноразовую ссылку на admin-панель      |
-| `/cancel`                 | отменить текущий wizard                          |
+| `/delete_tournament [id]` | удаление своего турнира в статусе `draft` / `cancelled` |
+| `/my_federations`         | мои организации: состав, добавить организатора   |
+| `/assign_referee`         | назначить судью своего турнира                   |
+| `/remove_referee`         | снять судью своего турнира                       |
+| `/dashboard`              | одноразовая ссылка на панель управления          |
+| `/cancel`                 | отменить текущее действие (любую текстовую сессию) |
+
+### Команды для администраторов
+
+Все команды организатора плюс:
+
+| Команда         | Назначение                 |
+| --------------- | -------------------------- |
+| `/set_admin`    | выдать роль администратора |
+| `/remove_admin` | снять роль администратора  |
 
 > `/dashboard` ограничен per-admin лимитом (1 запрос в 30 с) через `dashboardLimiter`, чтобы таблица `login_tokens` не наполнялась спамом.
 
@@ -669,22 +750,32 @@ deep-link `/start join_<code>` (см. путь 1).
 ### Admin API (Hono)
 
 `secureHeaders()` применяется ко всем ответам (включая статику SPA). В dev для `/api/*`
-включается CORS на `http://localhost:5173`. Защищённые роутеры применяют `requireAdmin`
-ко всем своим маршрутам (`router.use('/*', requireAdmin)`); открыты `/api/auth/*` и
-`/api/health`. Маршрут минтинга токена входа дополнительно ограничен IP-rate-limit (10/мин).
+включается CORS на `http://localhost:5173`. Защищённые роутеры применяют `requireStaff`
+(админ или организатор) ко всем своим маршрутам; ресурсы скоупятся по федерациям актора
+(`adminUser.federationIds`): чужой турнир/матч отдаёт 404, общие площадки для организатора
+read-only, список пользователей — ростер его федераций. `requireAdmin` — точечно (роли,
+удаление пользователей, удаление федераций). Открыты `/api/auth/*` и `/api/health`. Маршрут минтинга токена входа дополнительно ограничен IP-rate-limit (10/мин).
 
 #### Служебные маршруты и аутентификация
 
 - `GET /api/health`
 - `GET /api/auth/token?t={token}` — обмен одноразового токена на JWT-cookie (rate limit по IP)
 - `POST /api/auth/logout` — удаление cookie
-- `GET /api/auth/me` — проверка сессии без `requireAdmin`; всегда отдаёт `playerUrl` (ссылка «Сайт игрока»: `PUBLIC_BASE_URL` в production, `http://localhost:5174` в dev)
+- `GET /api/auth/me` — проверка сессии: `{ user, isPlatformAdmin, federations: [{id,name,city,role}], playerUrl }`; `playerUrl` — ссылка «Сайт игрока» (`PUBLIC_BASE_URL` в production, `http://localhost:5174` в dev)
+
+#### Федерации
+
+- `GET /api/federations` — админ: все со счётчиками; организатор: свои с ролью
+- `POST /api/federations` (`{name, city, description?, ownerUsername?}`; владельца может задать только админ, остальные создают только себе и только при действующем праве организатора)
+- `GET /api/federations/:id`, `PATCH /api/federations/:id` (owner / админ), `DELETE /api/federations/:id` (админ; 409 при турнирах/площадках)
+- `GET /api/federations/:id/members`, `POST /api/federations/:id/members` (`{username|userId, role}`), `PATCH|DELETE /api/federations/:id/members/:userId` (last-owner → 409)
+- `GET /api/federations/:id/chats`, `POST|DELETE /api/federations/:id/chats/:chatId/bind` — привязка групповых чатов к анонсам федерации
 
 #### Турниры
 
-- `GET /api/tournaments`
+- `GET /api/tournaments` (`?federationId=<uuid>|platform` — фильтр внутри скоупа)
 - `GET /api/tournaments/:id`
-- `POST /api/tournaments`
+- `POST /api/tournaments` (body `+ federationId`: организатор — обязательно своя; админ — `null` = платформенный)
 - `PATCH /api/tournaments/:id` (редактирование черновика)
 - `PATCH /api/tournaments/:id/status`
 - `POST /api/tournaments/:id/start`
@@ -722,19 +813,22 @@ deep-link `/start join_<code>` (см. путь 1).
 
 #### Пользователи
 
-- `GET /api/users`
+- `GET /api/users` (`?federationId=`, `?q=@username`): админ — все; организатор — ростер своих федераций (участники их турниров, команда, заведённые гости) без контактов
 - `GET /api/users/:id`
 - `GET /api/users/:id/stats`
-- `PATCH /api/users/:id` (профиль: имя / фамилия)
-- `PATCH /api/users/:id/role`
-- `DELETE /api/users/:id` (мягкое удаление — анонимизация)
+- `PATCH /api/users/:id` (профиль: имя / фамилия / город; организатор — только гостей своей федерации)
+- `PATCH /api/users/:id/role` (только админ)
+- `PATCH /api/users/:id/organizer` (`{until: ISO | null}`; только админ) — выдать, продлить или снять право организатора; при выдаче бот присылает уведомление и меню организатора
+- `GET /api/users/:id/organizer/usage` (только админ) — `{federations, maxFederations, tournamentsThisMonth, maxTournamentsPerMonth}`
+- `PATCH /api/users/:id/organizer/limits` (`{maxFederations?, maxTournamentsPerMonth?}`, целые ≥ 0, хотя бы одно; только админ) — лимиты тарифа организатора
+- `DELETE /api/users/:id` (мягкое удаление — анонимизация; только админ)
 - `POST /api/users/:id/referee`
 - `DELETE /api/users/:id/referee/:tournamentId`
 
 #### Площадки и столы
 
-- `GET /api/venues`
-- `POST /api/venues`
+- `GET /api/venues` (организатор — общие + свои)
+- `POST /api/venues` (`city` обязателен; `federationId`: организатор — своя, админ — `null` = общая)
 - `PATCH /api/venues/:id`
 - `DELETE /api/venues/:id`
 - `GET /api/tables`
@@ -866,7 +960,8 @@ Race-safe случайное продвижение для турниров с �
 
 Персистентное хранилище диалоговых / wizard-сессий поверх таблицы `dialog_sessions`.
 
-- `PgSessionStore<T>` — generic namespaced key-value store с TTL
+- `PgSessionStore<T>` — generic namespaced key-value store с TTL; `claim` — эксклюзивный старт (в транзакции под advisory-lock удаляет сессии ключа в других namespace и пишет свою), `replace` — обновление только существующей сессии (без вставки)
+- `findActiveDialogSession()` — активная сессия ключа среди namespace одним запросом
 - `sweepExpiredDialogSessions()` — удаление просроченных строк (вызывается периодически из `src/index.ts`)
 
 ### timeoutService
@@ -888,9 +983,12 @@ Race-safe случайное продвижение для турниров с �
 
 - ищет пользователя по `telegram_id`, создаёт нового с ролью `user`, обновляет `username`, кладёт `ctx.dbUser` в контекст grammY
 
-#### wizardGuardMiddleware (бот)
+#### Текстовые сессии (бот, `src/bot/sessions/`)
 
-- при активной wizard-сессии (определяется по `dialog_sessions` через `getActiveWizard`) блокирует посторонние команды, пропуская только callback'и с префиксом активного wizard
+- каждый флоу, ждущий произвольный текст (создание турнира, приглашение, профиль, время матча, ввод фреймов), регистрируется через `registerTextSession`; у пользователя активна максимум одна такая сессия
+- `sessionGuardMiddleware`: во время blocking-сессии (wizard: `tc`, `invite`, `profile-edit`) блокирует чужие callback'и, команды и кнопки меню, пропуская свой callback-префикс, текст и `/cancel`; мягкую сессию (время матча, фреймы) завершает, когда пользователь уходит в команду или меню
+- единый `/cancel` завершает активную сессию (её `onEnd`) и отвечает её `cancelReply`
+- единый `message:text`-диспетчер (регистрируется последним) отдаёт текст активной сессии
 
 #### adminOnly / privateOnly / permissions (бот)
 
@@ -925,6 +1023,15 @@ Race-safe случайное продвижение для турниров с �
 3. Лимиты по IP: request 10/15 мин, verify 20/15 мин. В production оба маршрута отвечают 404,
    если `Host` не совпадает с хостом `ADMIN_BASE_URL`, чтобы `admin_token` не оказался на
    публичном хосте игрока.
+
+Чтобы входить по коду, Telegram-пользователю нужна подтверждённая email-identity. Привязать
+почту можно двумя способами: на сайте игрока (`POST /api/app/auth/email/request-code` →
+`/email/verify`) или в боте (`/me` → «📧 Привязать почту», текстовая сессия `email-link`: адрес →
+код из письма). Оба пути вызывают `emailLinkService` (`requestEmailLinkCode` /
+`confirmEmailLink` → `linkEmailToUser`). Адрес, уже занятый другим аккаунтом, отклоняется;
+объединить аккаунты можно только на сайте, через привязку Telegram с последующим слиянием.
+Кроме пер-email лимита действует пер-юзер лимит запросов кода (`emailLinkUserLimiter`,
+5 в час). Он нужен потому, что у бота нет пер-IP анти-флуда.
 
 Дополнительно работают одноразовые URL-токены. Они нужны админам без привязанной почты:
 
@@ -967,8 +1074,8 @@ host-only cookie на разных хостах, — поэтому кнопка
 ## Особенности реализации
 
 - **Единый процесс**: один Node-процесс запускает grammY-бота и Hono API; в production Hono отдаёт собранную SPA. HTTP-сервер поднимается раньше бота, старт бота ретраится.
-- **Персистентные wizard-сессии**: состояние мастеров хранится в таблице `dialog_sessions` (`PgSessionStore`), переживает рестарт процесса; просроченное чистится периодическим sweep'ом. Активный wizard определяется единственным запросом в `wizardRegistry`.
-- **Модульные wizard'ы**: `tournamentCreation/` (flow/renderer/keyboards/stateStore/module/const) и `profileEdit/`; диспетчеризация — через `wizardRegistry.ts` по namespace и callback-префиксу.
+- **Персистентные текстовые сессии**: состояние мастеров и текстовых флоу хранится в таблице `dialog_sessions` (`TextSessionStore` поверх `PgSessionStore`), переживает рестарт процесса; просроченное чистится периодическим sweep'ом. Активная сессия определяется единственным запросом в `textSessionRegistry`.
+- **Модульные wizard'ы**: `tournamentCreation/` (flow/renderer/keyboards/stateStore/module/const) и `profileEdit/`; диспетчеризация текста, `/cancel` и guard — через `src/bot/sessions/` по namespace и callback-префиксу.
 - **Четыре формата + случайные пары**: SE/DE/RR/`groups_playoff`; `randomAdvancement` — отдельный boolean-флаг поверх формата (а не отдельный формат).
 - **Корректировка результатов**: завершённый матч можно пересчитать (`correctMatchResult`); при смене победителя зависимые матчи откатываются, история пишется в `matchCorrections`, есть dry-run (`previewCorrection`) и идемпотентное восстановление (`resyncAdvancement`).
 - **Rate limiting**: общий token-bucket (`src/lib/rateLimiter.ts`) используется и в боте (флуд-защита, лимит `/dashboard`), и в HTTP (лимит минтинга токена входа); неактивные бакеты периодически прунятся.

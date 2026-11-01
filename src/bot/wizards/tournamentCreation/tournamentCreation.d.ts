@@ -1,3 +1,5 @@
+import type { UUID } from 'crypto';
+
 import type { CREATION_STEPS } from './tournamentCreation.const.js';
 import type { Venue } from '../../@types/venue.js';
 import type { Tournament } from '../../@types/tournament.js';
@@ -8,6 +10,9 @@ import type { Table } from '../../@types/table.js';
 export type ICreationStep = (typeof CREATION_STEPS)[number];
 
 export interface ICreationData {
+  /** Организатор турнира; `id: null` — платформенный турнир (только админ). */
+  federation?: { id: UUID | null; name: string };
+
   venue?: Pick<Venue, 'id' | 'name'>;
 
   tournament?: Partial<

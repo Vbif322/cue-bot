@@ -10,7 +10,8 @@ const ONBOARDING_TEXT =
   'Как пользоваться:\n' +
   '• Нажимай кнопку ниже "Текущиие турниры" или на команду /tournaments \n' +
   '• Выбирай турнир и нажимай участвовать\n' +
-  '• Бот пришлет тебе уведомление о назначенном матче';
+  '• Бот пришлет тебе уведомление о назначенном матче\n\n' +
+  'Проводите турниры сами? Создайте свою организацию: /new\\_federation';
 
 export function buildOnboardingKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text('📋 Текущие турниры', 'menu:tournaments');

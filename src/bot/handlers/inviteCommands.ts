@@ -21,23 +21,29 @@ import {
   buildTournamentMessage,
   getTournamentInfo,
 } from '../ui/tournamentUI.js';
-import { canManageTournament } from '../permissions.js';
-import { registerWizard } from '../wizards/wizardRegistry.js';
-import { PgSessionStore } from '@/services/dialogSessionStore.js';
+import {
+  canAdministerTournament,
+  canManageTournament,
+} from '../permissions.js';
+import {
+  registerTextSession,
+  type TextMessageContext,
+} from '../sessions/textSessionRegistry.js';
+import { TextSessionStore } from '../sessions/textSessionStore.js';
+import { TEXT_SESSION_TTL_MS } from '../sessions/textSession.const.js';
 import type { BotContext } from '../types.js';
 
 export const inviteCommands = new Composer<BotContext>();
 
-/** Persistent: telegram user id → tournament awaiting an @username to invite. */
-const inviteUsernameState = new PgSessionStore<{ tournamentId: UUID }>(
-  'invite',
-);
+interface InviteUsernameState {
+  tournamentId: UUID;
+}
 
-registerWizard({
-  name: 'приглашение игрока',
-  namespace: 'invite',
-  callbackPrefix: 'inv:',
-});
+/** Persistent: telegram user id → tournament awaiting an @username to invite. */
+const inviteUsernameState = new TextSessionStore<InviteUsernameState>(
+  'invite',
+  { ttlMs: TEXT_SESSION_TTL_MS.invite },
+);
 
 // ============================================================================
 // Helpers
@@ -47,8 +53,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type StartPayload =
-  | { kind: 'join'; code: string }
-  | { kind: 'tournament'; tournamentId: UUID };
+  { kind: 'join'; code: string } | { kind: 'tournament'; tournamentId: UUID };
 
 /**
  * Parse a `/start` deep-link payload. Two forms:
@@ -87,7 +92,7 @@ async function renderTournamentCard(
   tournament: TournamentReadModel,
   edit: boolean,
 ): Promise<void> {
-  const isAdmin = ctx.dbUser.role === 'admin';
+  const isAdmin = await canAdministerTournament(ctx, tournament.id);
   const info = await getTournamentInfo(tournament, ctx.dbUser.id);
   const text = buildTournamentMessage(info, isAdmin);
   const keyboard = buildTournamentKeyboard(info, isAdmin);
@@ -113,7 +118,7 @@ export async function joinViaInvite(
   tournament: TournamentReadModel,
 ): Promise<void> {
   const userId = ctx.dbUser.id;
-  const isAdmin = ctx.dbUser.role === 'admin';
+  const isAdmin = await canAdministerTournament(ctx, tournament.id);
 
   const outcome = await registerParticipant(tournament.id, userId, {
     desiredStatus: isAdmin ? 'confirmed' : 'pending',
@@ -163,7 +168,7 @@ inviteCommands.callbackQuery(/^inv:add:(.+)$/, async (ctx) => {
     return;
   }
 
-  await inviteUsernameState.set(ctx.from.id, { tournamentId });
+  await inviteUsernameState.start(ctx.from.id, { tournamentId }, ctx);
   await ctx.answerCallbackQuery();
   await ctx.reply(
     'Отправьте @username игрока, которого хотите пригласить.\n\n' +
@@ -171,28 +176,15 @@ inviteCommands.callbackQuery(/^inv:add:(.+)$/, async (ctx) => {
   );
 });
 
-/** /cancel while an invite username is awaited; otherwise pass through. */
-inviteCommands.command('cancel', async (ctx, next) => {
-  const userId = ctx.from?.id;
-  if (userId != null && (await inviteUsernameState.delete(userId))) {
-    await ctx.reply('Приглашение отменено.');
-    return;
-  }
-  return next();
-});
-
-inviteCommands.on('message:text', async (ctx, next) => {
-  const userId = ctx.from.id;
-
-  const state = await inviteUsernameState.get(userId);
-  if (!state) return next();
-
+/** @username для приглашения (из единого диспетчера текстовых сессий). */
+async function handleInviteUsername(
+  ctx: TextMessageContext,
+  state: InviteUsernameState,
+): Promise<void> {
   const text = ctx.message.text.trim();
-  // Let commands (e.g. /cancel) be handled by their own handlers.
-  if (text.startsWith('/')) return next();
 
   // One-shot: consume the state now; the admin re-presses the button to retry.
-  await inviteUsernameState.delete(userId);
+  await inviteUsernameState.end(ctx.from.id);
 
   const handle = text.replace(/^@/, '').trim();
   if (!handle) {
@@ -250,6 +242,15 @@ inviteCommands.on('message:text', async (ctx, next) => {
   );
 
   await ctx.reply(`Приглашение отправлено: @${handle}`);
+}
+
+registerTextSession({
+  store: inviteUsernameState,
+  name: 'приглашение игрока',
+  blocking: true,
+  callbackPrefix: 'inv:',
+  cancelReply: 'Приглашение отменено.',
+  onText: handleInviteUsername,
 });
 
 // ============================================================================

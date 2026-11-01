@@ -32,7 +32,14 @@ import type { Table } from '../../@types/table.js';
 
 // #region Types / Interfaces
 
+/** Вариант организатора в визарде: `id: null` — платформенный турнир (админ). */
+export interface FederationOption {
+  id: string | null;
+  name: string;
+}
+
 export interface ITournamentCreationKeyboards {
+  buildFederationsKeyboard(options: FederationOption[]): InlineKeyboard;
   buildVenuesKeyboard(venues: Pick<Venue, 'id' | 'name'>[]): InlineKeyboard;
   buildVisibilityKeyboard(): InlineKeyboard;
   buildScheduleModeKeyboard(): InlineKeyboard;
@@ -66,6 +73,18 @@ export interface ITournamentCreationKeyboards {
 
 /** Обработка клавиатуры */
 export class TournamentCreationKeyboards implements ITournamentCreationKeyboards {
+  /**
+   * Клавиатура выбора организатора турнира. Коллбек `tc:fed:<uuid>` или
+   * `tc:fed:platform` для платформенного турнира.
+   */
+  buildFederationsKeyboard(options: FederationOption[]): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    for (const option of options) {
+      keyboard.text(option.name, `tc:fed:${option.id ?? 'platform'}`).row();
+    }
+    return keyboard;
+  }
+
   /**
    * Создает клавиатуру для выбора места проведения турнира
    *

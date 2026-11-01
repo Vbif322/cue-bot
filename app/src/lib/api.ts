@@ -2,6 +2,7 @@
 // ответам /api/app/*), запросы — через fetch с кукой сессии (app_token).
 import type {
   AppUser,
+  AppFederation,
   AppTournament,
   AppParticipant,
   AppMatch,
@@ -14,6 +15,9 @@ import type {
   MeStats,
   AppMaxBreakEntry,
   RegisterResult,
+  RefereeOverview,
+  RefereeBoard,
+  RefereeMatchDetail,
 } from './types.ts';
 
 export * from './types.ts';
@@ -75,7 +79,9 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
-const jsonBody = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
+const jsonBody = (body: unknown): RequestInit => ({
+  body: JSON.stringify(body),
+});
 
 // ── Auth (беспарольный вход по коду на почту) ─────────────────────────────────
 
@@ -101,10 +107,13 @@ export const appAuth = {
    * кука в WebView не сохранилась.
    */
   miniAppLogin: (initData: string) =>
-    apiFetch<{ user: AppUser; token: string }>('/api/app/auth/telegram/miniapp', {
-      method: 'POST',
-      ...jsonBody({ initData }),
-    }),
+    apiFetch<{ user: AppUser; token: string }>(
+      '/api/app/auth/telegram/miniapp',
+      {
+        method: 'POST',
+        ...jsonBody({ initData }),
+      },
+    ),
 
   // Привязка email к текущему (обычно Telegram-only) аккаунту: два шага —
   // запросить код на адрес, затем подтвердить. Успех обновляет email-identity,
@@ -168,7 +177,14 @@ export const configApi = {
 // ── Tournaments ───────────────────────────────────────────────────────────────
 
 export const tournamentsApi = {
-  list: () => apiFetch<AppTournament[]>('/api/app/tournaments'),
+  /** Публичная лента; `city` — по городу площадки, `federationId` — один организатор. */
+  list: (filters?: { city?: string; federationId?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.city) params.set('city', filters.city);
+    if (filters?.federationId) params.set('federationId', filters.federationId);
+    const qs = params.size > 0 ? `?${params.toString()}` : '';
+    return apiFetch<AppTournament[]>(`/api/app/tournaments${qs}`);
+  },
 
   get: (id: string) => apiFetch<TournamentDetail>(`/api/app/tournaments/${id}`),
 
@@ -192,16 +208,14 @@ export const tournamentsApi = {
     }),
 
   acceptInvitation: (id: string) =>
-    apiFetch<{ ok: boolean }>(
-      `/api/app/tournaments/${id}/invitation/accept`,
-      { method: 'POST' },
-    ),
+    apiFetch<{ ok: boolean }>(`/api/app/tournaments/${id}/invitation/accept`, {
+      method: 'POST',
+    }),
 
   declineInvitation: (id: string) =>
-    apiFetch<{ ok: boolean }>(
-      `/api/app/tournaments/${id}/invitation/decline`,
-      { method: 'POST' },
-    ),
+    apiFetch<{ ok: boolean }>(`/api/app/tournaments/${id}/invitation/decline`, {
+      method: 'POST',
+    }),
 
   byInviteCode: (code: string) =>
     apiFetch<AppTournament>(
@@ -286,7 +300,11 @@ export const matchesApi = {
 export const meApi = {
   get: () => apiFetch<MeProfile>('/api/app/me'),
 
-  update: (body: { name?: string | null; surname?: string | null }) =>
+  update: (body: {
+    name?: string | null;
+    surname?: string | null;
+    city?: string | null;
+  }) =>
     apiFetch<AppUser>('/api/app/me', { method: 'PATCH', ...jsonBody(body) }),
 
   // Привязка Telegram — тоже редиректный OIDC-поток:
@@ -299,6 +317,18 @@ export const meApi = {
   matches: () =>
     apiFetch<{ active: AppMatch[]; history: AppMatch[] }>(
       '/api/app/me/matches',
+    ),
+};
+
+// ── Federations / организаторы ────────────────────────────────────────────────
+
+export const federationsApi = {
+  /** Публичный список организаторов (для фильтра ленты), опционально по городу. */
+  list: (city?: string) =>
+    apiFetch<AppFederation[]>(
+      city
+        ? `/api/app/federations?city=${encodeURIComponent(city)}`
+        : '/api/app/federations',
     ),
 };
 
@@ -329,5 +359,107 @@ export const notificationsApi = {
   markAllRead: () =>
     apiFetch<{ ok: boolean }>('/api/app/notifications/read-all', {
       method: 'POST',
+    }),
+};
+
+// ── Судейский пульт ───────────────────────────────────────────────────────────
+
+type FrameBody = {
+  player1Points: number;
+  player2Points: number;
+  player1Break?: number | null;
+  player2Break?: number | null;
+};
+
+const refereePost = <T = { ok: boolean }>(path: string, body?: unknown) =>
+  apiFetch<T>(`/api/app/referee${path}`, {
+    method: 'POST',
+    ...(body === undefined ? {} : jsonBody(body)),
+  });
+
+export const refereeApi = {
+  overview: () => apiFetch<RefereeOverview>('/api/app/referee/tournaments'),
+
+  board: (tournamentId: string) =>
+    apiFetch<RefereeBoard>(
+      `/api/app/referee/tournaments/${tournamentId}/board`,
+    ),
+
+  /** `expectedMatchIds` — порядок, который видел судья: устаревший отклоняется. */
+  setQueue: (
+    tournamentId: string,
+    matchIds: string[],
+    expectedMatchIds: string[],
+  ) =>
+    apiFetch<{ ok: boolean }>(
+      `/api/app/referee/tournaments/${tournamentId}/queue`,
+      { method: 'PUT', ...jsonBody({ matchIds, expectedMatchIds }) },
+    ),
+
+  markPresent: (tournamentId: string, userId: string) =>
+    refereePost<{ wasAbsent: boolean }>(
+      `/tournaments/${tournamentId}/participants/${userId}/present`,
+    ),
+
+  match: (id: string) =>
+    apiFetch<RefereeMatchDetail>(`/api/app/referee/matches/${id}`),
+
+  start: (id: string) => refereePost(`/matches/${id}/start`),
+
+  /** Явка за игрока; вторая отметка начинает матч. */
+  ready: (id: string, slot: 1 | 2) =>
+    refereePost<{ started: boolean }>(`/matches/${id}/ready`, { slot }),
+
+  extendCall: (id: string) => refereePost(`/matches/${id}/extend-call`),
+
+  postpone: (id: string) => refereePost(`/matches/${id}/postpone`),
+
+  noShow: (id: string, absentSlot: 1 | 2) =>
+    refereePost(`/matches/${id}/no-show`, { absentSlot }),
+
+  technical: (id: string, winnerSlot: 1 | 2, reason?: string) =>
+    refereePost(`/matches/${id}/technical`, {
+      winnerSlot,
+      ...(reason ? { reason } : {}),
+    }),
+
+  /** Итоговый счёт — окончательный, без подтверждения игроков. */
+  result: (id: string, player1Score: number, player2Score: number) =>
+    refereePost<{ wasDisputed: boolean }>(`/matches/${id}/result`, {
+      player1Score,
+      player2Score,
+    }),
+
+  resultFrames: (id: string, frames: FrameBody[]) =>
+    refereePost<{ wasDisputed: boolean }>(`/matches/${id}/result-frames`, {
+      frames,
+    }),
+
+  saveFrame: (id: string, frameNumber: number, frame: FrameBody) =>
+    apiFetch<AppMatchFrame[]>(
+      `/api/app/referee/matches/${id}/frames/${frameNumber}`,
+      { method: 'PUT', ...jsonBody(frame) },
+    ),
+
+  deleteLastFrame: (id: string) =>
+    apiFetch<AppMatchFrame[]>(`/api/app/referee/matches/${id}/frames/last`, {
+      method: 'DELETE',
+    }),
+
+  /** 409 — стол держит другой матч; повторить с `force`, чтобы забрать. */
+  setTable: (id: string, tableId: string | null, force = false) =>
+    apiFetch<{ ok: boolean }>(`/api/app/referee/matches/${id}/table`, {
+      method: 'PUT',
+      ...jsonBody({ tableId, ...(force ? { force } : {}) }),
+    }),
+
+  call: (id: string, tableId: string) =>
+    refereePost(`/matches/${id}/call`, { tableId }),
+
+  /** ISO-8601 UTC («настенное» время, как в боте) или null — сбросить. */
+  setSchedule: (id: string, scheduledAt: string | null) =>
+    apiFetch<{ ok: boolean }>(`/api/app/referee/matches/${id}/schedule`, {
+      method: 'PUT',
+      ...jsonBody({ scheduledAt }),
     }),
 };

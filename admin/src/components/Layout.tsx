@@ -2,18 +2,99 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useMe, useLogout } from '../lib/useAuth.ts';
+import { useFederation } from '../lib/federation.tsx';
 
 const navItems = [
   { to: '/tournaments', label: 'Турниры' },
   { to: '/venues', label: 'Площадки' },
   { to: '/users', label: 'Пользователи' },
   { to: '/leaderboard', label: 'Лидеры' },
+  { to: '/federations', label: 'Организации' },
 ];
+
+const ROLE_LABELS = { owner: 'владелец', organizer: 'организатор' } as const;
+
+/**
+ * Переключатель текущей организации. Платформенный админ выбирает между «Все»,
+ * «Платформа» и любой из своих; организатор с одной федерацией видит только её
+ * название (переключать нечего).
+ */
+function FederationSwitcher() {
+  const { current, setCurrent, federations, isPlatformAdmin } = useFederation();
+  const options: { value: string; label: string }[] = [];
+  if (isPlatformAdmin) {
+    options.push({ value: 'all', label: 'Все организации' });
+    options.push({ value: 'platform', label: 'Платформа (без организации)' });
+  }
+  for (const f of federations) options.push({ value: f.id, label: f.name });
+
+  if (options.length === 0) return null;
+  if (options.length === 1) {
+    return (
+      <div className="px-3 py-2 text-sm text-gray-700 bg-gray-50 rounded-md truncate">
+        {options[0]!.label}
+      </div>
+    );
+  }
+  return (
+    <select
+      aria-label="Организация"
+      value={current}
+      onChange={(e) => setCurrent(e.target.value)}
+      className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * Подсказка организатору: ещё нет своей организации (право выдано, но
+ * организация не создана) или срок права у владельцев текущей истёк.
+ */
+function OrganizerNotice() {
+  const { isPlatformAdmin, federations, currentFederation } = useFederation();
+  if (isPlatformAdmin) return null;
+  if (federations.length === 0) {
+    return (
+      <div className="mb-4 p-3 bg-blue-50 text-blue-800 text-sm rounded-lg border border-blue-100">
+        Создайте свою организацию в разделе{' '}
+        <NavLink to="/federations" className="underline">
+          «Организации»
+        </NavLink>
+        , чтобы проводить турниры.
+      </div>
+    );
+  }
+  const until = currentFederation?.activeUntil
+    ? new Date(currentFederation.activeUntil)
+    : null;
+  if (currentFederation && (until === null || until <= new Date())) {
+    return (
+      <div className="mb-4 p-3 bg-amber-50 text-amber-800 text-sm rounded-lg border border-amber-100">
+        Срок права организатора у владельцев «{currentFederation.name}» истёк:
+        новые турниры недоступны, текущие можно доиграть. Для продления
+        обратитесь к администратору платформы.
+      </div>
+    );
+  }
+  return null;
+}
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { data } = useMe();
   const { mutate: logout } = useLogout();
+  const { currentRole, isPlatformAdmin, federations } = useFederation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const roleLabel = isPlatformAdmin
+    ? 'администратор'
+    : currentRole
+      ? ROLE_LABELS[currentRole]
+      : null;
 
   return (
     <div className="min-h-screen flex bg-gray-50">
@@ -59,6 +140,12 @@ export default function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
+        {(isPlatformAdmin || federations.length > 0) && (
+          <div className="shrink-0 p-3 border-b border-gray-200">
+            <FederationSwitcher />
+          </div>
+        )}
+
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems.map((item) => (
             <NavLink
@@ -79,7 +166,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="shrink-0 p-3 border-t border-gray-200">
-          <p className="text-xs text-gray-500 mb-2">@{data?.user?.username}</p>
+          <p className="text-xs text-gray-500 mb-2">
+            @{data?.user?.username}
+            {roleLabel && <span className="text-gray-400"> · {roleLabel}</span>}
+          </p>
           {data?.playerUrl && (
             <a
               href={data.playerUrl}
@@ -120,6 +210,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             </svg>
           </button>
         </div>
+        <OrganizerNotice />
         {children}
       </main>
     </div>

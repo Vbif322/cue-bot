@@ -5,6 +5,23 @@ export type UserRole = (typeof users.$inferSelect)['role'];
 /** User row shape returned by the admin API (allow-listed via `toApiUser`). */
 export type ApiUser = typeof users.$inferSelect;
 
+/**
+ * User as seen by a federation organizer in the admin API: no contact fields
+ * (`email`, `phone`, `telegram_id`) and no billing (`organizerUntil`, plan
+ * limits), only whether a Telegram account is linked.
+ */
+export type ApiUserPublic = Omit<
+  ApiUser,
+  | 'email'
+  | 'phone'
+  | 'telegram_id'
+  | 'organizerUntil'
+  | 'maxFederations'
+  | 'maxTournamentsPerMonth'
+> & {
+  telegramLinked: boolean;
+};
+
 /** Aggregated statistics for a single user, shown on the admin user page. */
 export interface ApiUserStats {
   matches: {
@@ -40,4 +57,15 @@ export interface ApiMaxBreakLeaderboardEntry {
   achievedAt: string | null;
   /** null on the player API when the tournament is private. */
   tournament: { id: string; name: string } | null;
+}
+
+/**
+ * Organizer plan usage for the admin user page: owned federations and tournaments
+ * created this calendar month in them, against the user's limits.
+ */
+export interface ApiOrganizerUsage {
+  federations: number;
+  maxFederations: number;
+  tournamentsThisMonth: number;
+  maxTournamentsPerMonth: number;
 }

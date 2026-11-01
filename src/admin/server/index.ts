@@ -10,12 +10,15 @@ import { createAppMatchesRouter } from '../../app/server/routes/matches.js';
 import { createAppMeRouter } from '../../app/server/routes/me.js';
 import { createAppNotificationsRouter } from '../../app/server/routes/notifications.js';
 import { createAppLeaderboardRouter } from '../../app/server/routes/leaderboard.js';
+import { createAppRefereeRouter } from '../../app/server/routes/referee.js';
+import { createAppFederationsRouter } from '../../app/server/routes/federations.js';
 import { createTournamentsRouter } from './routes/tournaments.js';
 import { createMatchesRouter } from './routes/matches.js';
 import { createUsersRouter } from './routes/users.js';
 import { createTablesRouter } from './routes/tables.js';
 import { createVenuesRouter } from './routes/venues.js';
 import { createLeaderboardRouter } from './routes/leaderboard.js';
+import { createFederationsRouter } from './routes/federations.js';
 
 export function createAdminServer() {
   const app = new Hono();
@@ -84,14 +87,17 @@ export function createAdminServer() {
   app.route('/api/app/me', createAppMeRouter());
   app.route('/api/app/notifications', createAppNotificationsRouter());
   app.route('/api/app/leaderboard', createAppLeaderboardRouter());
+  app.route('/api/app/referee', createAppRefereeRouter(bot.api));
+  app.route('/api/app/federations', createAppFederationsRouter());
 
   // Protected routes
   app.route('/api/tournaments', createTournamentsRouter(bot.api));
   app.route('/api/matches', createMatchesRouter(bot.api));
-  app.route('/api/users', createUsersRouter());
+  app.route('/api/users', createUsersRouter(bot.api));
   app.route('/api/tables', createTablesRouter());
   app.route('/api/venues', createVenuesRouter());
   app.route('/api/leaderboard', createLeaderboardRouter());
+  app.route('/api/federations', createFederationsRouter(bot.api));
 
   return app;
 }

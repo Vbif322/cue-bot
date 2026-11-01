@@ -1,16 +1,69 @@
-import { asc, count, eq, getTableColumns } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  or,
+} from 'drizzle-orm';
 import type { UUID } from 'crypto';
 
 import { db } from '../db/db.js';
 import { tables, venues } from '../db/schema.js';
 import type { ApiVenue, Venue } from '../bot/@types/venue.js';
+import { normalizeCity } from '../shared/city.js';
+import type { ActorScope } from './authz.js';
+
+export interface VenueListOptions {
+  /**
+   * Скоуп актора: платформенный админ (`all`) видит все площадки, организатор —
+   * общие (`federationId IS NULL`) плюс площадки своих федераций.
+   */
+  scope?: ActorScope;
+  /**
+   * Площадки, пригодные для турнира конкретной федерации: общие + её
+   * собственные. `null` — только общие (платформенный турнир).
+   */
+  federationId?: UUID | null;
+}
+
+function venueWhere(options: VenueListOptions | undefined) {
+  if (!options) return undefined;
+  const clauses = [];
+  if (options.scope?.kind === 'federations') {
+    clauses.push(
+      options.scope.ids.length > 0
+        ? or(
+            isNull(venues.federationId),
+            inArray(venues.federationId, options.scope.ids),
+          )
+        : isNull(venues.federationId),
+    );
+  }
+  if (options.federationId !== undefined) {
+    clauses.push(
+      options.federationId === null
+        ? isNull(venues.federationId)
+        : or(
+            isNull(venues.federationId),
+            eq(venues.federationId, options.federationId),
+          ),
+    );
+  }
+  if (clauses.length === 0) return undefined;
+  return and(...clauses);
+}
 
 /**
- * Получает список площадок с количеством столов
+ * Список площадок с количеством столов, отфильтрованный по скоупу актора.
  *
  * @returns {Promise<ApiVenue[]>} Массив заведений с дополнительным полем `tablesCount`
  */
-export async function getVenues(): Promise<ApiVenue[]> {
+export async function getVenues(
+  options?: VenueListOptions,
+): Promise<ApiVenue[]> {
   const rows = await db
     .select({
       ...getTableColumns(venues),
@@ -18,6 +71,7 @@ export async function getVenues(): Promise<ApiVenue[]> {
     })
     .from(venues)
     .leftJoin(tables, eq(tables.venueId, venues.id))
+    .where(venueWhere(options))
     .groupBy(venues.id)
     .orderBy(asc(venues.name));
 
@@ -46,21 +100,29 @@ export async function getVenue(id: UUID): Promise<ApiVenue | null> {
 }
 
 /**
- * Создает новую площадку с заданными параметрами
+ * Создает новую площадку. `federationId: null` — общая (платформенная) площадка.
  *
- * @param {Object} data Данные для создания
- * @param {string} data.name Название площадки
- * @param {string} data.address Адрес площадки
- * @param {string | undefined} data.image URL изображения площадки (необязательное поле)
- *
- * @returns {Promise<ApiVenue>} Созданная площадка с дополнительным полем `tablesCount`
+ * @throws {Error} Если город пустой или длиннее лимита.
  */
 export async function createVenue(data: {
   name: string;
   address: string;
+  city: string;
   image?: string | undefined;
+  federationId: UUID | null;
 }): Promise<ApiVenue> {
-  const [venue] = await db.insert(venues).values(data).returning();
+  const city = normalizeCity(data.city);
+  if (city === null) throw new Error('Укажите город');
+  const [venue] = await db
+    .insert(venues)
+    .values({
+      name: data.name,
+      address: data.address,
+      city,
+      image: data.image,
+      federationId: data.federationId,
+    })
+    .returning();
   if (!venue) throw new Error('Failed to insert venue');
   const created = await getVenue(venue.id);
   if (!created) throw new Error('Failed to retrieve created venue');
@@ -68,27 +130,31 @@ export async function createVenue(data: {
 }
 
 /**
- * Обновляет данные площадки по идентификатору
+ * Обновляет данные площадки по идентификатору. Владелец (`federationId`) не меняется.
  *
- * @param {UUID} id Идентификатор площадки
- * @param {Object} data Данные для обновления
- * @param {string | undefined} data.name Название площадки (необязательное поле)
- * @param {string | undefined} data.address Адрес площадки (необязательное поле)
- * @param {string | null | undefined} data.image URL изображения площадки (необязательное поле)
- *
- * @returns {Promise<Venue | null>} Обновленная площадка или null, если не найдена
+ * @throws {Error} Если город пустой или длиннее лимита.
  */
 export async function updateVenue(
   id: UUID,
   data: {
     name?: string | undefined;
     address?: string | undefined;
+    city?: string | undefined;
     image?: string | null | undefined;
   },
 ): Promise<Venue | null> {
+  const patch: Partial<typeof venues.$inferInsert> = {};
+  if (data.name !== undefined) patch.name = data.name;
+  if (data.address !== undefined) patch.address = data.address;
+  if (data.image !== undefined) patch.image = data.image;
+  if (data.city !== undefined) {
+    const city = normalizeCity(data.city);
+    if (city === null) throw new Error('Укажите город');
+    patch.city = city;
+  }
   const [venue] = await db
     .update(venues)
-    .set(data)
+    .set(patch)
     .where(eq(venues.id, id))
     .returning();
   return venue ?? null;

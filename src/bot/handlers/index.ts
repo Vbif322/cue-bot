@@ -6,5 +6,6 @@ export { matchCommands } from './matchCommands.js';
 export { adminParticipantCommands } from './adminParticipantCommands.js';
 export { helpCommands } from './helpCommand.js';
 export { profileCommands } from './profileCommand.js';
+export { federationCommands } from './federationCommands.js';
 export { menuHandlers } from './menuHandlers.js';
 export { groupCommands } from './groupCommands.js';

@@ -39,8 +39,14 @@ const time = (d: Date | null): number =>
  * Soft-deleted users are left out.
  */
 export async function getMaxBreakLeaderboard(
-  minBreak = MIN_LEADERBOARD_BREAK,
+  options: {
+    minBreak?: number;
+    /** Only breaks made in these federations' tournaments (admin panel scope). */
+    federationIds?: UUID[];
+  } = {},
 ): Promise<MaxBreakLeaderboardEntry[]> {
+  const { minBreak = MIN_LEADERBOARD_BREAK, federationIds } = options;
+  if (federationIds?.length === 0) return [];
   const rows = await db
     .select({
       player1Id: matches.player1Id,
@@ -65,6 +71,9 @@ export async function getMaxBreakLeaderboard(
           gte(matchFrames.player1Break, minBreak),
           gte(matchFrames.player2Break, minBreak),
         ),
+        federationIds === undefined
+          ? undefined
+          : inArray(tournaments.federationId, federationIds),
       ),
     );
 
@@ -151,7 +160,7 @@ export function toApiMaxBreakEntry(
     ...rest,
     achievedAt: achievedAt?.toISOString() ?? null,
     tournament:
-      hidePrivateTournaments && tournament.visibility !== 'public'
+      hidePrivateTournaments && tournament.visibility === 'private'
         ? null
         : { id: tournament.id, name: tournament.name },
   };

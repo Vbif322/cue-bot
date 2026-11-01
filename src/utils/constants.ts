@@ -36,6 +36,7 @@ export const STATUS_LABELS: Record<string, string> = {
 
 export const VISIBILITY_LABELS: Record<string, string> = {
   public: 'Открытый',
+  unlisted: 'По ссылке',
   private: 'Закрытый',
 };
 

@@ -1,16 +1,23 @@
 import type { UUID } from 'crypto';
 
 import type { tournaments, tournamentParticipants } from '../../db/schema.js';
+import type { IPrizeSummary } from '../../shared/tournament/prizes.js';
 
 import type { Serialize } from './helpers.ts';
 
 export type TournamentStatus = (typeof tournaments.$inferSelect)['status'];
 export type TournamentFormat = (typeof tournaments.$inferSelect)['format'];
-export type TournamentVisibility = (typeof tournaments.$inferSelect)['visibility'];
-export type TournamentScheduleMode = (typeof tournaments.$inferSelect)['scheduleMode'];
+export type TournamentVisibility =
+  (typeof tournaments.$inferSelect)['visibility'];
+export type TournamentScheduleMode =
+  (typeof tournaments.$inferSelect)['scheduleMode'];
 export type Tournament = typeof tournaments.$inferSelect;
 export type TournamentReadModel = Tournament & {
   venueName: string | null;
+  /** City of the venue — the tournament's city (venues created before M8 have none). */
+  venueCity: string | null;
+  /** Organizer name; null for platform tournaments (`federationId` null). */
+  federationName: string | null;
   /** Live count of participants with status 'confirmed' (not the stored snapshot). */
   confirmedCount: number;
   /** Live count of participants with status 'pending'. */
@@ -20,6 +27,8 @@ export type TournamentReadModel = Tournament & {
 /** Serialized tournament row for JSON responses (timestamps → string), without updatedAt */
 export type ApiTournament = Omit<Serialize<Tournament>, 'updatedAt'> & {
   venueName: string | null;
+  venueCity: string | null;
+  federationName: string | null;
   confirmedCount: number;
   pendingCount: number;
 };
@@ -71,4 +80,24 @@ export interface ApiGroupStanding {
   /** Every completed non-walkover match of the group has a frame breakdown, so
    *  `pointsDiff` is comparable and worth showing. */
   pointsComplete: boolean;
+}
+
+/** One row of the prize table: a player (or, in a forecast, just a place). */
+export interface ApiPrizeRow {
+  placeFrom: number;
+  placeTo: number;
+  /** Null in a forecast — the tournament is not finished yet. */
+  userId: UUID | null;
+  username: string | null;
+  name: string | null;
+  /** Whole rubles; 0 for a place outside the prize split. */
+  amount: number;
+}
+
+/** Entry fee / prize fund breakdown of a tournament (calculation only). */
+export interface ApiPrizeReport {
+  /** True once the tournament is completed and rows name the players. */
+  isFinal: boolean;
+  summary: IPrizeSummary;
+  rows: ApiPrizeRow[];
 }

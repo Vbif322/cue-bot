@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 
 import {
   ANNOUNCEMENT_DESCRIPTION_LIMIT,
   buildAnnouncementKeyboard,
-  buildRegistrationOpenAnnouncement,
+  buildBracketKeyboard,
+  buildRegistrationAnnouncement,
 } from '@/bot/ui/groupAnnouncementUI.js';
 import type { TournamentAnnouncement } from '@/bot/ui/groupAnnouncementUI.js';
 
@@ -15,6 +16,7 @@ function make(
   return {
     id: TOURNAMENT_ID,
     name: 'Осенний кубок',
+    status: 'registration_open',
     sport: 'pool',
     discipline: 'pool_8',
     format: 'single_elimination',
@@ -29,9 +31,9 @@ function make(
   };
 }
 
-describe('buildRegistrationOpenAnnouncement', () => {
+describe('buildRegistrationAnnouncement', () => {
   it('содержит заголовок, название, площадку и счётчик участников', () => {
-    const text = buildRegistrationOpenAnnouncement(make());
+    const text = buildRegistrationAnnouncement(make());
 
     expect(text).toContain('Открыта регистрация!');
     expect(text).toContain('*Осенний кубок*');
@@ -41,7 +43,7 @@ describe('buildRegistrationOpenAnnouncement', () => {
   });
 
   it('экранирует Markdown в названии, площадке и описании', () => {
-    const text = buildRegistrationOpenAnnouncement(
+    const text = buildRegistrationAnnouncement(
       make({
         name: 'Кубок *звёзд*_2026',
         venueName: 'Клуб _Луза_',
@@ -57,7 +59,7 @@ describe('buildRegistrationOpenAnnouncement', () => {
   });
 
   it('подставляет «Не указана» для пустой площадки и даты', () => {
-    const text = buildRegistrationOpenAnnouncement(
+    const text = buildRegistrationAnnouncement(
       make({ venueName: null, startDate: null }),
     );
 
@@ -66,16 +68,14 @@ describe('buildRegistrationOpenAnnouncement', () => {
   });
 
   it('опускает блок описания, когда его нет или оно пустое', () => {
-    expect(buildRegistrationOpenAnnouncement(make())).not.toContain('Взнос');
-    const blank = buildRegistrationOpenAnnouncement(
-      make({ description: '   ' }),
-    );
+    expect(buildRegistrationAnnouncement(make())).not.toContain('Взнос');
+    const blank = buildRegistrationAnnouncement(make({ description: '   ' }));
     expect(blank).toContain('Участников: 3/16');
     expect(blank.trimEnd().endsWith('по кнопке ниже.')).toBe(true);
   });
 
   it('режет длинное описание до лимита', () => {
-    const text = buildRegistrationOpenAnnouncement(
+    const text = buildRegistrationAnnouncement(
       make({ description: 'я'.repeat(400) }),
     );
 
@@ -85,7 +85,7 @@ describe('buildRegistrationOpenAnnouncement', () => {
 
   it('не срезает описание посреди экранирующего слэша', () => {
     // Символ на границе среза — тот, что подлежит экранированию.
-    const text = buildRegistrationOpenAnnouncement(
+    const text = buildRegistrationAnnouncement(
       make({
         description: `${'я'.repeat(ANNOUNCEMENT_DESCRIPTION_LIMIT - 1)}*хвост`,
       }),
@@ -97,8 +97,26 @@ describe('buildRegistrationOpenAnnouncement', () => {
     );
   });
 
+  it.each([
+    ['registration_closed', 'Регистрация закрыта'],
+    ['in_progress', 'Турнир начался'],
+    ['completed', 'Турнир завершён'],
+    ['cancelled', 'Турнир отменён'],
+  ] as const)(
+    'статус %s — свой заголовок и без призыва к кнопке',
+    (status, header) => {
+      const text = buildRegistrationAnnouncement(make({ status }));
+
+      expect(text).toContain(header);
+      expect(text).not.toContain('Открыта регистрация');
+      expect(text).not.toContain('по кнопке ниже');
+      // Карточка остаётся полной: счётчик на момент закрытия тоже важен.
+      expect(text).toContain('Участников: 3/16');
+    },
+  );
+
   it('показывает пометку про рандом в формате', () => {
-    const text = buildRegistrationOpenAnnouncement(
+    const text = buildRegistrationAnnouncement(
       make({ randomAdvancement: true }),
     );
 
@@ -132,5 +150,45 @@ describe('buildAnnouncementKeyboard', () => {
 
     expect(payload).toBe(`t_${TOURNAMENT_ID}`);
     expect(payload?.length).toBeLessThanOrEqual(64);
+  });
+});
+
+describe('buildBracketKeyboard', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('URL-кнопка на сетку на сайте игрока', () => {
+    vi.stubEnv('PUBLIC_BASE_URL', 'https://cue.example');
+
+    const button = buildBracketKeyboard(TOURNAMENT_ID, 'single_elimination')
+      ?.inline_keyboard[0]?.[0];
+
+    expect(button).toMatchObject({
+      text: '📊 Сетка турнира',
+      url: `https://cue.example/tournaments/${TOURNAMENT_ID}/bracket`,
+    });
+    // web_app в группе недоступен — только обычная ссылка.
+    expect(button).not.toHaveProperty('web_app');
+  });
+
+  it('для круговой — «Таблица турнира»', () => {
+    vi.stubEnv('PUBLIC_BASE_URL', 'https://cue.example');
+
+    const button = buildBracketKeyboard(TOURNAMENT_ID, 'round_robin')
+      ?.inline_keyboard[0]?.[0];
+
+    expect(button?.text).toBe('📊 Таблица турнира');
+  });
+
+  it('null без https PUBLIC_BASE_URL', () => {
+    vi.stubEnv('PUBLIC_BASE_URL', '');
+    expect(
+      buildBracketKeyboard(TOURNAMENT_ID, 'single_elimination'),
+    ).toBeNull();
+    vi.stubEnv('PUBLIC_BASE_URL', 'http://localhost:5174');
+    expect(
+      buildBracketKeyboard(TOURNAMENT_ID, 'single_elimination'),
+    ).toBeNull();
   });
 });

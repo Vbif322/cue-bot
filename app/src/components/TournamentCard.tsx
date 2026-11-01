@@ -1,15 +1,15 @@
 import { Link } from 'react-router-dom';
 import { TournamentStatusBadge } from '@cue-bot/ui';
 import type { AppTournament } from '../lib/types.ts';
-import {
-  disciplineLabel,
-  formatDateTime,
-  fillPercent,
-} from '../lib/format.ts';
+import { disciplineLabel, formatDateTime, fillPercent } from '../lib/format.ts';
 import { ProgressBar } from './ui.tsx';
 
 /** Карточка турнира в ленте/списках (макет tournament-card). */
-export default function TournamentCard({ tournament }: { tournament: AppTournament }) {
+export default function TournamentCard({
+  tournament,
+}: {
+  tournament: AppTournament;
+}) {
   const confirmed = tournament.confirmedCount;
   const max = tournament.maxParticipants;
   const dateText =
@@ -35,7 +35,14 @@ export default function TournamentCard({ tournament }: { tournament: AppTourname
         color: 'inherit',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
         <span
           style={{
             fontSize: 11,
@@ -50,9 +57,28 @@ export default function TournamentCard({ tournament }: { tournament: AppTourname
         <TournamentStatusBadge status={tournament.status} />
       </div>
 
-      <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>{tournament.name}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>
+        {tournament.name}
+      </div>
+      {(tournament.federationName || tournament.venueCity) && (
+        <div
+          style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: -6 }}
+        >
+          {[tournament.federationName, tournament.venueCity]
+            .filter(Boolean)
+            .join(' · ')}
+        </div>
+      )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontSize: 13,
+          color: 'var(--text-muted)',
+        }}
+      >
         <span
           style={{
             width: 5,
@@ -65,11 +91,33 @@ export default function TournamentCard({ tournament }: { tournament: AppTourname
         {dateText}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Участники</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
-            <span style={{ color: 'var(--text-primary)' }}>{confirmed}</span> / {max}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          marginTop: 2,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+            Участники
+          </span>
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            <span style={{ color: 'var(--text-primary)' }}>{confirmed}</span> /{' '}
+            {max}
           </span>
         </div>
         <ProgressBar percent={fillPercent(confirmed, max)} />

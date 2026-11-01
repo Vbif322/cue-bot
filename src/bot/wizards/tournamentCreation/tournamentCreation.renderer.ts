@@ -13,7 +13,10 @@ import type { IDateTimeHelper } from '@/utils/dateTimeHelper.js';
 import { STEPS_COUNT } from './tournamentCreation.const.js';
 import { getMatchStatusEmoji } from '../../ui/matchUI.js';
 import type { BotContext } from '../../types.js';
-import type { ITournamentCreationKeyboards } from './tournamentCreation.keyboards.js';
+import type {
+  FederationOption,
+  ITournamentCreationKeyboards,
+} from './tournamentCreation.keyboards.js';
 import type { IRequiredCreationData } from './tournamentCreation.js';
 import type { Tournament } from '../../@types/tournament.js';
 import type { Venue } from '../../@types/venue.js';
@@ -22,7 +25,11 @@ import type { Table } from '../../@types/table.js';
 // #region Types / Interfaces
 
 export interface ITournamentCreationRenderer {
-  showNameStep(ctx: BotContext): Promise<void>; // Step 1
+  showFederationStep(
+    ctx: BotContext,
+    options: FederationOption[],
+  ): Promise<void>; // unnumbered
+  showNameStep(ctx: BotContext, federationName?: string): Promise<void>; // Step 1
   showStartDateStep(ctx: BotContext, name: Tournament['name']): Promise<void>; // Step 2
   showVisibilityStep(
     ctx: BotContext,
@@ -108,6 +115,8 @@ export interface ITournamentCreationRenderer {
   showIncorrectQualifiersPerGroup(ctx: BotContext): Promise<void>;
   showIncorrectWinScore(ctx: BotContext): Promise<void>;
   showSavedStateError(ctx: BotContext): Promise<void>;
+  showUseButtonsHint(ctx: BotContext): Promise<void>;
+  showTextInputError(ctx: BotContext): Promise<void>;
 
   showCreationSuccess(
     ctx: BotContext,
@@ -127,7 +136,22 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     private readonly dateTimeHelper: IDateTimeHelper,
   ) {}
 
-  async showNameStep(ctx: BotContext): Promise<void> {
+  async showFederationStep(
+    ctx: BotContext,
+    options: FederationOption[],
+  ): Promise<void> {
+    await ctx.reply('От чьего имени проводится турнир?', {
+      reply_markup: this.keyboards.buildFederationsKeyboard(options),
+    });
+  }
+
+  async showNameStep(ctx: BotContext, federationName?: string): Promise<void> {
+    if (federationName !== undefined) {
+      await safeEditMessageText(ctx, {
+        text: `Организатор: ${federationName}`,
+      });
+    }
+
     const message = `
     Шаг 1 / ${String(STEPS_COUNT)}
     Введите название турнира
@@ -642,6 +666,18 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     });
   }
 
+  async showUseButtonsHint(ctx: BotContext): Promise<void> {
+    await ctx.reply(
+      'Сейчас нужно выбрать вариант кнопкой в сообщении выше. Для отмены — /cancel.',
+    );
+  }
+
+  async showTextInputError(ctx: BotContext): Promise<void> {
+    await ctx.reply(
+      `${getMatchStatusEmoji('cancelled')} Что-то пошло не так. Попробуйте ещё раз или /cancel.`,
+    );
+  }
+
   async showSavedStateError(ctx: BotContext): Promise<void> {
     await ctx.answerCallbackQuery({
       text: `${getMatchStatusEmoji('cancelled')} Произошла ошибка при сохранении состояния`,
@@ -659,7 +695,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
 
     await ctx.reply(completeMessage);
 
-    const { venue, tournament, tables } = data;
+    const { federation, venue, tournament, tables } = data;
 
     const formattedStartDate =
       tournament.startDate !== null
@@ -690,6 +726,7 @@ export class TournamentCreationRenderer implements ITournamentCreationRenderer {
     const message = `
     Данные турнира:
     - ID: ${tournament.id}
+    - Организатор: ${federation.name}
     - Название: ${tournament.name}
     - Статус: Черновик
     - Видимость: ${formattedVisibility}

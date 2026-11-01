@@ -3,6 +3,7 @@ import type { UUID } from 'crypto';
 
 import {
   activateGroupChat,
+  bindGroupChat,
   classifyMyChatMember,
   deactivateGroupChat,
   getGroupChat,
@@ -12,6 +13,7 @@ import type { IGroupChatType } from '@/db/schema.js';
 import { errorMessage } from '@/utils/errors.js';
 
 import { isAdmin } from '../permissions.js';
+import { getUserFederations } from '@/services/federationService.js';
 import type { BotContext } from '../types.js';
 
 export const groupCommands = new Composer<BotContext>();
@@ -66,6 +68,15 @@ async function canManageAnnouncements(ctx: BotContext): Promise<boolean> {
 }
 
 /**
+ * Привязан ли чат к федерации. В непривязанный чат бот не пишет НИЧЕГО — ни
+ * анонсов, ни приветствия, ни ответов на команды: пока чат ничей, его
+ * участникам бот ничего не обещает.
+ */
+async function isBound(chatId: string): Promise<boolean> {
+  return ((await getGroupChat(chatId))?.federationId ?? null) !== null;
+}
+
+/**
  * Бота добавили в чат / выгнали / сменили ему права.
  *
  * Разбор вынесен в чистую `classifyMyChatMember`, здесь остаётся только
@@ -92,7 +103,9 @@ groupCommands.on('my_chat_member', async (ctx) => {
     addedBy: actorIdOf(ctx),
   });
 
-  if (!action.greet) return;
+  // Новый чат ещё не привязан — не здороваемся. Привязанным бывает только
+  // повторно добавленный чат (`registerGroupChat` привязку не сбрасывает).
+  if (!action.greet || !(await isBound(chatId))) return;
 
   try {
     // sendMessage, а не ctx.reply: my_chat_member — не сообщение, отвечать не на что.
@@ -113,38 +126,67 @@ groupCommands.command('start_announcements', async (ctx) => {
   const chat = groupChatOf(ctx);
   if (!chat) return;
 
+  const chatId = String(chat.id);
+  const existing = await getGroupChat(chatId);
+
   if (!(await canManageAnnouncements(ctx))) {
-    await ctx.reply('Управлять анонсами может только администратор чата.');
+    if ((existing?.federationId ?? null) !== null) {
+      await ctx.reply('Управлять анонсами может только администратор чата.');
+    }
     return;
   }
 
-  const chatId = String(chat.id);
-  const existing = await getGroupChat(chatId);
+  const actorId = actorIdOf(ctx);
 
   if (existing === undefined) {
     await registerGroupChat({
       chatId,
       type: chat.type,
       title: chat.title,
-      addedBy: actorIdOf(ctx),
+      addedBy: actorId,
     });
   } else {
     await activateGroupChat(chatId);
   }
 
-  await ctx.reply('Анонсы турниров включены для этого чата.');
+  // Привязка к организации (M8): если включивший состоит ровно в одной
+  // федерации, а чат ещё не привязан — привязываем молча. Несколько федераций
+  // — выбор делается в панели управления; ноль — чат молчит до привязки там же.
+  let bound = existing?.federationId ?? null;
+  let hint = '';
+  if (bound === null && actorId !== null) {
+    const mine = await getUserFederations(actorId);
+    const only = mine[0];
+    if (mine.length === 1 && only) {
+      await bindGroupChat(chatId, only.id);
+      bound = only.id;
+      hint = `\nЧат привязан к организации «${only.name}»: сюда придут только её турниры. Изменить — в панели управления.`;
+    }
+  }
+
+  // Непривязанный чат уже зарегистрирован и виден в панели как кандидат на
+  // привязку — но писать в него не о чем: анонсы туда не придут.
+  if (bound === null) return;
+
+  await ctx.reply(`Анонсы турниров включены для этого чата.${hint}`);
 });
 
 groupCommands.command('stop_announcements', async (ctx) => {
   const chat = groupChatOf(ctx);
   if (!chat) return;
 
+  const chatId = String(chat.id);
+  const bound = await isBound(chatId);
+
   if (!(await canManageAnnouncements(ctx))) {
-    await ctx.reply('Управлять анонсами может только администратор чата.');
+    if (bound) {
+      await ctx.reply('Управлять анонсами может только администратор чата.');
+    }
     return;
   }
 
-  await deactivateGroupChat(String(chat.id), 'command:stop_announcements');
+  await deactivateGroupChat(chatId, 'command:stop_announcements');
+  if (!bound) return;
   await ctx.reply(
     'Анонсы турниров отключены. Включить обратно: /start\\_announcements',
     { parse_mode: 'Markdown' },

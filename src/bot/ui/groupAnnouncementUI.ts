@@ -1,14 +1,22 @@
 import { InlineKeyboard } from 'grammy';
 
+import type { TournamentStatus } from '@/bot/@types/tournament.js';
 import {
   formatFormatWithMode,
   formatSportDiscipline,
 } from '@/utils/constants.js';
 import { DateTimeHelperInstance } from '@/utils/dateTimeHelper.js';
 import { escapeMarkdown } from '@/utils/messageHelpers.js';
+import { publicSiteUrl } from '@/utils/publicUrl.js';
 
 /** Максимум описания в анонсе — карточка в группе должна оставаться компактной. */
 export const ANNOUNCEMENT_DESCRIPTION_LIMIT = 300;
+
+/**
+ * Статусы, в которых турнир может быть в анонсе. Без `draft`: анонс появляется
+ * только при открытии регистрации, а в черновик оттуда не возвращаются.
+ */
+export type AnnouncementStatus = Exclude<TournamentStatus, 'draft'>;
 
 /**
  * Данные для анонса. Намеренно НЕ `TournamentInfo`: та требует
@@ -18,6 +26,7 @@ export const ANNOUNCEMENT_DESCRIPTION_LIMIT = 300;
 export interface TournamentAnnouncement {
   id: string;
   name: string;
+  status: AnnouncementStatus;
   sport: string;
   discipline: string;
   format: string;
@@ -31,7 +40,19 @@ export interface TournamentAnnouncement {
 }
 
 /**
- * Текст анонса об открытии регистрации для группового чата.
+ * Заголовок карточки по статусу турнира. Анонс уходит при открытии регистрации,
+ * а потом редактируется на месте — заголовок показывает, где турнир сейчас.
+ */
+const ANNOUNCEMENT_HEADERS: Record<AnnouncementStatus, string> = {
+  registration_open: '🎱 *Открыта регистрация!*',
+  registration_closed: '🔒 *Регистрация закрыта*',
+  in_progress: '▶️ *Турнир начался*',
+  completed: '🏁 *Турнир завершён*',
+  cancelled: '❌ *Турнир отменён*',
+};
+
+/**
+ * Текст анонса турнира для группового чата.
  *
  * Отправляется с `parse_mode: 'Markdown'`, поэтому `name`, `venueName` и
  * `description` (свободный ввод админа) проходят через `escapeMarkdown`.
@@ -39,11 +60,11 @@ export interface TournamentAnnouncement {
  * из фиксированных таблиц и НЕ экранируются — иначе получилось бы двойное
  * экранирование.
  */
-export function buildRegistrationOpenAnnouncement(
+export function buildRegistrationAnnouncement(
   t: TournamentAnnouncement,
 ): string {
   const lines = [
-    '🎱 *Открыта регистрация!*',
+    ANNOUNCEMENT_HEADERS[t.status],
     '',
     `*${escapeMarkdown(t.name)}*`,
     `Площадка: ${t.venueName === null ? 'Не указана' : escapeMarkdown(t.venueName)}`,
@@ -63,7 +84,9 @@ export function buildRegistrationOpenAnnouncement(
     );
   }
 
-  lines.push('', 'Регистрация - по кнопке ниже.');
+  if (t.status === 'registration_open') {
+    lines.push('', 'Регистрация - по кнопке ниже.');
+  }
 
   return lines.join('\n');
 }
@@ -86,4 +109,32 @@ export function buildAnnouncementKeyboard(
     'Участвовать',
     `https://t.me/${botUsername}?start=t_${tournamentId}`,
   );
+}
+
+/** Форматы с сеткой; у остальных (круговая, группы) на той же странице таблица. */
+const ELIMINATION_FORMATS = new Set([
+  'single_elimination',
+  'double_elimination',
+]);
+
+/**
+ * Клавиатура анонса после старта — URL-кнопка на сетку на сайте игрока.
+ *
+ * Именно URL, а не `web_app`: Mini App-кнопки в групповых чатах недоступны.
+ * Страница `/tournaments/:id/bracket` открыта и гостю, если турнир публичный —
+ * за этим следит вызывающий. Подпись — как у ссылки на странице турнира.
+ *
+ * null, если ссылаться некуда (нет https PUBLIC_BASE_URL, обычный dev).
+ */
+export function buildBracketKeyboard(
+  tournamentId: string,
+  format: string,
+): InlineKeyboard | null {
+  const url = publicSiteUrl(`/tournaments/${tournamentId}/bracket`);
+  if (url === null) return null;
+
+  const label = ELIMINATION_FORMATS.has(format)
+    ? '📊 Сетка турнира'
+    : '📊 Таблица турнира';
+  return new InlineKeyboard().url(label, url);
 }

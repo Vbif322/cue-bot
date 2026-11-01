@@ -26,11 +26,7 @@ const USER = { id: 7, is_bot: false, first_name: 'Игрок' };
  */
 function ctxOf(update: Partial<Update>): BotContext {
   const api = { raw: {} } as unknown as Api;
-  return new Context(
-    { update_id: 1, ...update } as Update,
-    api,
-    BOT,
-  ) as BotContext;
+  return new Context({ update_id: 1, ...update }, api, BOT) as BotContext;
 }
 
 function textMessage(

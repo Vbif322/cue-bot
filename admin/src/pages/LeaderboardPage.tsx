@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { leaderboardApi } from '../lib/api.ts';
 import type { ApiMaxBreakLeaderboardEntry } from '../lib/api.ts';
+import { useFederation } from '../lib/federation.tsx';
 
 const displayName = (u: {
   name: string | null;
@@ -31,9 +32,10 @@ function TournamentLink({
 
 export default function LeaderboardPage() {
   const navigate = useNavigate();
+  const { param } = useFederation();
   const { data: rows, isLoading } = useQuery({
-    queryKey: ['leaderboard', 'breaks'],
-    queryFn: leaderboardApi.breaks,
+    queryKey: ['leaderboard', 'breaks', param ?? 'all'],
+    queryFn: () => leaderboardApi.breaks(param),
   });
 
   return (

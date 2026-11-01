@@ -5,6 +5,7 @@ import { db } from '@/db/db.js';
 import { dialogSessions } from '@/db/schema.js';
 import {
   PgSessionStore,
+  findActiveDialogSession,
   sweepExpiredDialogSessions,
 } from '@/services/dialogSessionStore.js';
 import { TournamentCreationStateStore } from '@/bot/wizards/tournamentCreation/tournamentCreation.stateStore.js';
@@ -92,6 +93,112 @@ describe('PgSessionStore', () => {
   });
 });
 
+describe('PgSessionStore exclusive sessions (claim / replace)', () => {
+  beforeEach(async () => {
+    await truncateAll();
+  });
+
+  const SCOPE = ['ns-a', 'ns-b', 'ns-c'];
+
+  it('claim displaces the key in other scoped namespaces only', async () => {
+    const a = new PgSessionStore<{ v: string }>('ns-a');
+    const b = new PgSessionStore<{ v: string }>('ns-b');
+    const outside = new PgSessionStore<{ v: string }>('ns-outside');
+
+    await b.set(USER, { v: 'b' });
+    await b.set(999, { v: 'other user' });
+    await outside.set(USER, { v: 'outside' });
+
+    const displaced = await a.claim(USER, { v: 'a' }, SCOPE);
+
+    expect(displaced).toEqual([{ namespace: 'ns-b', data: { v: 'b' } }]);
+    expect(await a.get(USER)).toEqual({ v: 'a' });
+    expect(await b.get(USER)).toBeUndefined();
+    expect(await b.get(999)).toEqual({ v: 'other user' });
+    expect(await outside.get(USER)).toEqual({ v: 'outside' });
+  });
+
+  it('claim does not report expired displaced sessions', async () => {
+    const a = new PgSessionStore<{ v: string }>('ns-a');
+    const b = new PgSessionStore<{ v: string }>('ns-b');
+
+    await b.set(USER, { v: 'stale' });
+    await setExpiry('ns-b', USER, new Date(Date.now() - 1000));
+
+    expect(await a.claim(USER, { v: 'a' }, SCOPE)).toEqual([]);
+    expect(await b.get(USER)).toBeUndefined();
+  });
+
+  it('claim on its own namespace overwrites and displaces nothing', async () => {
+    const a = new PgSessionStore<{ v: string }>('ns-a');
+
+    await a.claim(USER, { v: '1' }, SCOPE);
+    expect(await a.claim(USER, { v: '2' }, SCOPE)).toEqual([]);
+    expect(await a.get(USER)).toEqual({ v: '2' });
+  });
+
+  it('concurrent claims leave exactly one session for the key', async () => {
+    const stores = SCOPE.map((ns) => new PgSessionStore<{ v: string }>(ns));
+
+    await Promise.all(
+      stores.map((store) => store.claim(USER, { v: store.namespace }, SCOPE)),
+    );
+
+    const rows = await db.query.dialogSessions.findMany({
+      where: eq(dialogSessions.key, String(USER)),
+    });
+    expect(rows).toHaveLength(1);
+  });
+
+  it('replace updates an active session but never re-inserts', async () => {
+    const a = new PgSessionStore<{ v: string }>('ns-a');
+    const b = new PgSessionStore<{ v: string }>('ns-b');
+
+    expect(await a.replace(USER, { v: 'x' })).toBe(false);
+    expect(await a.get(USER)).toBeUndefined();
+
+    await a.claim(USER, { v: '1' }, SCOPE);
+    expect(await a.replace(USER, { v: '2' })).toBe(true);
+    expect(await a.get(USER)).toEqual({ v: '2' });
+
+    // Another flow took over — a late write of the old flow must not revive it.
+    await b.claim(USER, { v: 'b' }, SCOPE);
+    expect(await a.replace(USER, { v: '3' })).toBe(false);
+    expect(await a.get(USER)).toBeUndefined();
+  });
+
+  it('replace does not revive an expired session', async () => {
+    const a = new PgSessionStore<{ v: string }>('ns-a');
+
+    await a.set(USER, { v: '1' });
+    await setExpiry('ns-a', USER, new Date(Date.now() - 1000));
+
+    expect(await a.replace(USER, { v: '2' })).toBe(false);
+    expect(await a.get(USER)).toBeUndefined();
+  });
+
+  it('findActiveDialogSession returns the active session among namespaces', async () => {
+    const a = new PgSessionStore<{ v: string }>('ns-a');
+    const b = new PgSessionStore<{ v: string }>('ns-b');
+
+    expect(await findActiveDialogSession(USER, SCOPE)).toBeUndefined();
+
+    await a.set(USER, { v: 'a' });
+    expect(await findActiveDialogSession(USER, SCOPE)).toEqual({
+      namespace: 'ns-a',
+      data: { v: 'a' },
+    });
+    expect(await findActiveDialogSession(USER, ['ns-b'])).toBeUndefined();
+    expect(await findActiveDialogSession(USER, [])).toBeUndefined();
+
+    await b.set(USER, { v: 'b' });
+    await setExpiry('ns-b', USER, new Date(Date.now() - 1000));
+    expect((await findActiveDialogSession(USER, SCOPE))?.namespace).toBe(
+      'ns-a',
+    );
+  });
+});
+
 describe('TournamentCreationStateStore (persistence)', () => {
   beforeEach(async () => {
     await truncateAll();
@@ -118,6 +225,17 @@ describe('TournamentCreationStateStore (persistence)', () => {
     expect(state.data.tournament?.startDate?.toISOString()).toBe(
       startDate.toISOString(),
     );
+  });
+
+  it('updates fail once the session is gone (never revived)', async () => {
+    const store = new TournamentCreationStateStore();
+    await store.start(USER);
+    await store.clear(USER);
+
+    await expect(store.setStep(USER, 'date')).rejects.toThrow(
+      'Сессия не найдена',
+    );
+    expect(await store.has(USER)).toBe(false);
   });
 
   it('clear removes the session', async () => {

@@ -44,10 +44,17 @@ export default function LoginPage() {
     mutationFn: () => auth.verifyCode(email.trim(), code.trim()),
     onSuccess: ({ user }) => {
       // App.tsx отрисует админку, как только в ['auth','me'] появится user.
+      // Федерации и флаг админа дотянет refetch (invalidate) — переключатель
+      // нормализует выбор, когда они придут.
       qc.setQueryData<MeResponse>(['auth', 'me'], (prev) => ({
         playerUrl: prev?.playerUrl ?? '',
+        isPlatformAdmin: prev?.isPlatformAdmin ?? false,
+        canCreateFederations: prev?.canCreateFederations ?? false,
+        organizerUntil: prev?.organizerUntil ?? null,
+        federations: prev?.federations ?? [],
         user,
       }));
+      void qc.invalidateQueries({ queryKey: ['auth', 'me'] });
       window.history.replaceState(null, '', '/');
     },
   });

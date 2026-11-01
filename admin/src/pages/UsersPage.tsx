@@ -1,15 +1,39 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { Input } from '@cue-bot/ui';
 import { usersApi } from '../lib/api.ts';
 import { useMe } from '../lib/useAuth.ts';
+import { useFederation } from '../lib/federation.tsx';
 
+/**
+ * Пользователи. Админ видит всех (или ростер выбранной организации);
+ * организатор — ростер своих организаций. Поле «@username» находит игрока
+ * «со стороны» точным совпадением, чтобы позвать его в турнир.
+ */
 export default function UsersPage() {
   const navigate = useNavigate();
   const { data: me } = useMe();
+  const { param, isPlatformAdmin } = useFederation();
+  const [search, setSearch] = useState('');
+  const handle = search.trim().startsWith('@') ? search.trim() : undefined;
   const { data: users, isLoading } = useQuery({
-    queryKey: ['users'],
-    queryFn: usersApi.list,
+    queryKey: ['users', param ?? 'all', handle ?? ''],
+    queryFn: () =>
+      usersApi.list({
+        ...(param && param !== 'platform' ? { federationId: param } : {}),
+        ...(handle ? { q: handle } : {}),
+      }),
   });
+  const q = search.trim().toLowerCase();
+  const visible = (users ?? []).filter(
+    (u) =>
+      handle !== undefined ||
+      !q ||
+      u.username.toLowerCase().includes(q) ||
+      (u.name ?? '').toLowerCase().includes(q) ||
+      (u.surname ?? '').toLowerCase().includes(q),
+  );
 
   const displayName = (u: {
     name: string | null;
@@ -19,8 +43,16 @@ export default function UsersPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">Пользователи</h2>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
+        <h2 className="text-xl font-semibold text-gray-900 flex-1">
+          Пользователи
+        </h2>
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Поиск по имени, или @username для точного поиска"
+          className="sm:w-80"
+        />
       </div>
 
       {isLoading ? (
@@ -29,7 +61,7 @@ export default function UsersPage() {
         <>
           {/* Mobile card list */}
           <div className="md:hidden space-y-3">
-            {users?.map((u) => {
+            {visible.map((u) => {
               const isMe = u.id === me?.user?.id;
               return (
                 <div
@@ -59,9 +91,11 @@ export default function UsersPage() {
                       {u.role === 'admin' ? 'Администратор' : 'Пользователь'}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 font-mono">
-                    ID: {u.telegram_id}
-                  </p>
+                  {isPlatformAdmin && (
+                    <p className="text-xs text-gray-400 font-mono">
+                      ID: {u.telegram_id}
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -75,16 +109,18 @@ export default function UsersPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Пользователь
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Telegram ID
-                  </th>
+                  {isPlatformAdmin && (
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">
+                      Telegram ID
+                    </th>
+                  )}
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Роль
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {users?.map((u) => {
+                {visible.map((u) => {
                   const isMe = u.id === me?.user?.id;
                   return (
                     <tr
@@ -103,9 +139,11 @@ export default function UsersPage() {
                         </p>
                         <p className="text-xs text-gray-500">@{u.username}</p>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 font-mono text-xs">
-                        {u.telegram_id}
-                      </td>
+                      {isPlatformAdmin && (
+                        <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                          {u.telegram_id}
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${

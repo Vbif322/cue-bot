@@ -26,4 +26,5 @@ export type {
   ApiMatchStats,
 } from '../../bot/@types/match.js';
 export type { ApiNotification } from '../../bot/@types/notification.js';
+export type { ApiPublicFederation } from '../../bot/@types/federation.js';
 export type { ApiError } from '../../bot/@types/api.js';

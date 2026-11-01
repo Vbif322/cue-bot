@@ -164,9 +164,7 @@ export default function ParticipantsTab({
                     seed={p.seed}
                     editable={seedsEditable && p.status === 'confirmed'}
                     maxSeed={confirmedCount}
-                    invalid={
-                      p.status === 'confirmed' && seedIsInvalid(p.seed)
-                    }
+                    invalid={p.status === 'confirmed' && seedIsInvalid(p.seed)}
                     saving={
                       setSeedMutation.isPending &&
                       setSeedMutation.variables?.userId === p.userId
@@ -255,10 +253,7 @@ export default function ParticipantsTab({
             ))}
             {!participants?.length && (
               <tr>
-                <td
-                  colSpan={5}
-                  className="px-4 py-6 text-center text-gray-400"
-                >
+                <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
                   Нет участников
                 </td>
               </tr>
@@ -270,6 +265,7 @@ export default function ParticipantsTab({
       {showModal && (
         <AddParticipantModal
           tournamentId={tournamentId}
+          federationId={tournament.federationId}
           existingParticipantIds={participantIds}
           onClose={() => setShowModal(false)}
         />

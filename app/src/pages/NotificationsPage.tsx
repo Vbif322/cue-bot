@@ -3,8 +3,10 @@
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi } from '../lib/api.ts';
+import { renderTelegramText } from '../lib/telegramText.tsx';
 import type { AppNotification, NotificationType } from '../lib/types.ts';
 import { EmptyState, ErrorBox, Loader } from '../components/ui.tsx';
+import { useRefereeOverview } from '../lib/useReferee.ts';
 
 type Tone = 'success' | 'warning' | 'info' | 'danger' | 'accent';
 
@@ -23,7 +25,14 @@ const TONE_BY_TYPE: Record<NotificationType, Tone> = {
   tournament_invitation: 'info',
   new_registration: 'info',
   participant_limit_reached: 'info',
+  match_no_show: 'warning',
 };
+
+/** Решения судьи: в своём турнире такие уведомления ведут в пульт. */
+const REFEREE_TYPES = new Set<NotificationType>([
+  'result_dispute',
+  'match_no_show',
+]);
 
 const CHECK_TYPES = new Set<NotificationType>([
   'registration_confirmed',
@@ -105,9 +114,19 @@ export default function NotificationsPage() {
   const list = data ?? [];
   const unread = list.filter((n) => !n.isRead).length;
 
+  const { data: referee } = useRefereeOverview();
+  const refereeOf = new Set(referee?.tournaments.map((t) => t.id));
+
   const openNotification = (n: AppNotification) => {
     if (!n.isRead) readMut.mutate(n.id);
-    if (n.tournamentId) nav(`/tournaments/${n.tournamentId}`);
+    if (
+      REFEREE_TYPES.has(n.type) &&
+      n.matchId &&
+      n.tournamentId &&
+      refereeOf.has(n.tournamentId)
+    ) {
+      nav(`/referee/m/${n.matchId}`);
+    } else if (n.tournamentId) nav(`/tournaments/${n.tournamentId}`);
     else if (n.matchId) nav('/matches');
   };
 
@@ -195,7 +214,9 @@ export default function NotificationsPage() {
                   {relativeTime(n.createdAt)}
                 </span>
               </div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>{n.message}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45, whiteSpace: 'pre-line' }}>
+                {renderTelegramText(n.message)}
+              </div>
             </div>
             {!n.isRead && (
               <span

@@ -25,6 +25,8 @@ import {
   notifyResultConfirmed,
   notifyResultDisputed,
 } from '@/services/notificationService.js';
+import { isTournamentRefereeUser } from '@/services/refereeService.js';
+import { getMembership } from '@/services/federationService.js';
 import { requireUser } from '@/admin/server/middleware.js';
 
 import { validateParam, validateJson } from './_shared.js';
@@ -40,7 +42,7 @@ const SCORE_MESSAGES = {
   player2Score: 'Некорректный счёт',
 } as const;
 
-const frameSchema = z.object({
+export const frameSchema = z.object({
   player1Points: z.number().int().min(0),
   player2Points: z.number().int().min(0),
   player1Break: z.number().int().min(0).nullable().optional(),
@@ -51,9 +53,11 @@ const framesBody = z.object({
   frames: z.array(frameSchema).min(1),
 });
 
-const FRAMES_MESSAGES = { frames: 'Некорректный счёт по фреймам' } as const;
+export const FRAMES_MESSAGES = {
+  frames: 'Некорректный счёт по фреймам',
+} as const;
 
-const FRAME_MESSAGES = {
+export const FRAME_MESSAGES = {
   player1Points: 'Некорректный счёт',
   player2Points: 'Некорректный счёт',
   player1Break: 'Некорректный брейк',
@@ -66,7 +70,7 @@ const paramIdFrame = z.object({
 });
 
 /** API shape of a frame row (the same for GET and the draft edits). */
-function toFrameDto(f: MatchFrame) {
+export function toFrameDto(f: MatchFrame) {
   return {
     frameNumber: f.frameNumber,
     player1Points: f.player1Points,
@@ -83,6 +87,30 @@ function isPlayer(
   return match.player1Id === userId || match.player2Id === userId;
 }
 
+/** Не-игрок видит матч, если ему виден турнир (участник, создатель, судья). */
+async function canViewMatch(
+  match: { tournamentId: UUID },
+  userId: UUID,
+): Promise<boolean> {
+  const tournament = await getTournament(match.tournamentId);
+  if (!tournament) return false;
+  const [participation, isReferee, membership] = await Promise.all([
+    getUserParticipation(tournament.id, userId),
+    isTournamentRefereeUser(userId, tournament.id),
+    tournament.federationId === null
+      ? Promise.resolve(null)
+      : getMembership(userId, tournament.federationId),
+  ]);
+  return isTournamentVisibleTo(tournament, {
+    isAdmin: false,
+    isReferee,
+    isParticipant:
+      participation != null && participation.status !== 'cancelled',
+    isCreator: tournament.createdBy === userId,
+    isOrganizer: membership !== null,
+  });
+}
+
 export function createAppMatchesRouter(botApi: Api) {
   const router = new Hono();
 
@@ -96,21 +124,8 @@ export function createAppMatchesRouter(botApi: Api) {
     const match = await getMatch(id);
     if (!match) return c.json({ error: 'Матч не найден' }, 404);
 
-    if (!isPlayer(match, userId)) {
-      const tournament = await getTournament(match.tournamentId);
-      const participation = tournament
-        ? await getUserParticipation(tournament.id, userId)
-        : undefined;
-      const visible =
-        tournament != null &&
-        isTournamentVisibleTo(tournament, {
-          isAdmin: false,
-          isReferee: false,
-          isParticipant:
-            participation != null && participation.status !== 'cancelled',
-          isCreator: tournament.createdBy === userId,
-        });
-      if (!visible) return c.json({ error: 'Матч не найден' }, 404);
+    if (!isPlayer(match, userId) && !(await canViewMatch(match, userId))) {
+      return c.json({ error: 'Матч не найден' }, 404);
     }
 
     return c.json({ data: match });
@@ -124,21 +139,8 @@ export function createAppMatchesRouter(botApi: Api) {
     const match = await getMatch(id);
     if (!match) return c.json({ error: 'Матч не найден' }, 404);
 
-    if (!isPlayer(match, userId)) {
-      const tournament = await getTournament(match.tournamentId);
-      const participation = tournament
-        ? await getUserParticipation(tournament.id, userId)
-        : undefined;
-      const visible =
-        tournament != null &&
-        isTournamentVisibleTo(tournament, {
-          isAdmin: false,
-          isReferee: false,
-          isParticipant:
-            participation != null && participation.status !== 'cancelled',
-          isCreator: tournament.createdBy === userId,
-        });
-      if (!visible) return c.json({ error: 'Матч не найден' }, 404);
+    if (!isPlayer(match, userId) && !(await canViewMatch(match, userId))) {
+      return c.json({ error: 'Матч не найден' }, 404);
     }
 
     const frames = await getMatchFrames(id);
@@ -321,7 +323,9 @@ export function createAppMatchesRouter(botApi: Api) {
 
     try {
       const updated = await getMatch(id);
-      if (updated) await notifyResultDisputed(botApi, updated, userId);
+      if (updated) {
+        await notifyResultDisputed(botApi, updated, userId, result.previous);
+      }
     } catch (error) {
       console.error('Failed to send result disputed notification:', error);
     }

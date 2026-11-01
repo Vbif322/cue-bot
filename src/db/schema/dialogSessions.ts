@@ -7,7 +7,9 @@ import { createdAt, prodSchema, updatedAt } from '../schemaHelpers.js';
  *
  * Заменяет module-level in-memory `Map`'ы — состояние переживает рестарт процесса.
  * `namespace` разделяет независимые хранилища ('tc' | 'profile-edit' | 'invite' |
- * 'match-schedule'); `key` — обычно telegram userId как строка.
+ * 'match-schedule' | 'match-report-frames' — источник истины: регистрации
+ * `registerTextSession`, src/bot/sessions/); `key` — обычно telegram userId как
+ * строка. У ключа активна максимум одна сессия (`PgSessionStore.claim`).
  *
  * TTL: `expiresAt` обновляется при каждой записи. Чтения фильтруют просроченное,
  * периодический sweep удаляет его из таблицы.

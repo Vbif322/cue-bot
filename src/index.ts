@@ -2,10 +2,14 @@ import { bot, useWebhook } from './bot/instance.js';
 import {
   authMiddleware,
   chatScopeMiddleware,
-  wizardGuardMiddleware,
+  sessionGuardMiddleware,
   rateLimitMiddleware,
   botFloodLimiter,
 } from './bot/middleware/index.js';
+import {
+  sessionCancelCommand,
+  textSessionDispatcher,
+} from './bot/sessions/textSessionMiddleware.js';
 import { RateLimiter } from './lib/rateLimiter.js';
 import {
   roleCommands,
@@ -16,6 +20,7 @@ import {
   matchCommands,
   helpCommands,
   profileCommands,
+  federationCommands,
   menuHandlers,
   groupCommands,
 } from './bot/handlers/index.js';
@@ -29,10 +34,11 @@ import { sendOnboarding } from './bot/handlers/helpCommand.js';
 import {
   setupCommands,
   setAdminCommands,
+  setOrganizerCommands,
   setRefereeCommands,
   setUserCommands,
 } from './bot/commands.js';
-import { getUserRefereeTournaments } from './bot/permissions.js';
+import { canOrganize, getUserRefereeTournaments } from './bot/permissions.js';
 import { buildMainMenuKeyboard } from './bot/ui/mainMenu.js';
 import { createAdminServer } from './admin/server/index.js';
 import { serve, type ServerType } from '@hono/node-server';
@@ -44,15 +50,18 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { db } from './db/db.js';
 import { sweepExpiredDialogSessions } from './services/dialogSessionStore.js';
-import { sweepExpiredEmailLoginCodes } from './services/emailLoginCodeService.js';
+import {
+  emailCodeLimiter,
+  sweepExpiredEmailLoginCodes,
+} from './services/emailLoginCodeService.js';
+import { emailLinkUserLimiter } from './services/emailLinkService.js';
 import { processOverdueCalls } from './services/matchCallService.js';
+import { setAnnouncementRefresher } from './services/announcementRefresh.js';
+import { refreshRegistrationAnnouncement } from './services/groupBroadcastService.js';
 import { MATCH_CALL_SWEEP_INTERVAL_MS } from './services/matchCall.const.js';
 import { errorMessage } from './utils/errors.js';
 import { assertMailConfigured } from './services/mailService.js';
-import {
-  adminLinkLimiter,
-  emailCodeLimiter,
-} from './app/server/routes/auth.js';
+import { adminLinkLimiter } from './app/server/routes/auth.js';
 import { createLoginToken } from './services/userService.js';
 
 // Flood protection runs first so spam is dropped before authMiddleware's per-update
@@ -61,9 +70,13 @@ bot.use(rateLimitMiddleware);
 // Отсекает групповые апдейты ДО upsert'а пользователя в authMiddleware.
 bot.use(chatScopeMiddleware);
 bot.use(authMiddleware);
-bot.use(wizardGuardMiddleware);
+// Текстовые сессии (src/bot/sessions/): guard блокирует посторонние действия во
+// время wizard'а и завершает мягкую сессию при уходе в команду/меню.
+bot.use(sessionGuardMiddleware);
 // Группы обслуживаются здесь; всё, что ниже, рассчитано на личку.
 bot.use(groupCommands);
+// Единственный /cancel — раньше всех хендлеров, чтобы его никто не перехватил.
+bot.use(sessionCancelCommand);
 bot.use(menuHandlers);
 bot.use(roleCommands);
 bot.use(inviteCommands);
@@ -73,6 +86,7 @@ bot.use(matchCommands);
 bot.use(adminParticipantCommands);
 bot.use(helpCommands);
 bot.use(profileCommands);
+bot.use(federationCommands);
 
 bot.command('start', async (ctx) => {
   if (!ctx.from) return;
@@ -80,6 +94,8 @@ bot.command('start', async (ctx) => {
 
   if (ctx.dbUser.role === 'admin') {
     await setAdminCommands(bot, chatId);
+  } else if (await canOrganize(ctx)) {
+    await setOrganizerCommands(bot, chatId);
   } else {
     const refereeTournamentIds = await getUserRefereeTournaments(ctx.dbUser.id);
     if (refereeTournamentIds.length > 0) {
@@ -134,7 +150,7 @@ const publicBaseUrl = process.env.PUBLIC_BASE_URL;
 const adminBaseUrl = process.env.ADMIN_BASE_URL;
 
 bot.command('dashboard', async (ctx) => {
-  if (ctx.dbUser.role !== 'admin') {
+  if (!(await canOrganize(ctx))) {
     return;
   }
 
@@ -160,6 +176,10 @@ bot.command('dashboard', async (ctx) => {
   );
   await ctx.reply('Ссылка действительна 5 минут', { reply_markup: keyboard });
 });
+
+// Единственный текстовый хендлер — ПОСЛЕДНИМ: команды и кнопки меню уже
+// обработаны выше, сюда доходит только произвольный текст для активной сессии.
+bot.use(textSessionDispatcher);
 
 bot.catch((err) => {
   console.error('Bot error:', err);
@@ -327,6 +347,7 @@ async function start() {
     botFloodLimiter.prune();
     dashboardLimiter.prune();
     emailCodeLimiter.prune();
+    emailLinkUserLimiter.prune();
     adminLinkLimiter.prune();
   }, RATE_LIMIT_SWEEP_INTERVAL_MS);
   rateLimitSweep.unref();
@@ -339,6 +360,19 @@ async function start() {
     });
   }, MATCH_CALL_SWEEP_INTERVAL_MS);
   matchCallSweep.unref();
+
+  // Анонсы в группах правятся на месте по сигналу из сервисов (счётчик
+  // участников, статус турнира). Подставляем правку здесь, где есть Api бота.
+  setAnnouncementRefresher((tournamentId) =>
+    refreshRegistrationAnnouncement(bot.api, tournamentId),
+  );
+
+  // E2E-тесты поднимают сервер с фейковым токеном: без бота, чтобы не ждать
+  // ретраев getMe и не засорять лог.
+  if (process.env.BOT_DISABLED === '1') {
+    console.log('BOT_DISABLED=1: бот не запускается, работает только HTTP API');
+    return;
+  }
 
   await startBot();
 }
@@ -367,6 +401,7 @@ async function shutdown(signal: string) {
   if (dialogSessionSweep) clearInterval(dialogSessionSweep);
   if (rateLimitSweep) clearInterval(rateLimitSweep);
   if (matchCallSweep) clearInterval(matchCallSweep);
+  setAnnouncementRefresher(null);
 
   // 1. Останавливаем приём новых апдейтов от Telegram. При вебхуке останавливать нечего
   //    (polling-цикла нет), а сам вебхук намеренно не снимаем — так Telegram доставит
